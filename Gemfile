@@ -11,6 +11,11 @@ gem "sqlite3"
 
 gem "propshaft"
 
+group :development, :test do
+  gem "rspec-rails", "~> 8.0.0"
+  gem "shoulda-matchers", "~> 6.0"
+end
+
 # Omakase Ruby styling [https://github.com/rails/rubocop-rails-omakase/]
 gem "rubocop-rails-omakase", require: false
 
