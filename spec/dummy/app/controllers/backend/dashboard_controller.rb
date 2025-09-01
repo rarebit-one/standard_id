@@ -1,6 +1,6 @@
 module Backend
-  class DashboardController < ApplicationController
-    def index
+  class DashboardController < BaseController
+    def show
       # Placeholder admin dashboard
     end
   end

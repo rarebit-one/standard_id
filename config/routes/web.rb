@@ -1,3 +1,3 @@
 StandardId::WebEngine.routes.draw do
-  # Web authentication routes will go here
+  resource :login, only: [:show], controller: :login
 end

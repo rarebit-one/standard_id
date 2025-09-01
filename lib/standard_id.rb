@@ -3,6 +3,7 @@ require "standard_id/engine"
 require "standard_id/web_engine"
 require "standard_id/api_engine"
 require "standard_id/config"
+require "standard_id/errors"
 
 module StandardId
   class << self
