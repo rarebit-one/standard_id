@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe StandardId::TokenManager do
+RSpec.describe StandardId::Web::TokenManager do
   let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false) }
   let(:token_manager) { described_class.new(request) }
   let(:account) { double("Account", id: 1) }

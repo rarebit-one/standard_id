@@ -4,12 +4,12 @@ require "standard_id/web_engine"
 require "standard_id/api_engine"
 require "standard_id/config"
 require "standard_id/errors"
-require "standard_id/session_manager"
-require "standard_id/token_manager"
-require "standard_id/authentication_guard"
-require "standard_id/api_session_manager"
-require "standard_id/api_token_manager"
-require "standard_id/api_authentication_guard"
+require "standard_id/web/session_manager"
+require "standard_id/web/token_manager"
+require "standard_id/web/authentication_guard"
+require "standard_id/api/session_manager"
+require "standard_id/api/token_manager"
+require "standard_id/api/authentication_guard"
 
 module StandardId
   class << self

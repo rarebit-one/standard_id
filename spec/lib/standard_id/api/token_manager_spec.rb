@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe StandardId::ApiTokenManager, type: :model do
+RSpec.describe StandardId::Api::TokenManager, type: :model do
   let(:request) do
     instance_double(
       ActionDispatch::Request,
@@ -10,7 +10,7 @@ RSpec.describe StandardId::ApiTokenManager, type: :model do
       ssl?: false
     )
   end
-  let(:token_manager) { StandardId::ApiTokenManager.new(request) }
+  let(:token_manager) { StandardId::Api::TokenManager.new(request) }
   let(:account) { Account.create!(name: "Test Service", email: "service@example.com") }
 
   describe "#extract_bearer_token" do

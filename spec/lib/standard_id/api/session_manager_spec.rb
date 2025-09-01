@@ -1,9 +1,9 @@
 require "rails_helper"
 
-RSpec.describe StandardId::ApiSessionManager, type: :model do
+RSpec.describe StandardId::Api::SessionManager, type: :model do
   let(:request) { instance_double(ActionDispatch::Request, headers: {}, remote_ip: "127.0.0.1") }
-  let(:api_token_manager) { instance_double(StandardId::ApiTokenManager) }
-  let(:session_manager) { StandardId::ApiSessionManager.new(request, api_token_manager) }
+  let(:api_token_manager) { instance_double(StandardId::Api::TokenManager) }
+  let(:session_manager) { StandardId::Api::SessionManager.new(request, api_token_manager) }
   let(:account) { Account.create!(name: "Test Service", email: "service@example.com") }
 
   describe "#load_current_session" do

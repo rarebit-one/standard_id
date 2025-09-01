@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe StandardId::AuthenticationGuard do
+RSpec.describe StandardId::Web::AuthenticationGuard do
   let(:guard) { described_class.new }
   let(:session_manager) { double("SessionManager") }
   let(:session) { {} }

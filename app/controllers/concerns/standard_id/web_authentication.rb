@@ -42,15 +42,15 @@ module StandardId
     end
 
     def session_manager
-      @session_manager ||= StandardId::SessionManager.new(session, cookies, request, token_manager)
+      @session_manager ||= StandardId::Web::SessionManager.new(session, cookies, request, token_manager)
     end
 
     def token_manager
-      @token_manager ||= StandardId::TokenManager.new(request)
+      @token_manager ||= StandardId::Web::TokenManager.new(request)
     end
 
     def authentication_guard
-      @authentication_guard ||= StandardId::AuthenticationGuard.new
+      @authentication_guard ||= StandardId::Web::AuthenticationGuard.new
     end
   end
 end

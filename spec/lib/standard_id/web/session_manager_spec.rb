@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe StandardId::SessionManager do
+RSpec.describe StandardId::Web::SessionManager do
   let(:session) { {} }
   let(:cookies) { {} }
   let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser") }

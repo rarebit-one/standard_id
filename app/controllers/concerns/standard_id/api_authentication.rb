@@ -39,15 +39,15 @@ module StandardId
     end
 
     def api_session_manager
-      @api_session_manager ||= StandardId::ApiSessionManager.new(request, api_token_manager)
+      @api_session_manager ||= StandardId::Api::SessionManager.new(request, api_token_manager)
     end
 
     def api_token_manager
-      @api_token_manager ||= StandardId::ApiTokenManager.new(request)
+      @api_token_manager ||= StandardId::Api::TokenManager.new(request)
     end
 
     def api_authentication_guard
-      @api_authentication_guard ||= StandardId::ApiAuthenticationGuard.new
+      @api_authentication_guard ||= StandardId::Api::AuthenticationGuard.new
     end
   end
 end

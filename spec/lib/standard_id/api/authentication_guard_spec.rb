@@ -1,8 +1,8 @@
 require "rails_helper"
 
-RSpec.describe StandardId::ApiAuthenticationGuard, type: :model do
-  let(:guard) { StandardId::ApiAuthenticationGuard.new }
-  let(:api_session_manager) { instance_double(StandardId::ApiSessionManager) }
+RSpec.describe StandardId::Api::AuthenticationGuard, type: :model do
+  let(:guard) { StandardId::Api::AuthenticationGuard.new }
+  let(:api_session_manager) { instance_double(StandardId::Api::SessionManager) }
   let(:account) { Account.create!(name: "Test Service", email: "service@example.com") }
 
   describe "#require_session!" do
