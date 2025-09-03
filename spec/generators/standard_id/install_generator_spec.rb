@@ -11,7 +11,14 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
   end
 
   it "creates the initializer with default content" do
+    # Silence the generator output during tests
+    original_stdout = $stdout
+    $stdout = StringIO.new
+
     described_class.start([], destination_root: destination_root)
+
+    # Restore stdout
+    $stdout = original_stdout
 
     path = File.join(destination_root, "config/initializers/standard_id.rb")
     expect(File.exist?(path)).to be(true)
