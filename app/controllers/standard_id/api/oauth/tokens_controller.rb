@@ -5,7 +5,8 @@ module StandardId
         FLOW_STRATEGIES = {
           "client_credentials" => StandardId::Oauth::ClientCredentialsFlow,
           "authorization_code" => StandardId::Oauth::AuthorizationCodeFlow,
-          "password" => StandardId::Oauth::PasswordFlow
+          "password" => StandardId::Oauth::PasswordFlow,
+          "refresh_token" => StandardId::Oauth::RefreshTokenFlow
         }.freeze
 
         def create

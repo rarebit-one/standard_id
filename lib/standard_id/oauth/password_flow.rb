@@ -39,10 +39,6 @@ module StandardId
         true
       end
 
-      def generate_refresh_token
-        SecureRandom.urlsafe_base64(32)
-      end
-
       def token_expiry
         8.hours # Longer expiry for user sessions
       end

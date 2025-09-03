@@ -70,10 +70,19 @@ module StandardId
       end
 
       def generate_refresh_token
-        nil
+        payload = {
+          sub: subject_id,
+          client_id: client_id,
+          scope: token_scope,
+          grant_type: "refresh_token"
+        }
+        StandardId::JwtService.encode(payload, expires_in: refresh_token_expiry)
       end
 
-      # Abstract methods to be implemented by subclasses
+      def refresh_token_expiry
+        30.days
+      end
+
       def subject_id
         raise NotImplementedError
       end

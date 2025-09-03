@@ -45,10 +45,6 @@ module StandardId
         true
       end
 
-      def generate_refresh_token
-        SecureRandom.urlsafe_base64(32)
-      end
-
       def find_authorization_code(code)
         StandardId::AuthorizationCode.lookup(code)
       end
