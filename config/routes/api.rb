@@ -8,6 +8,10 @@ StandardId::ApiEngine.routes.draw do
       post :start
     end
 
+    namespace :oidc do
+      resource :logout, only: [:show], controller: :logout
+    end
+
     namespace :oauth do
       resource :token, only: [:create]
 

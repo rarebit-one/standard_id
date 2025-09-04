@@ -6,6 +6,7 @@ module StandardId
   #     config.account_class_name = "User"
   #     config.cache_store = ActiveSupport::Cache::MemoryStore.new
   #     config.logger = Rails.logger
+  #     config.allowed_post_logout_redirect_uris = ["https://example.com/logout"]
   #   end
   class Config
     # The name of the Account model class as a String, e.g. "User" or "Account"
@@ -30,6 +31,11 @@ module StandardId
     # These should be callable objects (procs/lambdas) that accept (recipient, code) parameters
     attr_accessor :passwordless_email_sender, :passwordless_sms_sender
 
+    # Allowed post-logout redirect URIs for OIDC logout endpoint
+    # If empty or nil, no redirects are allowed and the endpoint will return a JSON message
+    # If provided, the post_logout_redirect_uri must exactly match one of the values in this list
+    attr_accessor :allowed_post_logout_redirect_uris
+
     def initialize
       @account_class_name = nil
       @cache_store = nil
@@ -45,6 +51,7 @@ module StandardId
       @apple_team_id = nil
       @passwordless_email_sender = nil
       @passwordless_sms_sender = nil
+      @allowed_post_logout_redirect_uris = []
     end
 
     def account_class
