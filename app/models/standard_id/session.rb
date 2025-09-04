@@ -4,7 +4,7 @@ module StandardId
   class Session < ApplicationRecord
     self.table_name = "standard_id_sessions"
 
-    belongs_to :account
+    belongs_to :account, class_name: StandardId.config.account_class_name
 
     scope :active, -> { where(revoked_at: nil).where("expires_at > ?", Time.current) }
     scope :expired, -> { where("expires_at <= ?", Time.current) }

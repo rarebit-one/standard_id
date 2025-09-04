@@ -2,7 +2,7 @@ module StandardId
   class AuthorizationCode < ApplicationRecord
     self.table_name = "standard_id_authorization_codes"
 
-    belongs_to :account, optional: true
+    belongs_to :account, class_name: StandardId.config.account_class_name, optional: true
 
     # Validations
     validates :code_hash, presence: true, uniqueness: true
