@@ -9,6 +9,7 @@ module StandardId
 
       rescue_from StandardId::NotAuthenticatedError, with: :handle_not_authenticated
       rescue_from StandardId::InvalidSessionError, with: :handle_invalid_session
+      rescue_from StandardId::OAuthError, with: :handle_oauth_error
 
       protected
 
@@ -35,6 +36,13 @@ module StandardId
 
       def handle_invalid_session(error)
         render_bearer_unauthorized!(error_description: default_invalid_token_message)
+      end
+
+      def handle_oauth_error(error)
+        render json: {
+          error: error.oauth_error_code,
+          error_description: error.message
+        }, status: error.http_status
       end
 
       def render_bearer_unauthorized!(error_description: default_invalid_token_message, error_code: "invalid_token")

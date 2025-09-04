@@ -1,4 +1,4 @@
-require 'bcrypt'
+require "bcrypt"
 
 module StandardId
   class Session < ApplicationRecord

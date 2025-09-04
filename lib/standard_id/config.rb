@@ -26,6 +26,10 @@ module StandardId
     attr_accessor :google_client_id, :google_client_secret
     attr_accessor :apple_client_id, :apple_client_secret, :apple_private_key, :apple_key_id, :apple_team_id
 
+    # Passwordless authentication callbacks
+    # These should be callable objects (procs/lambdas) that accept (recipient, code) parameters
+    attr_accessor :passwordless_email_sender, :passwordless_sms_sender
+
     def initialize
       @account_class_name = nil
       @cache_store = nil
@@ -39,6 +43,8 @@ module StandardId
       @apple_private_key = nil
       @apple_key_id = nil
       @apple_team_id = nil
+      @passwordless_email_sender = nil
+      @passwordless_sms_sender = nil
     end
 
     def account_class

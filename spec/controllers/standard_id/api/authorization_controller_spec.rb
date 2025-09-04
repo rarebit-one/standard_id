@@ -1,4 +1,4 @@
-require 'rails_helper'
+require "rails_helper"
 
 RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
   routes { StandardId::ApiEngine.routes }
@@ -52,27 +52,35 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
       end
 
       it "requires response_type parameter" do
-        expect {
-          get :show, params: valid_params.except(:response_type)
-        }.to raise_error(StandardId::InvalidRequestError, "The response_type parameter is required")
+        get :show, params: valid_params.except(:response_type)
+        expect(response).to have_http_status(:bad_request)
+        body = JSON.parse(response.body)
+        expect(body["error"]).to eq("invalid_request")
+        expect(body["error_description"]).to include("The response_type parameter is required")
       end
 
       it "requires client_id parameter" do
-        expect {
-          get :show, params: valid_params.except(:client_id)
-        }.to raise_error(StandardId::InvalidRequestError, "The client_id parameter is required")
+        get :show, params: valid_params.except(:client_id)
+        expect(response).to have_http_status(:bad_request)
+        body = JSON.parse(response.body)
+        expect(body["error"]).to eq("invalid_request")
+        expect(body["error_description"]).to include("The client_id parameter is required")
       end
 
       it "requires audience parameter" do
-        expect {
-          get :show, params: valid_params.except(:audience)
-        }.to raise_error(StandardId::InvalidRequestError, "The audience parameter is required")
+        get :show, params: valid_params.except(:audience)
+        expect(response).to have_http_status(:bad_request)
+        body = JSON.parse(response.body)
+        expect(body["error"]).to eq("invalid_request")
+        expect(body["error_description"]).to include("The audience parameter is required")
       end
 
       it "validates client_id exists" do
-        expect {
-          get :show, params: valid_params.merge(client_id: "invalid_client")
-        }.to raise_error(StandardId::InvalidClientError, "Invalid client_id")
+        get :show, params: valid_params.merge(client_id: "invalid_client")
+        expect(response).to have_http_status(:unauthorized)
+        body = JSON.parse(response.body)
+        expect(body["error"]).to eq("invalid_client")
+        expect(body["error_description"]).to include("Invalid client_id")
       end
     end
 
@@ -116,9 +124,11 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
         end
 
         it "requires client_id parameter" do
-          expect {
-            get :show, params: valid_params.except(:client_id)
-          }.to raise_error(StandardId::InvalidRequestError, "The client_id parameter is required")
+          get :show, params: valid_params.except(:client_id)
+          expect(response).to have_http_status(:bad_request)
+          body = JSON.parse(response.body)
+          expect(body["error"]).to eq("invalid_request")
+          expect(body["error_description"]).to include("The client_id parameter is required")
         end
       end
     end
@@ -163,13 +173,15 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
     end
 
     context "with unsupported response_type" do
-      it "raises UnsupportedResponseTypeError" do
-        expect {
-          get :show, params: {
-            response_type: "unsupported",
-            client_id: client_credential.client_id
-          }
-        }.to raise_error(StandardId::UnsupportedResponseTypeError, "Unsupported response_type: unsupported")
+      it "returns error response for unsupported response_type" do
+        get :show, params: {
+          response_type: "unsupported",
+          client_id: client_credential.client_id
+        }
+        expect(response).to have_http_status(:bad_request)
+        body = JSON.parse(response.body)
+        expect(body["error"]).to eq("unsupported_response_type")
+        expect(body["error_description"]).to include("Unsupported response_type")
       end
     end
   end

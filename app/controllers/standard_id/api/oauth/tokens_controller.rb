@@ -6,7 +6,8 @@ module StandardId
           "client_credentials" => StandardId::Oauth::ClientCredentialsFlow,
           "authorization_code" => StandardId::Oauth::AuthorizationCodeFlow,
           "password" => StandardId::Oauth::PasswordFlow,
-          "refresh_token" => StandardId::Oauth::RefreshTokenFlow
+          "refresh_token" => StandardId::Oauth::RefreshTokenFlow,
+          "passwordless_otp" => StandardId::Oauth::PasswordlessOtpFlow
         }.freeze
 
         def create

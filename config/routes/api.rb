@@ -4,6 +4,10 @@ StandardId::ApiEngine.routes.draw do
 
     resource :userinfo, only: [:show], controller: :userinfo
 
+    resource :passwordless, only: [], controller: :passwordless do
+      post :start
+    end
+
     namespace :oauth do
       resource :token, only: [:create]
 

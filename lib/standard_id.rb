@@ -23,6 +23,10 @@ require "standard_id/oauth/implicit_authorization_flow"
 require "standard_id/oauth/subflows/base"
 require "standard_id/oauth/subflows/traditional_code_grant"
 require "standard_id/oauth/subflows/social_login_grant"
+require "standard_id/oauth/passwordless_otp_flow"
+require "standard_id/passwordless/base_strategy"
+require "standard_id/passwordless/email_strategy"
+require "standard_id/passwordless/sms_strategy"
 
 module StandardId
   class << self
