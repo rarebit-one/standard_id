@@ -1,5 +1,6 @@
 module StandardId
   class NotAuthenticatedError < StandardError; end
+
   class InvalidSessionError < StandardError; end
   class ExpiredSessionError < InvalidSessionError; end
   class RevokedSessionError < InvalidSessionError; end

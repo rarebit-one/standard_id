@@ -18,7 +18,7 @@ module StandardId
         Current.account ||= current_session&.account
       end
 
-      def sign_in_account(account)
+      def sign_in_account(account, remember_me: false)
         token_manager.create_browser_session(account).tap do |browser_session|
           session[:session_token] = browser_session.token
           Current.session = browser_session

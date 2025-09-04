@@ -31,19 +31,6 @@ RSpec.describe StandardId::Web::TokenManager do
         expect(result).to eq(browser_session)
       end
     end
-
-    context "with remember_me: true" do
-      it "creates a browser session with 30 day expiry" do
-        expect(StandardId::BrowserSession).to receive(:create!).with(
-          account: account,
-          ip_address: "127.0.0.1",
-          user_agent: "Test Browser",
-          expires_at: be_within(1.minute).of(30.days.from_now)
-        )
-
-        token_manager.create_browser_session(account, remember_me: true)
-      end
-    end
   end
 
   describe "#create_remember_token" do

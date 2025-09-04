@@ -1,0 +1,70 @@
+<% content_for :title, "Sign In" %>
+
+<div class="container">
+  <h1>Sign In</h1>
+
+  <% if flash[:alert] %>
+    <div class="alert alert-error">
+      <%= flash[:alert] %>
+    </div>
+  <% end %>
+
+  <% if flash[:notice] %>
+    <div class="alert alert-success">
+      <%= flash[:notice] %>
+    </div>
+  <% end %>
+
+  <!-- Social Login Options -->
+  <% if StandardId.config.google_client_id.present? %>
+    <%= form_with url: login_path, method: :post, local: true do |form| %>
+      <%= form.hidden_field :connection, value: "google-oauth2" %>
+      <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
+      <%= form.submit "Continue with Google", class: "btn btn-google btn-social" %>
+    <% end %>
+  <% end %>
+
+  <% if StandardId.config.apple_client_id.present? %>
+    <%= form_with url: login_path, method: :post, local: true do |form| %>
+      <%= form.hidden_field :connection, value: "apple" %>
+      <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
+      <%= form.submit "Continue with Apple", class: "btn btn-apple btn-social" %>
+    <% end %>
+  <% end %>
+
+  <% if StandardId.config.google_client_id.present? || StandardId.config.apple_client_id.present? %>
+    <div class="divider">
+      <span>or</span>
+    </div>
+  <% end %>
+
+  <!-- Email/Password Login -->
+  <%= form_with url: login_path, method: :post, local: true do |form| %>
+    <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
+
+    <div class="form-group">
+      <%= form.label :email, "Email" %>
+      <%= form.email_field "login[email]", required: true, autofocus: true %>
+    </div>
+
+    <div class="form-group">
+      <%= form.label :password, "Password" %>
+      <%= form.password_field "login[password]", required: true %>
+    </div>
+
+    <div class="form-group">
+      <%= form.check_box "login[remember_me]" %>
+      <%= form.label :remember_me, "Remember me" %>
+    </div>
+
+    <%= form.submit "Sign In", class: "btn" %>
+  <% end %>
+
+  <div class="text-center mt-3">
+    <%= link_to "Forgot your password?", forgot_password_path %>
+  </div>
+
+  <div class="text-center mt-3">
+    Don't have an account? <%= link_to "Sign up", signup_path(redirect_uri: @redirect_uri) %>
+  </div>
+</div>

@@ -23,9 +23,16 @@ module StandardId
       session.delete(:return_to_after_authenticating) || "/"
     end
 
-    def sign_in_account(login, password)
-      StandardId::PasswordCredential.find_by(login:).authenticate(password).tap do |password_credential|
-        session_manager.sign_in_account(password_credential.account)
+    def sign_in_account(login_params)
+      login = login_params[:email] || login_params[:login] # support both :email and :login keys
+      password = login_params[:password]
+      remember_me = ActiveModel::Type::Boolean.new.cast(login_params[:remember_me])
+
+      StandardId::PasswordCredential.find_by(login:).tap do |password_credential|
+        return nil unless password_credential&.authenticate(password)
+
+        session_manager.sign_in_account(password_credential.account, remember_me:)
+        cookies[:remember_token] = token_manager.create_remember_token(password_credential) if remember_me
       end
     end
 

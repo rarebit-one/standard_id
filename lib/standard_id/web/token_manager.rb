@@ -7,19 +7,19 @@ module StandardId
         @request = request
       end
 
-      def create_browser_session(account, remember_me: false)
+      def create_browser_session(account)
         StandardId::BrowserSession.create!(
           account: account,
           ip_address: request.remote_ip,
           user_agent: request.user_agent,
-          expires_at: remember_me ? 30.days.from_now : 24.hours.from_now # TODO: make these configurable
+          expires_at: 24.hours.from_now # TODO: make configurable
         )
       end
 
       def create_remember_token(password_credential)
         {
           value: password_credential.generate_token_for(:remember_me),
-          expires: password_credential.expires_at,
+          expires: 30.days.from_now, # TODO: make configurable
           httponly: true,
           secure: request.ssl?,
           same_site: :lax
