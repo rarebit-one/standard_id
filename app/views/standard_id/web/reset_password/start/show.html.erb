@@ -3,18 +3,6 @@
 <div class="container">
   <h1>Reset Password</h1>
 
-  <% if flash[:alert] %>
-    <div class="alert alert-error">
-      <%= flash[:alert] %>
-    </div>
-  <% end %>
-
-  <% if flash[:notice] %>
-    <div class="alert alert-success">
-      <%= flash[:notice] %>
-    </div>
-  <% end %>
-
   <p>Enter your email address and we'll send you instructions to reset your password.</p>
 
   <%= form_with url: reset_password_start_path, method: :post, local: true do |form| %>

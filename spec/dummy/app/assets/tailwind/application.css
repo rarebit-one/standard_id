@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+/* Tailwind v4 content sources */
+@source "../../views/**/*.erb";
+@source "../../components/**/*.erb";
+@source "../../javascript/**/*.js";
+
+/* Engine (gem) sources */
+@source "../../../../../app/views/**/*.erb";
+@source "../../../../../app/components/**/*.erb";
+@source "../../../../../app/helpers/**/*.rb";

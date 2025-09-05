@@ -1,86 +1,213 @@
 <!DOCTYPE html>
-<html>
+<html class="h-full bg-gray-50 dark:bg-gray-900" lang="en">
   <head>
-    <title><%= content_for(:title) || "Dummy" %></title>
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
+    <title>StandardID Demo</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+
+    <%= stylesheet_link_tag "tailwind", "data-turbo-track": "reload" %>
+    <%= stylesheet_link_tag "application", "data-turbo-track": "reload" %>
+
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
-
-    <%= yield :head %>
-
-    <%# Enable PWA manifest for installable apps (make sure to enable in config/routes.rb too!) %>
-    <%#= tag.link rel: "manifest", href: pwa_manifest_path(format: :json) %>
 
     <link rel="icon" href="/icon.png" type="image/png">
     <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/icon.png">
-
-    <%# Includes all stylesheet files in app/assets/stylesheets %>
-    <%= stylesheet_link_tag :app %>
   </head>
 
-  <body>
-    <%# Build a lightweight session manager so we can reflect auth state in nav %>
-    <% sm = StandardId::Web::SessionManager.new(StandardId::Web::TokenManager.new(request), request: request, session: session, cookies: cookies) %>
-    <% current_account = sm.current_account %>
+  <body class="h-full">
+    <!-- Mobile sidebar using details/summary (no JS) -->
+    <!-- The interactive toggle lives in the mobile header summary below -->
 
-    <header class="site-header">
-      <nav class="nav">
-        <div class="nav-left">
-          <%= link_to "StandardId Demo", "/", class: "nav-brand" %>
-          <%= link_to "Info", "/info", class: "nav-link" %>
-          <%= link_to "Demos", "/demos", class: "nav-link" %>
-          <%= link_to "Backend", "/backend", class: "nav-link" %>
-          <%= link_to "Admin", "/admin", class: "nav-link" %>
+    <!-- Static sidebar for desktop -->
+    <div class="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col dark:bg-gray-900">
+      <div class="flex grow flex-col gap-y-5 overflow-y-auto border-r border-gray-200 bg-white px-6 dark:border-white/10 dark:bg-black/10">
+        <div class="flex h-16 shrink-0 items-center">
+          <h1 class="text-xl font-bold text-indigo-600 dark:text-indigo-400">StandardID</h1>
         </div>
-        <div class="nav-right">
-          <%= link_to "Account", "/account", class: "nav-link" %>
-          <%= link_to "Sessions", "/sessions", class: "nav-link" %>
-
-          <% if current_account.present? %>
-            <span class="nav-status">Signed in</span>
-            <%= form_with url: "/logout", method: :post, local: true, class: "inline" do %>
-              <button class="btn btn-small" type="submit">Logout</button>
-            <% end %>
-          <% else %>
-            <%= link_to "Login", "/login", class: "btn btn-small" %>
-            <%= link_to "Sign Up", "/signup", class: "btn btn-small" %>
-          <% end %>
-        </div>
-      </nav>
-    </header>
-
-    <%# Flash messages %>
-    <div class="container">
-      <% flash.each do |type, message| %>
-        <% css = case type.to_s
-                 when "notice" then "alert alert-success"
-                 when "alert", "error" then "alert alert-error"
-                 else "alert" end %>
-        <div class="<%= css %>"><%= message %></div>
-      <% end %>
+        <nav class="flex flex-1 flex-col">
+          <ul role="list" class="flex flex-1 flex-col gap-y-7">
+            <li>
+              <ul role="list" class="-mx-2 space-y-1">
+                <li>
+                  <a href="/info" class="group flex gap-x-3 rounded-md <%= request.path == '/info' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" data-slot="icon" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/info' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                      <path d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    Dashboard
+                  </a>
+                </li>
+                <li>
+                  <a href="/demos" class="group flex gap-x-3 rounded-md <%= request.path == '/demos' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" data-slot="icon" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/demos' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                      <path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    Demos
+                  </a>
+                </li>
+                <li>
+                  <a href="/backend" class="group flex gap-x-3 rounded-md <%= request.path == '/backend' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" data-slot="icon" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/backend' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                      <path d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    Backend
+                  </a>
+                </li>
+                <li>
+                  <a href="/admin" class="group flex gap-x-3 rounded-md <%= request.path == '/admin' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" data-slot="icon" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/admin' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                      <path d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    Admin
+                  </a>
+                </li>
+              </ul>
+            </li>
+            <li class="-mx-6 mt-auto">
+              <%- if authenticated? %>
+                <details class="group">
+                  <summary class="flex cursor-pointer items-center gap-x-4 px-6 py-3 text-sm/6 font-semibold text-gray-900 hover:bg-gray-50 list-none marker:hidden dark:text-white dark:hover:bg-white/5">
+                    <div class="size-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-medium">U</div>
+                    <span>Account</span>
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="ml-auto size-5 text-gray-400 group-open:rotate-180 transition dark:text-gray-500">
+                      <path d="M6 8l4 4 4-4" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </summary>
+                  <div class="px-2 pb-3">
+                    <ul class="space-y-1">
+                      <li>
+                        <a href="#" class="block rounded-md px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5">Profile</a>
+                      </li>
+                      <li>
+                        <%= button_to "Logout", standard_id_web.logout_path, method: :post, form: { class: "contents" }, class: "block w-full text-left rounded-md px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5" %>
+                      </li>
+                    </ul>
+                  </div>
+                </details>
+              <%- else %>
+                <div class="px-6 py-3 space-y-2">
+                  <a href="/login" class="block w-full text-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">Login</a>
+                  <a href="/signup" class="block w-full text-center rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:text-white dark:hover:bg-white/5">Sign Up</a>
+                </div>
+              <%- end %>
+            </li>
+          </ul>
+        </nav>
+      </div>
     </div>
 
-    <%= yield %>
+    <!-- Mobile header with details/summary toggle -->
+    <div class="sticky top-0 z-40 flex items-center gap-x-6 bg-white px-4 py-4 shadow-sm sm:px-6 lg:hidden dark:bg-gray-900 dark:shadow-none dark:after:pointer-events-none dark:after:absolute dark:after:inset-0 dark:after:border-b dark:after:border-white/10 dark:after:bg-black/10">
+      <details class="relative">
+        <summary class="-m-2.5 p-2.5 text-gray-700 hover:text-gray-900 list-none marker:hidden inline-flex items-center justify-center dark:text-gray-400 dark:hover:text-white">
+          <span class="sr-only">Open sidebar</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="size-6">
+            <path d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </summary>
+        <!-- Overlay and panel shown when open -->
+        <div class="fixed inset-0 z-50">
+          <div class="fixed inset-0 bg-gray-900/80"></div>
+          <div class="fixed inset-y-0 left-0 w-72 bg-white px-6 pb-2 pt-5 dark:bg-gray-900 dark:ring dark:ring-white/10">
+            <div class="flex items-center justify-between">
+              <h1 class="text-lg font-semibold text-indigo-600 dark:text-indigo-400">StandardID</h1>
+              <!-- Close by clicking this summary button -->
+              <summary class="-m-2.5 p-2.5 list-none marker:hidden text-gray-700 hover:text-gray-900 dark:text-gray-300 dark:hover:text-white">
+                <span class="sr-only">Close sidebar</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="size-6">
+                  <path d="M6 18 18 6M6 6l12 12" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </summary>
+            </div>
+            <nav class="mt-6 flex flex-1 flex-col">
+              <ul role="list" class="flex flex-1 flex-col gap-y-7">
+                <li>
+                  <ul role="list" class="-mx-2 space-y-1">
+                    <li>
+                      <a href="/info" class="group flex gap-x-3 rounded-md <%= request.path == '/info' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/info' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                          <path d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        Dashboard
+                      </a>
+                    </li>
+                    <li>
+                      <a href="/demos" class="group flex gap-x-3 rounded-md <%= request.path == '/demos' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/demos' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                          <path d="M15 19.128a9.38 9.38 0 0 0 2.625.372 9.337 9.337 0 0 0 4.121-.952 4.125 4.125 0 0 0-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 0 1 8.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0 1 11.964-3.07M12 6.375a3.375 3.375 0 1 1-6.75 0 3.375 3.375 0 0 1 6.75 0Zm8.25 2.25a2.625 2.625 0 1 1-5.25 0 2.625 2.625 0 0 1 5.25 0Z" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        Demos
+                      </a>
+                    </li>
+                    <li>
+                      <a href="/backend" class="group flex gap-x-3 rounded-md <%= request.path == '/backend' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/backend' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                          <path d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        Backend
+                      </a>
+                    </li>
+                    <li>
+                      <a href="/admin" class="group flex gap-x-3 rounded-md <%= request.path == '/admin' ? 'bg-gray-50 text-indigo-600 dark:bg-white/5 dark:text-white' : 'text-gray-700 hover:text-indigo-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-white/5' %> p-2 text-sm/6 font-semibold">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true" class="size-6 shrink-0 <%= request.path == '/admin' ? 'text-indigo-600 dark:text-white' : 'text-gray-400 group-hover:text-indigo-600 dark:group-hover:text-white' %>">
+                          <path d="M10.5 6a7.5 7.5 0 1 0 7.5 7.5h-7.5V6Z" stroke-linecap="round" stroke-linejoin="round" />
+                          <path d="M13.5 10.5H21A7.5 7.5 0 0 0 13.5 3v7.5Z" stroke-linecap="round" stroke-linejoin="round" />
+                        </svg>
+                        Admin
+                      </a>
+                    </li>
+                  </ul>
+                </li>
+                <li class="-mx-6 mt-auto">
+                  <%- if authenticated? %>
+                    <div class="flex items-center gap-x-4 px-6 py-3 text-sm/6 font-semibold text-gray-900 dark:text-white">
+                      <div class="size-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-medium">U</div>
+                      <span>Account</span>
+                    </div>
+                    <%= button_to "Logout", standard_id_web.logout_path, method: :post, class: "w-full text-left px-6 py-2 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5" %>
+                  <%- else %>
+                    <div class="px-6 py-3 space-y-2">
+                      <a href="/login" class="block w-full text-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500">Login</a>
+                      <a href="/signup" class="block w-full text-center rounded-md border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-900 hover:bg-gray-50 dark:border-gray-600 dark:text-white dark:hover:bg-white/5">Sign Up</a>
+                    </div>
+                  <%- end %>
+                </li>
+              </ul>
+            </nav>
+          </div>
+        </div>
+      </details>
+      <div class="flex-1 text-sm/6 font-semibold text-gray-900 dark:text-white">StandardID Dashboard</div>
+      <%- if authenticated? %>
+        <div class="size-8 rounded-full bg-indigo-500 flex items-center justify-center text-white font-medium">U</div>
+      <%- else %>
+        <a href="/login" class="text-sm font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400">Login</a>
+      <%- end %>
+    </div>
 
-    <style>
-      .site-header { border-bottom: 1px solid #eee; background: #fff; }
-      .nav { max-width: 1100px; margin: 0 auto; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; }
-      .nav-left, .nav-right { display: flex; align-items: center; gap: 0.75rem; }
-      .nav-brand { font-weight: 600; color: #111; text-decoration: none; margin-right: 0.5rem; }
-      .nav-link { color: #333; text-decoration: none; padding: 0.25rem 0.5rem; border-radius: 4px; }
-      .nav-link:hover { background: #f6f6f6; }
-      .inline { display: inline; }
-      .btn { display: inline-block; padding: 0.375rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; text-decoration: none; color: #333; }
-      .btn:hover { background: #fff; border-color: #ccc; }
-      .btn-small { font-size: 0.9rem; }
-      .nav-status { color: #2b8a3e; font-size: 0.9rem; margin-right: 0.25rem; }
-      .container { max-width: 900px; margin: 0 auto; padding: 0 1rem; }
-      .alert { border: 1px solid #f0f0f0; background: #f9fafb; color: #333; padding: 0.75rem; border-radius: 6px; margin: 0.75rem 0; }
-      .alert-success { border-color: #c6f6d5; background: #f0fff4; color: #2f855a; }
-      .alert-error { border-color: #ffe3e3; background: #fff5f5; color: #c53030; }
-    </style>
+    <!-- Main content -->
+    <main class="py-10 lg:pl-72">
+      <div class="px-4 sm:px-6 lg:px-8">
+        <%- if respond_to?(:flash) && flash.any? %>
+          <%- flash.each do |type, message| %>
+            <%- key = type.to_s %>
+            <%- bg, border, text = case key
+                 when 'success', 'notice', 'info' then ['bg-green-50 dark:bg-green-900/20', 'ring-green-600/10 dark:ring-white/10', 'text-green-700 dark:text-green-300']
+                 when 'alert', 'error' then ['bg-red-50 dark:bg-red-900/20', 'ring-red-600/10 dark:ring-white/10', 'text-red-700 dark:text-red-300']
+                 when 'warning' then ['bg-yellow-50 dark:bg-yellow-900/20', 'ring-yellow-600/10 dark:ring-white/10', 'text-yellow-800 dark:text-yellow-300']
+                 else ['bg-gray-50 dark:bg-gray-800/30', 'ring-gray-600/10 dark:ring-white/10', 'text-gray-700 dark:text-gray-300']
+               end %>
+            <div class="mb-4 rounded-md p-4 ring-1 ring-inset <%= [bg, border].join(' ') %>">
+              <div class="text-sm <%= text %>"><%= message %></div>
+            </div>
+          <%- end %>
+        <%- end %>
+
+        <%= yield %>
+      </div>
+    </main>
   </body>
 </html>

@@ -3,18 +3,6 @@
 <div class="container">
   <h1>Set New Password</h1>
 
-  <% if flash[:alert] %>
-    <div class="alert alert-error">
-      <%= flash[:alert] %>
-    </div>
-  <% end %>
-
-  <% if flash[:notice] %>
-    <div class="alert alert-success">
-      <%= flash[:notice] %>
-    </div>
-  <% end %>
-
   <p>Enter your new password below.</p>
 
   <%= form_with url: reset_password_confirm_path, method: :patch, local: true do |form| %>

@@ -1,4 +1,4 @@
-<div class="container">
+<section class="container">
   <h1>Social Login Demo</h1>
   <p>These buttons post to the WebEngine login route with a connection parameter. The engine redirects into the API authorize endpoint with <code>connection=</code> for social login.</p>
 
@@ -6,7 +6,7 @@
     <form action="/login" method="post">
       <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
       <input type="hidden" name="connection" value="google-oauth2">
-      <button class="btn btn-google btn-social" type="submit">Continue with Google</button>
+      <button type="submit">Continue with Google</button>
     </form>
   <% else %>
     <p>Google credentials are not configured.</p>
@@ -16,9 +16,9 @@
     <form action="/login" method="post">
       <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
       <input type="hidden" name="connection" value="apple">
-      <button class="btn btn-apple btn-social" type="submit">Continue with Apple</button>
+      <button type="submit">Continue with Apple</button>
     </form>
   <% else %>
     <p>Apple credentials are not configured.</p>
   <% end %>
-</div>
+</section>

@@ -23,7 +23,7 @@ module StandardId
       private
 
       def redirect_if_authenticated
-        redirect_to after_authentication_url if authenticated?
+        redirect_to after_authentication_url, status: :see_other, notice: "You are already signed in" if authenticated?
       end
 
       def redirect_if_social_login
