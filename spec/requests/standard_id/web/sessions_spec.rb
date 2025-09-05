@@ -1,8 +1,6 @@
 require "rails_helper"
 
-RSpec.describe StandardId::Web::SessionsController, type: :controller do
-  routes { StandardId::WebEngine.routes }
-
+RSpec.describe "StandardId Web Sessions", type: :request do
   let!(:account) { Account.create!(name: "Spec User", email: "spec@example.com") }
   let!(:current_browser_session) do
     StandardId::BrowserSession.create!(
@@ -14,11 +12,10 @@ RSpec.describe StandardId::Web::SessionsController, type: :controller do
   end
 
   before do
-    # Authenticate by planting the browser session token in the Rails session
-    session[:session_token] = current_browser_session.token
+    post util_session_path, params: { session_token: current_browser_session.token }
   end
 
-  describe "GET #index" do
+  describe "GET /sessions" do
     it "renders list of active sessions and current session" do
       other_session = StandardId::BrowserSession.create!(
         account: account,
@@ -27,22 +24,24 @@ RSpec.describe StandardId::Web::SessionsController, type: :controller do
         expires_at: 1.day.from_now
       )
 
-      get :index
+      http_get "/sessions"
 
       expect(response).to have_http_status(:ok)
-      expect(controller.instance_variable_get(:@current_session)).to eq(current_browser_session)
-      expect(controller.instance_variable_get(:@sessions)).to include(current_browser_session, other_session)
+      expect(response.body).to include("Active Sessions")
+      expect(response.body).to include(current_browser_session.id.to_s)
+      expect(response.body).to include(other_session.id.to_s)
     end
   end
 
-  describe "DELETE #destroy" do
+  describe "DELETE /sessions/:id" do
     context "when deleting current session" do
       it "revokes session and redirects to root with notice" do
-        delete :destroy, params: { id: current_browser_session.id }
+        http_delete "/sessions/#{current_browser_session.id}"
 
         expect(response).to have_http_status(:found)
         expect(response).to redirect_to("/")
         expect(flash[:notice]).to eq("Session revoked. You have been signed out.")
+        expect(current_browser_session.reload).to be_revoked
       end
     end
 
@@ -55,10 +54,10 @@ RSpec.describe StandardId::Web::SessionsController, type: :controller do
           expires_at: 1.day.from_now
         )
 
-        delete :destroy, params: { id: other_session.id }
+        http_delete "/sessions/#{other_session.id}"
 
         expect(response).to have_http_status(:found)
-        expect(response).to redirect_to(sessions_path)
+        expect(response).to redirect_to(standard_id_web.sessions_path)
         expect(flash[:notice]).to eq("Session revoked successfully")
         expect(other_session.reload).to be_revoked
       end
@@ -74,10 +73,10 @@ RSpec.describe StandardId::Web::SessionsController, type: :controller do
           expires_at: 1.day.from_now
         )
 
-        delete :destroy, params: { id: foreign_session.id }
+        http_delete "/sessions/#{foreign_session.id}"
 
         expect(response).to have_http_status(:found)
-        expect(response).to redirect_to(sessions_path)
+        expect(response).to redirect_to(standard_id_web.sessions_path)
         expect(flash[:alert]).to eq("Session not found")
       end
     end

@@ -1,8 +1,6 @@
 require "rails_helper"
 
-RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
-  routes { StandardId::ApiEngine.routes }
-
+RSpec.describe "StandardId API Authorization", type: :request do
   let(:client_credential) do
     StandardId::ClientSecretCredential.create!(
       name: "Test Client",
@@ -15,8 +13,8 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
   end
 
   before do
-    # Create the associated credential record
-    account = create_account
+    # Create the associated credential record via identifier
+    account = Account.create!(name: "Test Client Account", email: "client-#{SecureRandom.hex(4)}@example.com")
     identifier = StandardId::EmailIdentifier.create!(
       account: account,
       value: "client@example.com",
@@ -29,7 +27,7 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
     )
   end
 
-  describe "GET #show" do
+  describe "GET /api/authorize" do
     context "with Authorization Code Flow (response_type=code)" do
       let(:valid_params) do
         {
@@ -43,7 +41,7 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
       end
 
       it "redirects with authorization code" do
-        get :show, params: valid_params
+        http_get "/api/authorize", params: valid_params
 
         expect(response).to have_http_status(:found)
         expect(response.location).to include("code=")
@@ -52,33 +50,33 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
       end
 
       it "requires response_type parameter" do
-        get :show, params: valid_params.except(:response_type)
+        http_get "/api/authorize", params: valid_params.except(:response_type)
         expect(response).to have_http_status(:bad_request)
-        body = JSON.parse(response.body)
+        body = json_body
         expect(body["error"]).to eq("invalid_request")
         expect(body["error_description"]).to include("The response_type parameter is required")
       end
 
       it "requires client_id parameter" do
-        get :show, params: valid_params.except(:client_id)
+        http_get "/api/authorize", params: valid_params.except(:client_id)
         expect(response).to have_http_status(:bad_request)
-        body = JSON.parse(response.body)
+        body = json_body
         expect(body["error"]).to eq("invalid_request")
         expect(body["error_description"]).to include("The client_id parameter is required")
       end
 
       it "requires audience parameter" do
-        get :show, params: valid_params.except(:audience)
+        http_get "/api/authorize", params: valid_params.except(:audience)
         expect(response).to have_http_status(:bad_request)
-        body = JSON.parse(response.body)
+        body = json_body
         expect(body["error"]).to eq("invalid_request")
         expect(body["error_description"]).to include("The audience parameter is required")
       end
 
       it "validates client_id exists" do
-        get :show, params: valid_params.merge(client_id: "invalid_client")
+        http_get "/api/authorize", params: valid_params.merge(client_id: "invalid_client")
         expect(response).to have_http_status(:unauthorized)
-        body = JSON.parse(response.body)
+        body = json_body
         expect(body["error"]).to eq("invalid_client")
         expect(body["error_description"]).to include("Invalid client_id")
       end
@@ -97,7 +95,7 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
 
       context "when not authenticated" do
         it "redirects to login page" do
-          get :show, params: valid_params
+          http_get "/api/authorize", params: valid_params
 
           expect(response).to have_http_status(:found)
           expect(response.location).to include("/login")
@@ -106,15 +104,15 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
       end
 
       context "when authenticated" do
-        let(:authenticated_account) { create_account }
+        let(:authenticated_account) { Account.create!(name: "Auth", email: "auth@example.com") }
 
         before do
-          # Mock authentication by overriding current_account
-          allow(controller).to receive(:current_account).and_return(authenticated_account)
+          browser_session = StandardId::BrowserSession.create!(account: authenticated_account, ip_address: "127.0.0.1", user_agent: "RSpec", expires_at: 1.day.from_now)
+          post util_session_path, params: { session_token: browser_session.token }
         end
 
         it "redirects with access token in fragment" do
-          get :show, params: valid_params
+          http_get "/api/authorize", params: valid_params
 
           expect(response).to have_http_status(:found)
           expect(response.location).to include("#access_token=")
@@ -124,9 +122,9 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
         end
 
         it "requires client_id parameter" do
-          get :show, params: valid_params.except(:client_id)
+          http_get "/api/authorize", params: valid_params.except(:client_id)
           expect(response).to have_http_status(:bad_request)
-          body = JSON.parse(response.body)
+          body = json_body
           expect(body["error"]).to eq("invalid_request")
           expect(body["error_description"]).to include("The client_id parameter is required")
         end
@@ -145,7 +143,7 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
 
       context "when not authenticated" do
         it "redirects to login page" do
-          get :show, params: valid_params
+          http_get "/api/authorize", params: valid_params
 
           expect(response).to have_http_status(:found)
           expect(response.location).to include("/login")
@@ -154,15 +152,15 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
       end
 
       context "when authenticated" do
-        let(:authenticated_account) { create_account }
+        let(:authenticated_account) { Account.create!(name: "Auth2", email: "auth2@example.com") }
 
         before do
-          # Mock authentication by overriding current_account
-          allow(controller).to receive(:current_account).and_return(authenticated_account)
+          browser_session = StandardId::BrowserSession.create!(account: authenticated_account, ip_address: "127.0.0.1", user_agent: "RSpec", expires_at: 1.day.from_now)
+          post util_session_path, params: { session_token: browser_session.token }
         end
 
         it "redirects with both access token and ID token in fragment" do
-          get :show, params: valid_params
+          http_get "/api/authorize", params: valid_params
 
           expect(response).to have_http_status(:found)
           expect(response.location).to include("#access_token=")
@@ -174,24 +172,13 @@ RSpec.describe StandardId::Api::AuthorizationController, type: :controller do
 
     context "with unsupported response_type" do
       it "returns error response for unsupported response_type" do
-        get :show, params: {
-          response_type: "unsupported",
-          client_id: client_credential.client_id
-        }
+        http_get "/api/authorize", params: { response_type: "unsupported", client_id: client_credential.client_id }
+
         expect(response).to have_http_status(:bad_request)
-        body = JSON.parse(response.body)
+        body = json_body
         expect(body["error"]).to eq("unsupported_response_type")
         expect(body["error_description"]).to include("Unsupported response_type")
       end
     end
-  end
-
-  private
-
-  def create_account
-    Account.create!(
-      name: "Test Client Account",
-      email: "client-#{SecureRandom.hex(4)}@example.com"
-    )
   end
 end

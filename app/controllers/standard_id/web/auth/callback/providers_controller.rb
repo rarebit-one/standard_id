@@ -5,6 +5,10 @@ module StandardId
         class ProvidersController < StandardId::Web::BaseController
           include StandardId::WebAuthentication
 
+          # Social callbacks must be accessible without an existing browser session
+          # because they create/sign-in the session upon successful callback.
+          skip_before_action :require_browser_session!, only: [:google, :apple]
+
           def google
             handle_social_callback("google-oauth2")
           end
@@ -80,7 +84,10 @@ module StandardId
               identifier.account
             else
               # Create new account with social login
-              account = StandardId::Account.create!
+              account = ::Account.create!(
+                email: user_info[:email],
+                name: user_info[:name].presence || "User"
+              )
               StandardId::EmailIdentifier.create!(
                 account: account,
                 value: user_info[:email]

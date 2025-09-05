@@ -5,13 +5,12 @@ RSpec.describe "API Ping", type: :request do
 
   context "when authenticated" do
     let(:jwt) { StandardId::JwtService.encode({ sub: account.id, client_id: "svc-1", scope: "service:read", grant_type: "access_token" }) }
-    let(:auth_headers) { { "Authorization" => "Bearer #{jwt}" } }
 
     describe "GET /api/ping" do
       it "returns 200 and JSON status ok" do
-        get api_ping_path, headers: auth_headers
+        http_get api_ping_path, headers: auth_headers(jwt)
         expect(response).to have_http_status(:ok)
-        json = JSON.parse(response.body)
+        json = json_body
         expect(json["status"]).to eq("ok")
         expect(json).to have_key("timestamp")
       end
@@ -21,7 +20,7 @@ RSpec.describe "API Ping", type: :request do
   context "when not authenticated" do
     describe "GET /api/ping" do
       it "returns 401 Unauthorized" do
-        get api_ping_path
+        http_get api_ping_path
         expect(response).to have_http_status(:unauthorized)
       end
     end
