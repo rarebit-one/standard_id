@@ -1,0 +1,13 @@
+<div class="container">
+  <h1>Mobile OAuth (Authorization Code + PKCE)</h1>
+  <p>Use PKCE to obtain an authorization code, then exchange it for tokens.</p>
+
+  <h2>Authorize</h2>
+  <pre><code>GET <%= @authorize_example[:url] %>?<%= @authorize_example[:params].to_query %></code></pre>
+
+  <h2>Exchange Code</h2>
+  <pre><code>POST <%= @token_exchange_example[:url] %>
+Content-Type: application/x-www-form-urlencoded
+
+<%= URI.encode_www_form(@token_exchange_example[:body]) %></code></pre>
+</div>

@@ -1,3 +1,113 @@
-<h1>Dummy App Info</h1>
-<p>This is a placeholder public info page for the StandardId dummy app.</p>
-<p>Time: <%= Time.current %></p>
+<% content_for :title, "Demo Playground" %>
+
+<div class="container">
+  <h1>StandardId Demo Playground</h1>
+
+  <div class="alert">
+    <strong>Environment:</strong> <%= Rails.env %> · <strong>Time:</strong> <%= Time.current %>
+  </div>
+
+  <%# Determine auth state for contextual button indicators %>
+  <% sm = StandardId::Web::SessionManager.new(StandardId::Web::TokenManager.new(request), request: request, session: session, cookies: cookies) %>
+  <% logged_in = sm.current_account.present? %>
+
+  <div class="divider"><span>Explore</span></div>
+
+  <!-- Dummy App Sections -->
+  <div class="grid">
+    <div class="card">
+      <h2>Dummy App</h2>
+      <ul class="link-list">
+        <li><%= link_to "Home (root)", "/", class: "btn" %></li>
+        <li><%= link_to "Info", "/info", class: "btn" %></li>
+        <li><%= link_to "Backend Dashboard", "/backend", class: "btn" %></li>
+        <li><%= link_to "Admin", "/admin", class: "btn" %></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Demos</h2>
+      <ul class="link-list">
+        <li><%= link_to "All Demos", "/demos", class: "btn" %></li>
+        <li><%= link_to "Web Auth", "/demos/web", class: "btn" %></li>
+        <li><%= link_to "Social Login", "/demos/social", class: "btn" %></li>
+        <li><%= link_to "M2M", "/demos/m2m", class: "btn" %></li>
+        <li><%= link_to "Mobile", "/demos/mobile", class: "btn" %></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Dummy API</h2>
+      <ul class="link-list">
+        <li><%= link_to "Ping (GET /api/ping)", "/api/ping", class: "btn" %></li>
+        <li><%= link_to "Protected (GET /api/v1/protected)", "/api/v1/protected", class: "btn" %></li>
+        <li><%= link_to "Test API Page", "/test_api", class: "btn" %></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"><span>StandardId Web Engine</span></div>
+
+  <!-- StandardId Engine Routes (mounted at /) -->
+  <div class="grid">
+    <div class="card">
+      <h2>Auth</h2>
+      <ul class="link-list">
+        <li>
+          <%= link_to "/login", class: "btn" do %>
+            Login
+            <% if logged_in %>
+              <span class="badge badge-warn" title="Already signed in — you will be redirected">already signed in</span>
+            <% end %>
+          <% end %>
+        </li>
+        <li><%= link_to "Sign Up", "/signup", class: "btn" %></li>
+        <li><%= link_to "Reset Password", "/reset_password/start", class: "btn" %></li>
+      </ul>
+    </div>
+
+    <div class="card">
+      <h2>Account</h2>
+      <ul class="link-list">
+        <li>
+          <%= link_to "/account", class: "btn" do %>
+            My Account
+            <% unless logged_in %><span class="badge" title="Requires sign-in">requires sign‑in</span><% end %>
+          <% end %>
+        </li>
+        <li>
+          <%= link_to "/sessions", class: "btn" do %>
+            Sessions
+            <% unless logged_in %><span class="badge" title="Requires sign-in">requires sign‑in</span><% end %>
+          <% end %>
+        </li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="text-center mt-3">
+    <%= link_to "/login", class: "btn btn-social" do %>
+      Go to Login
+      <% if logged_in %><span class="badge badge-warn" title="Already signed in — you will be redirected">already signed in</span><% end %>
+    <% end %>
+  </div>
+</div>
+
+<style>
+  .container { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 1rem; }
+  .card { border: 1px solid #eee; border-radius: 8px; padding: 1rem; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+  .link-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.5rem; }
+  .btn { display: inline-block; padding: 0.5rem 0.75rem; border: 1px solid #ddd; border-radius: 6px; text-decoration: none; color: #333; background: #fafafa; transition: background 120ms ease, border-color 120ms ease; }
+  .btn:hover { background: #fff; border-color: #ccc; }
+  .btn-social { background: #0f62fe; border-color: #0f62fe; color: #fff; }
+  .btn-social:hover { background: #0353e9; border-color: #0353e9; color: #fff; }
+  .divider { text-align: center; margin: 1.5rem 0; position: relative; }
+  .divider span { background: #fff; padding: 0 0.75rem; color: #666; position: relative; z-index: 1; }
+  .divider:before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: #eee; z-index: 0; }
+  .alert { border: 1px solid #f0f0f0; background: #f9fafb; color: #333; padding: 0.75rem; border-radius: 6px; }
+  .text-center { text-align: center; }
+  .mt-3 { margin-top: 1rem; }
+  .badge { display: inline-block; margin-left: 0.5rem; padding: 0.1rem 0.4rem; border-radius: 999px; background: #eee; color: #555; font-size: 0.75rem; vertical-align: middle; }
+  .badge-warn { background: #ffe08a; color: #7a5b00; }
+</style>

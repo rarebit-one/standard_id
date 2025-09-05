@@ -6,7 +6,7 @@ module StandardId
       include StandardId::WebEngine.routes.url_helpers
       helper StandardId::WebEngine.routes.url_helpers
 
-      layout "standard_id/web/application"
+      layout -> { StandardId.config.web_layout.presence || "application" }
 
       before_action :require_browser_session!
     end

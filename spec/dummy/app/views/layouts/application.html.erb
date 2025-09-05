@@ -22,6 +22,65 @@
   </head>
 
   <body>
+    <%# Build a lightweight session manager so we can reflect auth state in nav %>
+    <% sm = StandardId::Web::SessionManager.new(StandardId::Web::TokenManager.new(request), request: request, session: session, cookies: cookies) %>
+    <% current_account = sm.current_account %>
+
+    <header class="site-header">
+      <nav class="nav">
+        <div class="nav-left">
+          <%= link_to "StandardId Demo", "/", class: "nav-brand" %>
+          <%= link_to "Info", "/info", class: "nav-link" %>
+          <%= link_to "Demos", "/demos", class: "nav-link" %>
+          <%= link_to "Backend", "/backend", class: "nav-link" %>
+          <%= link_to "Admin", "/admin", class: "nav-link" %>
+        </div>
+        <div class="nav-right">
+          <%= link_to "Account", "/account", class: "nav-link" %>
+          <%= link_to "Sessions", "/sessions", class: "nav-link" %>
+
+          <% if current_account.present? %>
+            <span class="nav-status">Signed in</span>
+            <%= form_with url: "/logout", method: :post, local: true, class: "inline" do %>
+              <button class="btn btn-small" type="submit">Logout</button>
+            <% end %>
+          <% else %>
+            <%= link_to "Login", "/login", class: "btn btn-small" %>
+            <%= link_to "Sign Up", "/signup", class: "btn btn-small" %>
+          <% end %>
+        </div>
+      </nav>
+    </header>
+
+    <%# Flash messages %>
+    <div class="container">
+      <% flash.each do |type, message| %>
+        <% css = case type.to_s
+                 when "notice" then "alert alert-success"
+                 when "alert", "error" then "alert alert-error"
+                 else "alert" end %>
+        <div class="<%= css %>"><%= message %></div>
+      <% end %>
+    </div>
+
     <%= yield %>
+
+    <style>
+      .site-header { border-bottom: 1px solid #eee; background: #fff; }
+      .nav { max-width: 1100px; margin: 0 auto; padding: 0.75rem 1rem; display: flex; align-items: center; justify-content: space-between; }
+      .nav-left, .nav-right { display: flex; align-items: center; gap: 0.75rem; }
+      .nav-brand { font-weight: 600; color: #111; text-decoration: none; margin-right: 0.5rem; }
+      .nav-link { color: #333; text-decoration: none; padding: 0.25rem 0.5rem; border-radius: 4px; }
+      .nav-link:hover { background: #f6f6f6; }
+      .inline { display: inline; }
+      .btn { display: inline-block; padding: 0.375rem 0.6rem; border: 1px solid #ddd; border-radius: 6px; background: #fafafa; text-decoration: none; color: #333; }
+      .btn:hover { background: #fff; border-color: #ccc; }
+      .btn-small { font-size: 0.9rem; }
+      .nav-status { color: #2b8a3e; font-size: 0.9rem; margin-right: 0.25rem; }
+      .container { max-width: 900px; margin: 0 auto; padding: 0 1rem; }
+      .alert { border: 1px solid #f0f0f0; background: #f9fafb; color: #333; padding: 0.75rem; border-radius: 6px; margin: 0.75rem 0; }
+      .alert-success { border-color: #c6f6d5; background: #f0fff4; color: #2f855a; }
+      .alert-error { border-color: #ffe3e3; background: #fff5f5; color: #c53030; }
+    </style>
   </body>
 </html>

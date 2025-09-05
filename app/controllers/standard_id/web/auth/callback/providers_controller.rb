@@ -4,7 +4,6 @@ module StandardId
       module Callback
         class ProvidersController < StandardId::Web::BaseController
           include StandardId::WebAuthentication
-          layout "standard_id/web/application"
 
           def google
             handle_social_callback("google-oauth2")

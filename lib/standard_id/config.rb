@@ -36,6 +36,11 @@ module StandardId
     # If provided, the post_logout_redirect_uri must exactly match one of the values in this list
     attr_accessor :allowed_post_logout_redirect_uris
 
+    # Layout name to use for StandardId Web controllers.
+    # If nil, controllers should default to "application" (host app or dummy app).
+    # Examples: "application", "standard_id/web/application", "my_custom_layout"
+    attr_accessor :web_layout
+
     def initialize
       @account_class_name = nil
       @cache_store = nil
@@ -52,6 +57,7 @@ module StandardId
       @passwordless_email_sender = nil
       @passwordless_sms_sender = nil
       @allowed_post_logout_redirect_uris = []
+      @web_layout = nil
     end
 
     def account_class

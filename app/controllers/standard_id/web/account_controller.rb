@@ -1,6 +1,6 @@
 module StandardId
   module Web
-    class AccountController < BaseControlle
+    class AccountController < BaseController
       def show
         @account = current_account
         @sessions = current_account.sessions.active.order(created_at: :desc)
