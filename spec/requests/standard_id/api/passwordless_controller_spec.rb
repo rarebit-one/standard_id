@@ -21,10 +21,10 @@ RSpec.describe "StandardId::Api::PasswordlessController", type: :request do
       body = json_body
       expect(body).to include("message" => "Code sent successfully")
 
-      challenge = StandardId::PasswordlessChallenge.last
+      challenge = StandardId::CodeChallenge.last
       expect(challenge).to be_present
-      expect(challenge.connection_type).to eq("email")
-      expect(challenge.username).to eq("user@example.com")
+      expect(challenge.channel).to eq("email")
+      expect(challenge.target).to eq("user@example.com")
       expect(challenge).to be_active
     end
 
@@ -39,10 +39,10 @@ RSpec.describe "StandardId::Api::PasswordlessController", type: :request do
       body = json_body
       expect(body).to include("message" => "Code sent successfully")
 
-      challenge = StandardId::PasswordlessChallenge.last
+      challenge = StandardId::CodeChallenge.last
       expect(challenge).to be_present
-      expect(challenge.connection_type).to eq("sms")
-      expect(challenge.username).to eq("+14155550123")
+      expect(challenge.channel).to eq("sms")
+      expect(challenge.target).to eq("+14155550123")
       expect(challenge).to be_active
     end
 

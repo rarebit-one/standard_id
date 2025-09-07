@@ -9,9 +9,10 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
   end
 
   def create_challenge(connection:, username:, code: "123456")
-    StandardId::PasswordlessChallenge.create!(
-      connection_type: connection,
-      username: username,
+    StandardId::CodeChallenge.create!(
+      realm: "authentication",
+      channel: connection,
+      target: username,
       code: code,
       expires_at: 10.minutes.from_now,
       ip_address: "127.0.0.1",

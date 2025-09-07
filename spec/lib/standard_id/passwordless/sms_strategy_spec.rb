@@ -26,8 +26,8 @@ RSpec.describe StandardId::Passwordless::SmsStrategy do
 
       challenge = strategy.start!(connection: "sms", username: "+14155550123")
       expect(challenge).to be_persisted
-      expect(challenge.connection_type).to eq("sms")
-      expect(challenge.username).to eq("+14155550123")
+      expect(challenge.channel).to eq("sms")
+      expect(challenge.target).to eq("+14155550123")
       expect(challenge).to be_active
     end
   end

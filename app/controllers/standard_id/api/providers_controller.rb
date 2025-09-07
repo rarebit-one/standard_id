@@ -123,22 +123,21 @@ module StandardId
 
         identifier = StandardId::EmailIdentifier.find_by(value: email)
 
-        if identifier
-          identifier.account
-        else
-          account = Account.create!(
-            name: (user_info["name"] || user_info["given_name"] || email),
-            email: email
-          )
+        return identifier.account if identifier.present?
 
-          StandardId::EmailIdentifier.create!(
-            account: account,
-            value: email,
-            verified_at: Time.current
-          )
+        account = Account.create!(
+          name: (user_info["name"] || user_info["given_name"] || email),
+          email:
+        )
 
-          account
-        end
+        identifier = StandardId::EmailIdentifier.create!(
+          account:,
+          value: email
+        )
+
+        identifier.verify!
+
+        account
       end
 
       def generate_authorization_code

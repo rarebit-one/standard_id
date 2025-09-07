@@ -7,12 +7,12 @@ module StandardId
       def authenticate!
         validate_client_secret!(params[:client_id], params[:client_secret]) if params[:client_secret].present?
 
-        raise StandardId::InvalidGrantError, "Invalid or expired verification code" if passwordless_challenge.blank?
+        raise StandardId::InvalidGrantError, "Invalid or expired verification code" if code_challenge.blank?
         raise StandardId::InvalidGrantError, "Unable to authenticate user" if account.blank?
 
         validate_requested_scope!
 
-        passwordless_challenge.use!
+        code_challenge.use!
       end
 
       private
@@ -45,10 +45,11 @@ module StandardId
         1.hour
       end
 
-      def passwordless_challenge
-        @passwordless_challenge ||= StandardId::PasswordlessChallenge.active.find_by(
-          connection_type: params[:connection],
-          username: params[:username],
+      def code_challenge
+        @code_challenge ||= StandardId::CodeChallenge.active.find_by(
+          realm: "authentication",
+          channel: params[:connection],
+          target: params[:username],
           code: params[:otp]
         )
       end

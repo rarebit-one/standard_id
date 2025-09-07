@@ -39,26 +39,15 @@ module StandardId
       private
 
       def account_params
-        # Placeholder for account fields. Add/permit additional attributes as needed.
-        {
-          name: (email.to_s.split("@").first.presence || "User"),
-          email: email
-        }
+        { name: (email.to_s.split("@").first.presence || "User"), email: }
       end
 
       def email_identifier_params
-        {
-          value: email,
-          verified_at: Time.current,
-          type: "StandardId::EmailIdentifier"
-        }
+        { type: "StandardId::EmailIdentifier", value: email }
       end
 
       def password_credential_params
-        {
-          login: email,
-          password: password
-        }
+        { login: email, password: }
       end
     end
   end

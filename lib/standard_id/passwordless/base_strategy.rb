@@ -24,14 +24,18 @@ module StandardId
       protected
 
       def create_challenge!(username)
-        StandardId::PasswordlessChallenge.create!(
-          connection_type: connection_type,
-          username: username,
-          code: generate_otp_code,
+        code = generate_otp_code
+
+        cc = StandardId::CodeChallenge.create!(
+          realm: "authentication",
+          channel: connection_type,
+          target: username,
+          code: code,
           expires_at: 10.minutes.from_now,
           ip_address: request.remote_ip,
           user_agent: request.user_agent
         )
+        cc
       end
 
       def generate_otp_code

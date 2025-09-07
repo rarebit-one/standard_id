@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_03_135906) do
+ActiveRecord::Schema[8.0].define(version: 2025_09_07_090000) do
   create_table "accounts", force: :cascade do |t|
     t.string "email", null: false
     t.string "name", null: false
@@ -87,6 +87,23 @@ ActiveRecord::Schema[8.0].define(version: 2025_09_03_135906) do
     t.index ["client_id"], name: "index_standard_id_client_secret_credentials_on_client_id"
   end
 
+  create_table "standard_id_code_challenges", force: :cascade do |t|
+    t.string "realm", null: false
+    t.string "channel", null: false
+    t.string "target", null: false
+    t.string "code", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "used_at"
+    t.string "ip_address"
+    t.text "user_agent"
+    t.json "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["expires_at"], name: "index_standard_id_code_challenges_on_expires_at"
+    t.index ["realm", "channel", "target", "code"], name: "index_code_challenges_on_lookup"
+    t.index ["used_at"], name: "index_standard_id_code_challenges_on_used_at"
+  end
+
   create_table "standard_id_credentials", force: :cascade do |t|
     t.integer "identifier_id", null: false
     t.string "credentialable_type", null: false
@@ -114,21 +131,6 @@ ActiveRecord::Schema[8.0].define(version: 2025_09_03_135906) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["login"], name: "index_standard_id_password_credentials_on_login", unique: true
-  end
-
-  create_table "standard_id_passwordless_challenges", force: :cascade do |t|
-    t.string "connection_type", null: false
-    t.string "username", null: false
-    t.string "code", null: false
-    t.datetime "expires_at", null: false
-    t.datetime "used_at"
-    t.string "ip_address"
-    t.text "user_agent"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["connection_type", "username", "code"], name: "index_passwordless_challenges_on_lookup"
-    t.index ["expires_at"], name: "index_standard_id_passwordless_challenges_on_expires_at"
-    t.index ["used_at"], name: "index_standard_id_passwordless_challenges_on_used_at"
   end
 
   create_table "standard_id_sessions", force: :cascade do |t|

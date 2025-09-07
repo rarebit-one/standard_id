@@ -138,7 +138,7 @@ end
 StandardId.configure do |config|
   # Email delivery
   config.passwordless_email_sender = ->(email, code) {
-    UserMailer.passwordless_code(email, code).deliver_now
+    UserMailer.send_code(email, code).deliver_now
   }
 
   # SMS delivery
@@ -238,7 +238,7 @@ StandardId creates the following tables:
 - `standard_id_clients` - OAuth clients
 - `standard_id_client_secret_credentials` - Client secrets
 - `standard_id_password_credentials` - Password storage
-- `standard_id_passwordless_challenges` - OTP codes
+- `standard_id_code_challenges` - OTP codes for authentication and verification
 
 ## API Endpoints
 

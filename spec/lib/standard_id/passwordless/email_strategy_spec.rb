@@ -26,8 +26,8 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
 
       challenge = strategy.start!(connection: "email", username: "user@example.com")
       expect(challenge).to be_persisted
-      expect(challenge.connection_type).to eq("email")
-      expect(challenge.username).to eq("user@example.com")
+      expect(challenge.channel).to eq("email")
+      expect(challenge.target).to eq("user@example.com")
       expect(challenge).to be_active
     end
   end

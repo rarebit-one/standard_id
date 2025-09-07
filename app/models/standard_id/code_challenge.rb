@@ -1,10 +1,14 @@
 module StandardId
-  class PasswordlessChallenge < ApplicationRecord
-    self.table_name = "standard_id_passwordless_challenges"
+  class CodeChallenge < ApplicationRecord
+    self.table_name = "standard_id_code_challenges"
 
-    validates :connection_type, presence: true, inclusion: { in: %w[email sms] }
-    validates :username, presence: true
-    validates :code, presence: true, uniqueness: { scope: [:connection_type, :username, :expires_at] }
+    REALMS = %w[authentication verify_email verify_phone account_confirmation unlock_account].freeze
+    CHANNELS = %w[email sms].freeze
+
+    validates :realm, presence: true, inclusion: { in: REALMS }
+    validates :channel, presence: true, inclusion: { in: CHANNELS }
+    validates :target, presence: true
+    validates :code, presence: true
     validates :expires_at, presence: true
 
     scope :active, -> { where(used_at: nil).where("expires_at > ?", Time.current) }

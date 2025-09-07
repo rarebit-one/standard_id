@@ -2,9 +2,9 @@ PATH
   remote: .
   specs:
     standard_id (0.1.0)
-      bcrypt (~> 3.1.7)
+      bcrypt (~> 3.1)
       jwt (~> 2.7)
-      rails (>= 8.0.2)
+      rails (~> 8.0)
 
 GEM
   remote: https://rubygems.org/
