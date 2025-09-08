@@ -1,4 +1,4 @@
-module StandardId
+module StandardConfig
   # Manages configuration for the StandardId engine
   #
   # Usage:

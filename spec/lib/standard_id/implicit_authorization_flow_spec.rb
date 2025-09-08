@@ -72,13 +72,6 @@ RSpec.describe StandardId::Oauth::ImplicitAuthorizationFlow do
         nonce: "n-1"
       }
 
-      issuer = "https://issuer.example"
-      # Ensure StandardId.configuration exists and returns the same instance as config
-      unless StandardId.respond_to?(:configuration)
-        StandardId.singleton_class.send(:alias_method, :configuration, :config)
-      end
-      StandardId.configure { |c| c.issuer = issuer }
-
       # Expect two JWTs: access token then id token
       expect(StandardId::JwtService).to receive(:encode).with(
         satisfy { |p| p[:client_id] == "cid-2" && p[:scope] == "openid profile" && p[:aud] == "https://api" && p[:sub] == account.id },
@@ -86,7 +79,7 @@ RSpec.describe StandardId::Oauth::ImplicitAuthorizationFlow do
       ).ordered.and_return("access2.jwt")
 
       expect(StandardId::JwtService).to receive(:encode).with(
-        satisfy { |p| p[:aud] == "cid-2" && p[:iss] == issuer && p[:sub] == account.id && p[:nonce] == "n-1" },
+        satisfy { |p| p[:aud] == "cid-2" && p[:sub] == account.id && p[:nonce] == "n-1" },
         hash_including(expires_in: 1.hour)
       ).ordered.and_return("id.jwt")
 

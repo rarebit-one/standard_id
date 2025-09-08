@@ -113,6 +113,16 @@ StandardId.configure do |config|
 
   # Custom layout for web views
   config.web_layout = "application"
+
+  # Passwordless delivery callbacks
+  # config.passwordless_email_sender = ->(email, code) { UserMailer.send_code(email, code).deliver_now }
+  # config.passwordless_sms_sender   = ->(phone, code) { SmsService.send_code(phone, code) }
+
+  # Subset configuration
+  # config.password.minimum_length = 12
+  # config.password.require_special_chars = true
+  # config.passwordless.code_ttl = 600
+  # config.oauth.default_token_lifetime = 3600
 end
 ```
 
@@ -121,14 +131,14 @@ end
 ```ruby
 StandardId.configure do |config|
   # Google OAuth
-  config.google_client_id = ENV["GOOGLE_CLIENT_ID"]
-  config.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
+  config.social.google_client_id = ENV["GOOGLE_CLIENT_ID"]
+  config.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
 
   # Apple Sign In
-  config.apple_client_id = ENV["APPLE_CLIENT_ID"]
-  config.apple_private_key = ENV["APPLE_PRIVATE_KEY"]
-  config.apple_key_id = ENV["APPLE_KEY_ID"]
-  config.apple_team_id = ENV["APPLE_TEAM_ID"]
+  config.social.apple_client_id = ENV["APPLE_CLIENT_ID"]
+  config.social.apple_private_key = ENV["APPLE_PRIVATE_KEY"]
+  config.social.apple_key_id = ENV["APPLE_KEY_ID"]
+  config.social.apple_team_id = ENV["APPLE_TEAM_ID"]
 end
 ```
 
@@ -279,6 +289,39 @@ secret = client.create_client_secret!(name: "Production Secret")
 # Rotate client secret
 new_secret = client.rotate_client_secret!
 ```
+
+## Schema DSL
+
+Schema is declared using a routes-like DSL and can be extended by provider gems:
+
+```ruby
+# core gem (already provided)
+require "standard_id/config/schema"
+
+StandardConfig.schema.draw do
+  scope :base do
+    field :account_class_name, type: :string, default: "User"
+  end
+
+  scope :social do
+    field :google_client_id, type: :string, default: nil
+  end
+end
+
+# provider gem
+require "standard_id/config/schema"
+
+StandardConfig.schema.draw do
+  scope :social do
+    field :my_provider_client_id, type: :string, default: nil
+  end
+end
+```
+
+Notes:
+
+- Multiple `schema.draw` calls are additive; the same scope can be extended in multiple files/gems.
+- Redefining an existing field will emit a warning; last definition wins.
 
 ## Testing
 

@@ -1,7 +1,7 @@
 class CreateStandardIdIdentifiers < ActiveRecord::Migration[8.0]
   def change
     create_table :standard_id_identifiers, id: primary_key_type do |t|
-      t.references :account, null: false, foreign_key: { to_table: StandardId.config.account_class.table_name }, index: true
+      t.references :account, null: false, foreign_key: { to_table: StandardId.account_class.table_name }, index: true
 
       t.string :type, null: false
 

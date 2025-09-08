@@ -2,7 +2,7 @@ require "standard_id/version"
 require "standard_id/engine"
 require "standard_id/web_engine"
 require "standard_id/api_engine"
-require "standard_id/config"
+require "standard_id/config/schema"
 require "standard_id/errors"
 require "standard_id/jwt_service"
 require "standard_id/web/session_manager"
@@ -30,12 +30,16 @@ require "standard_id/passwordless/sms_strategy"
 
 module StandardId
   class << self
-    def configure
-      yield config
+    def configure(&block)
+      StandardConfig.configure(&block)
+    end
+
+    def register(scope_name, resolver_proc)
+      StandardConfig.config.register(scope_name, resolver_proc)
     end
 
     def config
-      @config ||= StandardId::Config.new
+      StandardConfig.config
     end
 
     def cache_store
@@ -44,6 +48,10 @@ module StandardId
 
     def logger
       @logger ||= config.logger || Rails.logger
+    end
+
+    def account_class
+      config.account_class_name.constantize
     end
   end
 end

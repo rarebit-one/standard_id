@@ -12,7 +12,7 @@ module StandardId
 
       def current_account
         return unless current_session
-        @current_account ||= StandardId.config.account_class.find_by(id: current_session.account_id)
+        @current_account ||= StandardId.account_class.find_by(id: current_session.account_id)
       end
 
       def revoke_current_session!
