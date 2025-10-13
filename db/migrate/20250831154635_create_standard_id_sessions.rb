@@ -1,7 +1,7 @@
 class CreateStandardIdSessions < ActiveRecord::Migration[8.0]
   def change
     create_table :standard_id_sessions, id: primary_key_type do |t|
-      t.references :account, null: false, foreign_key: true, index: true
+      t.references :account, type: primary_key_type, null: false, foreign_key: true, index: true
 
       # STI type column
       t.string :type, null: false, index: true
@@ -29,7 +29,7 @@ class CreateStandardIdSessions < ActiveRecord::Migration[8.0]
       t.datetime :last_refreshed_at
 
       # ServiceSession columns
-      t.references :owner, polymorphic: true, null: true, index: true
+      t.references :owner, type: primary_key_type, polymorphic: true, null: true, index: true
       t.string :service_name
       t.string :service_version
 

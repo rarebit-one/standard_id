@@ -1,6 +1,6 @@
 class CreateStandardIdCodeChallenges < ActiveRecord::Migration[8.0]
   def change
-    create_table :standard_id_code_challenges do |t|
+    create_table :standard_id_code_challenges, id: primary_key_type do |t|
       t.string :realm, null: false         # e.g., authentication, verification
       t.string :channel, null: false       # e.g., email, sms
       t.string :target, null: false        # recipient address (email/phone), normalized by caller

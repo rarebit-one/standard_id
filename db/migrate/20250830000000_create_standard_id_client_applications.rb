@@ -1,8 +1,8 @@
 class CreateStandardIdClientApplications < ActiveRecord::Migration[7.1]
   def change
-    create_table :standard_id_client_applications do |t|
+    create_table :standard_id_client_applications, id: primary_key_type do |t|
       # Polymorphic owner association (Account, Organization, etc.)
-      t.references :owner, null: false, polymorphic: true, index: true
+      t.references :owner, type: primary_key_type, null: false, polymorphic: true, index: true
 
       # Basic client information
       t.string :name, null: false
@@ -50,7 +50,7 @@ class CreateStandardIdClientApplications < ActiveRecord::Migration[7.1]
     end
 
     if connection.adapter_name.downcase.include?("postgres")
-      add_index :standard_id_clients, :metadata, using: :gin
+      add_index :standard_id_client_applications, :metadata, if_not_exists: true, using: :gin
     end
   end
 end
