@@ -94,7 +94,8 @@ module StandardId
     def create_client_secret!(name: "Default Secret", **options)
       client_secret_credentials.create!({
         name: name,
-        client_id: client_id
+        client_id: client_id,
+        scopes: scopes
       }.merge(options))
     end
 

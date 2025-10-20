@@ -276,6 +276,7 @@ RSpec.describe StandardId::ClientApplication, type: :model do
           expect(credential.name).to eq("Test Secret")
           expect(credential.client_id).to eq(client.client_id)
           expect(credential.authenticate_client_secret("secret123")).to be_truthy
+          expect(credential.scopes).to eq("openid profile email read:users")
         end
       end
 
