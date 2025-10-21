@@ -7,23 +7,17 @@ module StandardId
 
         def access_token_for(flow_key)
           configured = lookup_token_lifetime(flow_key)
-          seconds = positive_seconds(configured)
-
-          (seconds.positive? ? seconds : default_access_token_lifetime).seconds
+          positive_seconds(configured, default_access_token_lifetime)
         end
 
         def refresh_token_lifetime
-          seconds = positive_seconds(oauth_config.refresh_token_lifetime)
-          seconds = DEFAULT_REFRESH_TOKEN_LIFETIME if seconds <= 0
-          seconds.seconds
+          positive_seconds(oauth_config.refresh_token_lifetime, DEFAULT_REFRESH_TOKEN_LIFETIME)
         end
 
         private
 
         def default_access_token_lifetime
-          seconds = positive_seconds(oauth_config.default_token_lifetime)
-          seconds = DEFAULT_ACCESS_TOKEN_LIFETIME if seconds <= 0
-          seconds
+          positive_seconds(oauth_config.default_token_lifetime, DEFAULT_ACCESS_TOKEN_LIFETIME)
         end
 
         def lookup_token_lifetime(flow_key)
@@ -34,8 +28,8 @@ module StandardId
           lifetimes[flow_key.to_sym] || lifetimes[flow_key.to_s] if flow_key
         end
 
-        def positive_seconds(value)
-          case value
+        def positive_seconds(value, fallback_value)
+          normalized_value = case value
           when ActiveSupport::Duration
             value.to_i
           when Numeric, String
@@ -43,6 +37,8 @@ module StandardId
           else
             0
           end
+
+          (normalized_value.positive? ? normalized_value : fallback_value).seconds
         end
 
         def oauth_config
