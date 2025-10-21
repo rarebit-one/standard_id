@@ -11,7 +11,7 @@ module StandardId
       private
 
       def subject_id
-        @credential.account_id
+        @credential.client_id
       end
 
       def client_id

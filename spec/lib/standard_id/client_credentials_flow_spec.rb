@@ -51,7 +51,7 @@ RSpec.describe StandardId::Oauth::ClientCredentialsFlow do
     end
 
     it "exposes subject_id, client_id, token_scope, grant_type, audience, token_expiry after auth" do
-      expect(flow.send(:subject_id)).to eq(42)
+      expect(flow.send(:subject_id)).to eq(client_id)
       expect(flow.send(:client_id)).to eq(client_id)
       expect(flow.send(:token_scope)).to eq("read write")
       expect(flow.send(:grant_type)).to eq("client_credentials")

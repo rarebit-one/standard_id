@@ -87,12 +87,12 @@ end
 ```ruby
 # For web controllers
 class ApplicationController < ActionController::Base
-  include StandardId::Web::WebAuthentication
+  include StandardId::WebAuthentication
 end
 
 # For API controllers
 class ApiController < ActionController::API
-  include StandardId::Api::ApiAuthentication
+  include StandardId::ApiAuthentication
 end
 ```
 
@@ -274,7 +274,7 @@ StandardId creates the following tables:
 
 ```ruby
 # Create OAuth client
-client = StandardId::Client.create!(
+client = StandardId::ClientApplication.create!(
   owner: current_account,
   name: "My Application",
   redirect_uris: "https://app.com/callback",
