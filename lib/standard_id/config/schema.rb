@@ -32,6 +32,7 @@ StandardConfig.schema.draw do
   scope :oauth do
     field :default_token_lifetime, type: :integer, default: 3600 # 1 hour in seconds
     field :refresh_token_lifetime, type: :integer, default: 2592000 # 30 days in seconds
+    field :token_lifetimes, type: :hash, default: -> { {} }
     field :client_id, type: :string, default: nil
     field :client_secret, type: :string, default: nil
   end

@@ -14,6 +14,11 @@ RSpec.describe StandardId::Oauth::ImplicitAuthorizationFlow do
     let(:request) { instance_double("ActionDispatch::Request") }
     let(:account) { double("Account", id: "user_1") }
 
+    before do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(1.hour.to_i)
+    end
+
     def stub_client(redirects: ["https://cb.example/app", "https://cb2.example/alt"])
       client = OpenStruct.new(redirect_uris_array: redirects, primary_client_secret: OpenStruct.new)
       def client.valid_redirect_uri?(uri)
@@ -100,6 +105,25 @@ RSpec.describe StandardId::Oauth::ImplicitAuthorizationFlow do
     it "token_expiry is 1.hour" do
       flow = described_class.new({ response_type: "token", client_id: "c", redirect_uri: "https://cb.example/app" }, request, current_account: account)
       expect(flow.send(:token_expiry)).to eq(1.hour)
+    end
+
+    it "uses flow-specific lifetime when configured" do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({ implicit: 15.minutes.to_i })
+
+      stub_client
+      params = {
+        response_type: "token",
+        client_id: "cid-implicit",
+        redirect_uri: "https://cb.example/app"
+      }
+
+      expect(StandardId::JwtService).to receive(:encode).with(
+        a_hash_including(client_id: "cid-implicit"),
+        hash_including(expires_in: 15.minutes)
+      ).once.and_return("access.jwt")
+
+      flow = described_class.new(params, request, current_account: account)
+      flow.execute
     end
 
     it "does not generate id_token when response_type lacks id_token" do

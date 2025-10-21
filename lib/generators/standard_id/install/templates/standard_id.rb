@@ -16,6 +16,11 @@ StandardId.configure do |c|
   # c.password.minimum_length = 8
   # c.password.require_special_chars = true
   # c.oauth.default_token_lifetime = 3600 # 1 hour
+  # c.oauth.refresh_token_lifetime = 2_592_000 # 30 days
+  # c.oauth.token_lifetimes = {
+  #   password: 8.hours,
+  #   client_credentials: 24.hours
+  # }
 
   # Social login credentials (if enabled in your app)
   # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]
