@@ -71,6 +71,11 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
   end
 
   describe "private API" do
+    before do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(8.hours.to_i)
+    end
+
     it "exposes subject_id, client_id, token_scope (default), grant_type, audience, expiry and refresh support" do
       allow_any_instance_of(described_class)
         .to receive(:authenticate_account)
@@ -108,6 +113,21 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
       flow.authenticate!
 
       expect(flow.send(:token_scope)).to eq("read write")
+    end
+
+    it "prefers flow-specific lifetime when configured" do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({ password: 2.hours.to_i })
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(8.hours.to_i)
+
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account)
+
+      flow = described_class.new(params, request)
+      flow.authenticate!
+
+      expect(flow.send(:token_expiry)).to eq(2.hours)
     end
   end
 end

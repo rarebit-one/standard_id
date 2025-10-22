@@ -42,6 +42,9 @@ RSpec.describe StandardId::Oauth::ClientCredentialsFlow do
     let(:flow) { described_class.new(params, request) }
 
     before do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(1.hour.to_i)
+
       allow_any_instance_of(StandardId::Oauth::ClientCredentialsFlow)
         .to receive(:validate_client_secret!)
         .with(client_id, client_secret)
@@ -57,6 +60,14 @@ RSpec.describe StandardId::Oauth::ClientCredentialsFlow do
       expect(flow.send(:grant_type)).to eq("client_credentials")
       expect(flow.send(:audience)).to eq(audience)
       expect(flow.send(:token_expiry)).to eq(1.hour)
+    end
+
+    it "uses flow-specific lifetime when configured" do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({ client_credentials: 30.minutes.to_i })
+
+      flow.authenticate!
+
+      expect(flow.send(:token_expiry)).to eq(30.minutes)
     end
   end
 end

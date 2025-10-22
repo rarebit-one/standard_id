@@ -62,7 +62,7 @@ module StandardId
       end
 
       def token_expiry
-        1.hour
+        TokenLifetimeResolver.access_token_for(token_lifetime_key)
       end
 
       def supports_refresh_token?
@@ -80,7 +80,11 @@ module StandardId
       end
 
       def refresh_token_expiry
-        30.days
+        TokenLifetimeResolver.refresh_token_lifetime
+      end
+
+      def token_lifetime_key
+        grant_type&.to_sym
       end
 
       def subject_id

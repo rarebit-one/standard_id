@@ -29,10 +29,6 @@ module StandardId
       def audience
         params[:audience]
       end
-
-      def token_expiry
-        1.hour
-      end
     end
   end
 end

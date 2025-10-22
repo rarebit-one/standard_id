@@ -41,10 +41,6 @@ module StandardId
         true
       end
 
-      def token_expiry
-        1.hour
-      end
-
       def code_challenge
         @code_challenge ||= StandardId::CodeChallenge.active.find_by(
           realm: "authentication",

@@ -39,10 +39,6 @@ module StandardId
         true
       end
 
-      def token_expiry
-        8.hours # Longer expiry for user sessions
-      end
-
       def authenticate_account(username, password)
         StandardId::PasswordCredential
           .includes(credential: :account)

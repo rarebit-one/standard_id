@@ -123,8 +123,15 @@ StandardId.configure do |config|
   # config.password.require_special_chars = true
   # config.passwordless.code_ttl = 600
   # config.oauth.default_token_lifetime = 3600
+  # config.oauth.refresh_token_lifetime = 2_592_000
+  # config.oauth.token_lifetimes = {
+  #   password: 8.hours.to_i,
+  #   implicit: 15.minutes.to_i
+  # }
 end
 ```
+
+`default_token_lifetime` is applied to every OAuth grant unless you override it in `oauth.token_lifetimes`. Keys map to OAuth grant types (for example `:password`, `:client_credentials`, `:refresh_token`) and should return durations in seconds. Non-token endpoint flows such as the implicit flow can be customized with their symbol key (e.g. `:implicit`). Refresh tokens can be tuned separately through `oauth.refresh_token_lifetime`.
 
 ### Social Login Setup
 

@@ -68,7 +68,7 @@ module StandardId
       end
 
       def token_expiry
-        1.hour
+        TokenLifetimeResolver.access_token_for(:implicit)
       end
 
       def subject_id
