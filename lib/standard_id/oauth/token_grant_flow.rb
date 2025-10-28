@@ -110,11 +110,11 @@ module StandardId
       end
 
       def claims_from_scope_mapping
-        claims = {}
         scope_claims = StandardId.config.oauth.scope_claims.with_indifferent_access
         resolvers = StandardId.config.oauth.claim_resolvers.with_indifferent_access
-        return claims if scope_claims.empty? || resolvers.empty?
+        return {} if scope_claims.empty? || resolvers.empty?
 
+        claims = {}
         current_scopes.each do |scope|
           Array(scope_claims[scope]).each do |claim_key|
             next if claims.key?(claim_key)

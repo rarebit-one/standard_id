@@ -5,7 +5,7 @@ RSpec.describe StandardId::Api::AuthenticationGuard, type: :model do
   let(:api_session_manager) { instance_double(StandardId::Api::SessionManager) }
   let(:account) { Account.create!(name: "Test Service", email: "service@example.com") }
   let(:jwt_session) do
-    StandardId::JwtService::Session.new(
+    StandardId::JwtService.session_class.new(
       account_id: account.id,
       client_id: SecureRandom.uuid,
       scopes: %w[openid read:users],

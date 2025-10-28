@@ -3,8 +3,8 @@ require "jwt"
 module StandardId
   class JwtService
     ALGORITHM = "HS256"
-    RESERVED_JWT_KEYS = %w[sub client_id scope grant_type exp iat aud iss nbf jti]
-    BASE_SESSION_FIELDS = [:account_id, :client_id, :scopes, :grant_type].freeze
+    RESERVED_JWT_KEYS = %i[sub client_id scope grant_type exp iat aud iss nbf jti]
+    BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type]
 
     def self.session_class
       Struct.new(*(BASE_SESSION_FIELDS + claim_resolver_keys), keyword_init: true) do
@@ -55,13 +55,7 @@ module StandardId
 
     def self.claim_resolver_keys
       resolvers = StandardId.config.oauth.claim_resolvers
-      keys = if resolvers.respond_to?(:keys)
-        resolvers.keys
-      elsif resolvers.respond_to?(:to_h)
-        resolvers.to_h.keys
-      else
-        []
-      end
+      keys = Hash.try_convert(resolvers)&.keys
       keys.compact.map(&:to_sym).uniq.excluding(*RESERVED_JWT_KEYS)
     rescue StandardError
       []

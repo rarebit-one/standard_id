@@ -118,8 +118,8 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
     it "passes the resolved account and client to the claim resolver" do
       allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "read" => [:channel_id] })
       allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
-        channel_id: ->(client:, account:, scope:, claim:, request:) {
-          "#{client.object_id}-#{account.id}-#{scope}-#{claim}-#{request.object_id}"
+        channel_id: ->(client:, account:, request:) {
+          "#{client.object_id}-#{account.id}-#{request.object_id}"
         }
       })
 
@@ -143,8 +143,9 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
       allow(flow).to receive(:account).and_return(account)
       allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
 
-      expect(StandardId::JwtService).to receive(:encode) do |payload, _|
-        expect(payload[:channel_id]).to eq("#{client_application.object_id}-#{account.id}-read-channel_id-#{request.object_id}")
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
         "jwt-token"
       end
 
@@ -153,6 +154,7 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
 
       result = flow.execute
       expect(result[:access_token]).to eq("jwt-token")
+      expect(encoded_payloads.first[:channel_id]).to eq("#{client_application.object_id}-#{account.id}-#{request.object_id}")
     end
   end
 end
