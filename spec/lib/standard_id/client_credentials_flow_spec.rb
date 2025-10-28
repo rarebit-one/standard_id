@@ -70,4 +70,38 @@ RSpec.describe StandardId::Oauth::ClientCredentialsFlow do
       expect(flow.send(:token_expiry)).to eq(30.minutes)
     end
   end
+
+  describe "custom scope claims" do
+    let(:client_application) { instance_double("StandardId::ClientApplication", owner_id: "channel-42") }
+    let(:credential) do
+      double(
+        client_id: client_id,
+        scopes: "inventory.write",
+        client_application: client_application
+      )
+    end
+
+    before do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(1.hour.to_i)
+
+      allow_any_instance_of(described_class)
+        .to receive(:validate_client_secret!)
+        .with(client_id, client_secret)
+        .and_return(credential)
+    end
+
+    it "passes client context to the claim resolver" do
+      allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "inventory.write" => [:channel_id] })
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({ channel_id: ->(client:) { client.owner_id } })
+
+      expect(StandardId::JwtService).to receive(:encode) do |payload, _|
+        expect(payload[:channel_id]).to eq("channel-42")
+        "jwt-token"
+      end
+
+      result = described_class.new(params, request).execute
+      expect(result[:access_token]).to eq("jwt-token")
+    end
+  end
 end

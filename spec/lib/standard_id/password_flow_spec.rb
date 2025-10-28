@@ -130,4 +130,34 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
       expect(flow.send(:token_expiry)).to eq(2.hours)
     end
   end
+
+  describe "custom scope claims" do
+    let(:client_application) { instance_double("StandardId::ClientApplication") }
+
+    before do
+      allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
+      allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "read" => [:tenant_id] })
+    end
+
+    it "passes account and client context to the resolver" do
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
+        tenant_id: ->(client:, account:) { "#{client.object_id}-#{account.id}" }
+      })
+
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      result = described_class.new(params, request).execute
+      expect(result[:access_token]).to eq("jwt-token")
+      expect(encoded_payloads.first[:tenant_id]).to eq("#{client_application.object_id}-#{account.id}")
+    end
+  end
 end

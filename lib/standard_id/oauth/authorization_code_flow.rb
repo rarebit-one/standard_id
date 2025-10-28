@@ -48,6 +48,14 @@ module StandardId
       def find_authorization_code(code)
         StandardId::AuthorizationCode.lookup(code)
       end
+
+      def token_client
+        @credential&.client_application
+      end
+
+      def token_account
+        @authorization_code&.account
+      end
     end
   end
 end

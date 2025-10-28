@@ -52,13 +52,15 @@ module StandardId
       end
 
       def build_jwt_payload(expires_in)
-        {
+        base_payload = {
           sub: subject_id,
           client_id: client_id,
           scope: token_scope,
           grant_type: grant_type,
           aud: audience
         }.compact
+
+        base_payload.merge(claims_from_scope_mapping)
       end
 
       def token_expiry
@@ -105,6 +107,70 @@ module StandardId
 
       def audience
         params[:audience]
+      end
+
+      def claims_from_scope_mapping
+        claims = {}
+        scope_claims = StandardId.config.oauth.scope_claims.with_indifferent_access
+        resolvers = StandardId.config.oauth.claim_resolvers.with_indifferent_access
+        return claims if scope_claims.empty? || resolvers.empty?
+
+        current_scopes.each do |scope|
+          Array(scope_claims[scope]).each do |claim_key|
+            next if claims.key?(claim_key)
+
+            value = resolve_claim_value(resolvers[claim_key])
+            claims[claim_key] = value unless value.nil?
+          end
+        end
+
+        claims.compact.symbolize_keys
+      end
+
+      def current_scopes
+        Array.wrap(token_scope)
+          .flat_map { |value| value.to_s.split(/\s+/) }
+          .reject(&:blank?)
+          .uniq
+      end
+
+      def token_account
+        return nil if subject_id.blank?
+
+        account_class = StandardId.account_class
+        return nil unless account_class.respond_to?(:find_by)
+
+        account_class.find_by(id: subject_id)
+      end
+
+      def token_client
+        StandardId::ClientApplication.find_by(client_id: client_id)
+      end
+
+      def claim_resolvers_context
+        @claim_resolvers_context ||= {
+          client: token_client,
+          account: token_account,
+          request: request
+        }
+      end
+
+      def callable_parameters(resolver)
+        parameters = if resolver.respond_to?(:parameters)
+          resolver.parameters
+        elsif resolver.respond_to?(:method) && resolver.respond_to?(:call)
+          resolver.method(:call).parameters
+        else
+          []
+        end
+
+        accepts_all = parameters.any? { |type, _| type == :keyrest }
+
+        accepts_all ?  claim_resolvers_context.keys : parameters.map { |_, name| name.to_sym }
+      end
+
+      def resolve_claim_value(resolver)
+        resolver&.call(**claim_resolvers_context.slice(*callable_parameters(resolver)))
       end
     end
   end

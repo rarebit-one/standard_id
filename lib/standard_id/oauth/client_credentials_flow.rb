@@ -29,6 +29,14 @@ module StandardId
       def audience
         params[:audience]
       end
+
+      def token_client
+        @credential&.client_application
+      end
+
+      def token_account
+        nil
+      end
     end
   end
 end

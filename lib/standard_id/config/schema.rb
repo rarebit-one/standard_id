@@ -35,6 +35,8 @@ StandardConfig.schema.draw do
     field :token_lifetimes, type: :hash, default: -> { {} }
     field :client_id, type: :string, default: nil
     field :client_secret, type: :string, default: nil
+    field :scope_claims, type: :hash, default: -> { {} }
+    field :claim_resolvers, type: :hash, default: -> { {} }
   end
 
   scope :social do

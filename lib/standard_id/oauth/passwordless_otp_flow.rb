@@ -79,6 +79,10 @@ module StandardId
       def default_scope
         "read"
       end
+
+      def token_account
+        account
+      end
     end
   end
 end

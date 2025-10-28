@@ -113,4 +113,46 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
       expect { flow.execute }.to raise_error(StandardId::InvalidScopeError)
     end
   end
+
+  describe "custom scope claims" do
+    it "passes the resolved account and client to the claim resolver" do
+      allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "read" => [:channel_id] })
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
+        channel_id: ->(client:, account:, scope:, claim:, request:) {
+          "#{client.object_id}-#{account.id}-#{scope}-#{claim}-#{request.object_id}"
+        }
+      })
+
+      account = instance_double("Account", id: 55)
+      allow(account).to receive(:blank?).and_return(false)
+      code_challenge = instance_double("StandardId::CodeChallenge", use!: true)
+      allow(code_challenge).to receive(:blank?).and_return(false)
+      client_application = instance_double("StandardId::ClientApplication")
+      flow = described_class.new(
+        {
+          grant_type: "passwordless_otp",
+          client_id: "client-123",
+          connection: "email",
+          username: "user@example.com",
+          otp: "999000"
+        },
+        request
+      )
+
+      allow(flow).to receive(:code_challenge).and_return(code_challenge)
+      allow(flow).to receive(:account).and_return(account)
+      allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
+
+      expect(StandardId::JwtService).to receive(:encode) do |payload, _|
+        expect(payload[:channel_id]).to eq("#{client_application.object_id}-#{account.id}-read-channel_id-#{request.object_id}")
+        "jwt-token"
+      end
+
+      strategy = instance_double("StandardId::Passwordless::EmailStrategy", find_or_create_account: account)
+      allow(flow).to receive(:strategy_for).and_return(strategy)
+
+      result = flow.execute
+      expect(result[:access_token]).to eq("jwt-token")
+    end
+  end
 end

@@ -3,9 +3,14 @@ require "jwt"
 module StandardId
   class JwtService
     ALGORITHM = "HS256"
-    Session = Struct.new(:account_id, :client_id, :scopes, :grant_type, keyword_init: true) do
-      def active?
-        true
+    RESERVED_JWT_KEYS = %w[sub client_id scope grant_type exp iat aud iss nbf jti]
+    BASE_SESSION_FIELDS = [:account_id, :client_id, :scopes, :grant_type].freeze
+
+    def self.session_class
+      Struct.new(*(BASE_SESSION_FIELDS + claim_resolver_keys), keyword_init: true) do
+        def active?
+          true
+        end
       end
     end
 
@@ -33,11 +38,12 @@ module StandardId
         Array(payload[:scope]).compact
       end
 
-      Session.new(
+      session_class.new(
+        **payload.slice(*claim_resolver_keys),
         account_id: payload[:sub],
         client_id: payload[:client_id],
         scopes: scopes,
-        grant_type: payload[:grant_type]
+        grant_type: payload[:grant_type],
       )
     end
 
@@ -45,6 +51,20 @@ module StandardId
 
     def self.secret_key
       Rails.application.secret_key_base
+    end
+
+    def self.claim_resolver_keys
+      resolvers = StandardId.config.oauth.claim_resolvers
+      keys = if resolvers.respond_to?(:keys)
+        resolvers.keys
+      elsif resolvers.respond_to?(:to_h)
+        resolvers.to_h.keys
+      else
+        []
+      end
+      keys.compact.map(&:to_sym).uniq.excluding(*RESERVED_JWT_KEYS)
+    rescue StandardError
+      []
     end
   end
 end

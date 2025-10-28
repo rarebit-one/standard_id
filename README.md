@@ -133,6 +133,27 @@ end
 
 `default_token_lifetime` is applied to every OAuth grant unless you override it in `oauth.token_lifetimes`. Keys map to OAuth grant types (for example `:password`, `:client_credentials`, `:refresh_token`) and should return durations in seconds. Non-token endpoint flows such as the implicit flow can be customized with their symbol key (e.g. `:implicit`). Refresh tokens can be tuned separately through `oauth.refresh_token_lifetime`.
 
+### Custom Token Claims
+
+You can add additional JWT claims for any token issued through the OAuth token endpoint by mapping scopes to claim names and providing callbacks to resolve each claim. Scopes listed in `oauth.scope_claims` are evaluated against the requested token scopes; when a scope matches, every claim listed for that scope is resolved via the callable defined in `oauth.claim_resolvers`.
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.scope_claims = {
+    profile: %i[email display_name]
+  }
+
+  config.oauth.claim_resolvers = {
+    email: ->(account:) { account.email },
+    display_name: ->(account:, client:) {
+      "#{account.name} for #{client.client_id}"
+    }
+  }
+end
+```
+
+Resolvers receive keyword arguments with the context containing `client`, `account`, and `request`, so you can reference only what you need. This lets you, for example, pull organization info off the client application or decorate claims with account attributes.
+
 ### Social Login Setup
 
 ```ruby

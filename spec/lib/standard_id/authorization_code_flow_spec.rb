@@ -152,4 +152,56 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
       expect(result).to be_nil
     end
   end
+
+  describe "custom scope claims" do
+    let(:account) { instance_double("Account", id: 99) }
+    let(:client_application) { instance_double("StandardId::ClientApplication") }
+    let(:credential_with_app) do
+      instance_double(
+        "StandardId::ClientSecretCredential",
+        client_id: client_id,
+        client_application: client_application
+      )
+    end
+
+    it "passes client and account context to the resolver" do
+      scoped_code = instance_double(
+        "AuthorizationCode",
+        valid_for_client?: true,
+        redirect_uri: redirect_uri,
+        account_id: account.id,
+        account: account,
+        scope: "profile"
+      )
+      allow(scoped_code).to receive(:mark_as_used!)
+      allow(scoped_code).to receive(:pkce_valid?).and_return(true)
+
+      allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "profile" => [:profile_id] })
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
+        profile_id: ->(client:, account:, request:) {
+          "#{client.object_id}-#{account.id}-#{request.object_id}"
+        }
+      })
+
+      allow_any_instance_of(described_class)
+        .to receive(:validate_client_secret!)
+        .with(client_id, client_secret)
+        .and_return(credential_with_app)
+
+      allow_any_instance_of(described_class)
+        .to receive(:find_authorization_code)
+        .with(code)
+        .and_return(scoped_code)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      result = described_class.new(params, request).execute
+      expect(result[:access_token]).to eq("jwt-token")
+      expect(encoded_payloads.first[:profile_id]).to eq("#{client_application.object_id}-#{account.id}-#{request.object_id}")
+    end
+  end
 end

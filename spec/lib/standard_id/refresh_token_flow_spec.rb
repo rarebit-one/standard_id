@@ -99,4 +99,37 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       expect(token).to eq("new-rtok")
     end
   end
+
+  describe "custom scope claims" do
+    let(:resolver) { double("SessionResolver") }
+    it "passes account and client context to the resolver" do
+      client_application = instance_double("StandardId::ClientApplication")
+      account = instance_double("Account", id: sub)
+      account_class = class_double("Account", find_by: account)
+
+      allow(StandardId).to receive(:account_class).and_return(account_class)
+      allow(StandardId::ClientApplication).to receive(:find_by).with(client_id: client_id).and_return(client_application)
+
+      allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "read" => [:session_id] })
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({ session_id: resolver })
+
+      expect(resolver).to receive(:call).with(
+        client: client_application,
+        account: account,
+        request: request
+      ).and_return("session-123")
+
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload.merge(scope: "read"))
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      result = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
+      expect(result[:access_token]).to eq("jwt-token")
+      expect(encoded_payloads.first[:session_id]).to eq("session-123")
+    end
+  end
 end

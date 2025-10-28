@@ -21,6 +21,15 @@ StandardId.configure do |c|
   #   password: 8.hours,
   #   client_credentials: 24.hours
   # }
+  # c.oauth.scope_claims = {
+  #   profile: %i[email display_name]
+  # }
+  # c.oauth.claim_resolvers = {
+  #   email: ->(account:) { account.email },
+  #   display_name: ->(account:, client:) {
+  #     "#{account.name} for #{client.client_id}"
+  #   }
+  # }
 
   # Social login credentials (if enabled in your app)
   # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]
