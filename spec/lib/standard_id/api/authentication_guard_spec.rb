@@ -4,6 +4,14 @@ RSpec.describe StandardId::Api::AuthenticationGuard, type: :model do
   let(:guard) { StandardId::Api::AuthenticationGuard.new }
   let(:api_session_manager) { instance_double(StandardId::Api::SessionManager) }
   let(:account) { Account.create!(name: "Test Service", email: "service@example.com") }
+  let(:jwt_session) do
+    StandardId::JwtService.session_class.new(
+      account_id: account.id,
+      client_id: SecureRandom.uuid,
+      scopes: %w[openid read:users],
+      grant_type: "client_credentials"
+    )
+  end
 
   describe "#require_session!" do
     context "when session is present and active" do
@@ -77,6 +85,36 @@ RSpec.describe StandardId::Api::AuthenticationGuard, type: :model do
           guard.require_session!(api_session_manager)
         }.to raise_error(StandardId::RevokedSessionError, "Session has been revoked")
       end
+    end
+  end
+
+  describe "#require_scopes!" do
+    before do
+      allow(api_session_manager).to receive(:current_session).and_return(jwt_session)
+    end
+
+    it "returns the session when all required scopes are present" do
+      expect(
+        guard.require_scopes!(api_session_manager, "openid")
+      ).to eq(jwt_session)
+    end
+
+    it "accepts an array of scopes and succeeds when any matches" do
+      expect(
+        guard.require_scopes!(api_session_manager, %w[openid read:users])
+      ).to eq(jwt_session)
+    end
+
+    it "accepts symbol scopes" do
+      expect(
+        guard.require_scopes!(api_session_manager, :openid)
+      ).to eq(jwt_session)
+    end
+
+    it "raises InvalidScopeError when none of the provided scopes match" do
+      expect {
+        guard.require_scopes!(api_session_manager, %w[admin:users write:users])
+      }.to raise_error(StandardId::InvalidScopeError, /admin:users/)
     end
   end
 end

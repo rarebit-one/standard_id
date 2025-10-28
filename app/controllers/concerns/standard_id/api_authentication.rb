@@ -14,6 +14,10 @@ module StandardId
       authentication_guard.require_session!(session_manager)
     end
 
+    def require_scopes!(*required_scopes)
+      authentication_guard.require_scopes!(session_manager, *required_scopes)
+    end
+
     def session_manager
       @session_manager ||= StandardId::Api::SessionManager.new(token_manager, request:)
     end

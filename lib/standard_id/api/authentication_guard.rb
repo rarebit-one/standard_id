@@ -15,6 +15,44 @@ module StandardId
 
         api_session
       end
+
+      def require_scopes!(session_manager, *required_scopes)
+        api_session = require_session!(session_manager)
+
+        expected_scopes = normalize_scopes(required_scopes)
+        return api_session if expected_scopes.empty?
+
+        token_scopes = extract_session_scopes(api_session)
+        unless (token_scopes & expected_scopes).any?
+          raise StandardId::InvalidScopeError,
+            "Access token missing required scope. Requires one of: #{expected_scopes.join(', ')}"
+        end
+
+        api_session
+      end
+
+      private
+
+      def extract_session_scopes(api_session)
+        return [] unless api_session.respond_to?(:scopes)
+
+        api_session.scopes || []
+      end
+
+      def normalize_scopes(scopes)
+        return [] if scopes.nil?
+
+        case scopes
+        when String
+          [scopes]
+        when Symbol
+          [scopes.to_s]
+        when Array
+          scopes.flat_map { |value| normalize_scopes(value) }.uniq
+        else
+          raise ArgumentError, "Scopes must be provided as a String, Symbol, or Array"
+        end
+      end
     end
   end
 end
