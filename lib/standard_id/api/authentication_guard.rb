@@ -34,21 +34,19 @@ module StandardId
       private
 
       def extract_session_scopes(api_session)
-        return [] unless api_session.respond_to?(:scopes)
-
-        api_session.scopes || []
+        api_session&.scopes || []
       end
 
-      def normalize_scopes(scopes)
-        return [] if scopes.nil?
+      def normalize_scopes(required_scopes)
+        return [] if required_scopes.nil?
 
-        case scopes
+        case required_scopes
         when String
-          [scopes]
+          [required_scopes]
         when Symbol
-          [scopes.to_s]
+          [required_scopes.to_s]
         when Array
-          scopes.flat_map { |value| normalize_scopes(value) }.uniq
+          required_scopes.flat_map { |value| normalize_scopes(value) }.uniq
         else
           raise ArgumentError, "Scopes must be provided as a String, Symbol, or Array"
         end
