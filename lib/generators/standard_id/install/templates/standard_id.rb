@@ -20,6 +20,7 @@ StandardId.configure do |c|
   # c.oauth.token_lifetimes = {
   #   password: 8.hours,
   #   client_credentials: 24.hours
+  #   social: 24.hours
   # }
   # c.oauth.scope_claims = {
   #   profile: %i[email display_name]
@@ -34,10 +35,18 @@ StandardId.configure do |c|
   # Social login credentials (if enabled in your app)
   # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]
   # c.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
+  # c.social.google_android_client_id = ENV["GOOGLE_ANDROID_CLIENT_ID"]
+  # c.social.google_ios_client_id     = ENV["GOOGLE_IOS_CLIENT_ID"]
   # c.social.apple_client_id      = ENV["APPLE_CLIENT_ID"]
   # c.social.apple_private_key    = ENV["APPLE_PRIVATE_KEY"]
   # c.social.apple_key_id         = ENV["APPLE_KEY_ID"]
   # c.social.apple_team_id        = ENV["APPLE_TEAM_ID"]
+  # c.social.social_account_attributes = ->(user_info:, provider:) {
+  #   {
+  #     email: user_info[:email],
+  #     name: user_info[:name] || user_info[:given_name]
+  #   }
+  # }
 
   # OIDC Logout allow list
   # c.allowed_post_logout_redirect_uris = [

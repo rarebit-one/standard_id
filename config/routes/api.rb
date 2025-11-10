@@ -17,6 +17,8 @@ StandardId::ApiEngine.routes.draw do
 
       namespace :callback do
         get :google, to: "providers#google"
+        get :google_android, to: "providers#google_android"
+        get :google_ios, to: "providers#google_ios"
         post :apple, to: "providers#apple"
       end
     end

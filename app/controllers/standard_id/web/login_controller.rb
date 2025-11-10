@@ -33,32 +33,36 @@ module StandardId
       end
 
       def social_login_url
-        uri = URI.parse("/api/authorize")
-        query = {
-          response_type: "code",
-          client_id: StandardId.config.default_client_id,
-          redirect_uri: callback_url,
-          connection: params[:connection],
-          state: encode_state
-        }.to_query
-        uri.query = query
-        uri.to_s
+        connection = params[:connection]
+        if StandardId::SocialProviders::Google.supported_connection?(connection)
+          return google_authorization_url(connection)
+        elsif connection == "apple"
+          return apple_authorization_url
+        end
+
+        raise StandardId::InvalidRequestError, "Unsupported social connection: #{params[:connection]}"
       end
 
-      def callback_url
-        case params[:connection]
-        when "google-oauth2"
-          auth_callback_google_path
-        when "apple"
-          auth_callback_apple_path
-        end
+      def google_authorization_url(connection)
+        StandardId::SocialProviders::Google.authorization_url(
+          state: encode_state,
+          redirect_uri: auth_callback_google_url,
+          connection: connection
+        )
+      end
+
+      def apple_authorization_url
+        StandardId::SocialProviders::Apple.authorization_url(
+          state: encode_state,
+          redirect_uri: auth_callback_apple_url
+        )
       end
 
       def encode_state
         Base64.urlsafe_encode64({
           redirect_uri: params[:redirect_uri] || after_authentication_url,
           timestamp: Time.current.to_i
-        }.to_json)
+        }.compact.to_json)
       end
 
       def login_params

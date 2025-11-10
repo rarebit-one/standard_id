@@ -68,7 +68,7 @@
 
           <div class="mt-6 grid grid-cols-2 gap-4">
             <% if StandardId.config.google_client_id.present? %>
-              <%= form_with url: login_path, method: :post, local: true do |form| %>
+              <%= form_with url: login_path, method: :post, local: true, data: { turbo: false } do |form| %>
                 <%= form.hidden_field :connection, value: "google-oauth2" %>
                 <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
                 <button type="submit" class="flex w-full items-center justify-center gap-3 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:ring-transparent dark:bg-white/10 dark:text-white dark:shadow-none dark:ring-white/5 dark:hover:bg-white/20">
@@ -84,7 +84,7 @@
             <% end %>
 
             <% if StandardId.config.apple_client_id.present? %>
-              <%= form_with url: login_path, method: :post, local: true do |form| %>
+              <%= form_with url: login_path, method: :post, local: true, data: { turbo: false } do |form| %>
                 <%= form.hidden_field :connection, value: "apple" %>
                 <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
                 <button type="submit" class="flex w-full items-center justify-center gap-3 rounded-md bg-white px-3 py-2 text-sm font-semibold text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus-visible:ring-transparent dark:bg-white/10 dark:text-white dark:shadow-none dark:ring-white/5 dark:hover:bg-white/20">

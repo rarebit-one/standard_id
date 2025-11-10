@@ -18,6 +18,7 @@ require "standard_id/oauth/client_credentials_flow"
 require "standard_id/oauth/authorization_code_flow"
 require "standard_id/oauth/password_flow"
 require "standard_id/oauth/refresh_token_flow"
+require "standard_id/oauth/social_flow"
 require "standard_id/oauth/authorization_flow"
 require "standard_id/oauth/authorization_code_authorization_flow"
 require "standard_id/oauth/implicit_authorization_flow"
@@ -28,6 +29,8 @@ require "standard_id/oauth/passwordless_otp_flow"
 require "standard_id/passwordless/base_strategy"
 require "standard_id/passwordless/email_strategy"
 require "standard_id/passwordless/sms_strategy"
+require "standard_id/social_providers/google"
+require "standard_id/social_providers/apple"
 
 module StandardId
   class << self

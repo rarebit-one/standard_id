@@ -15,6 +15,7 @@ group :development, :test do
   gem "ostruct"
   gem "rspec-rails", "~> 8.0.0"
   gem "shoulda-matchers", "~> 6.0"
+  gem "webmock", "~> 3.26"
 end
 
 # Omakase Ruby styling [https://github.com/rails/rubocop-rails-omakase/]

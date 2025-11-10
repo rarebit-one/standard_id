@@ -161,14 +161,31 @@ StandardId.configure do |config|
   # Google OAuth
   config.social.google_client_id = ENV["GOOGLE_CLIENT_ID"]
   config.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
+  config.social.google_android_client_id = ENV["GOOGLE_ANDROID_CLIENT_ID"]
+  config.social.google_ios_client_id = ENV["GOOGLE_IOS_CLIENT_ID"]
 
   # Apple Sign In
   config.social.apple_client_id = ENV["APPLE_CLIENT_ID"]
   config.social.apple_private_key = ENV["APPLE_PRIVATE_KEY"]
   config.social.apple_key_id = ENV["APPLE_KEY_ID"]
   config.social.apple_team_id = ENV["APPLE_TEAM_ID"]
+
+  # Optional: adjust which attributes are persisted during social signup
+  config.social.social_account_attributes = ->(user_info:, provider:) {
+    {
+      email: user_info[:email],
+      name: user_info[:name] || user_info[:given_name]
+    }
+  }
 end
 ```
+
+`user_info` is an indifferent-access hash containing at least `email`, `name`, and `provider_id`.
+
+`connection` values:
+- `google-oauth2` (default web/browser flow, requires client secret)
+- `google-oauth2-android` (Android native flow)
+- `google-oauth2-ios` (iOS native flow)
 
 ### Passwordless Authentication
 

@@ -23,9 +23,11 @@ module StandardConfig
     # If set, Authorization endpoints can redirect to this path with a redirect_uri param
     attr_accessor :login_url
 
-    # Social login provider credentials
+    # Social login provider credentials and hooks
     attr_accessor :google_client_id, :google_client_secret
+    attr_accessor :google_android_client_id, :google_ios_client_id
     attr_accessor :apple_client_id, :apple_client_secret, :apple_private_key, :apple_key_id, :apple_team_id
+    attr_accessor :social_account_attributes
 
     # Passwordless authentication callbacks
     # These should be callable objects (procs/lambdas) that accept (recipient, code) parameters
@@ -49,11 +51,14 @@ module StandardConfig
       @login_url = nil
       @google_client_id = nil
       @google_client_secret = nil
+      @google_android_client_id = nil
+      @google_ios_client_id = nil
       @apple_client_id = nil
       @apple_client_secret = nil
       @apple_private_key = nil
       @apple_key_id = nil
       @apple_team_id = nil
+      @social_account_attributes = nil
       @passwordless_email_sender = nil
       @passwordless_sms_sender = nil
       @allowed_post_logout_redirect_uris = []

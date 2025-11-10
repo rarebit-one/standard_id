@@ -9,39 +9,39 @@ module StandardId
         private
 
         def social_provider_url
-          @social_provider_url ||= case params[:connection]
-          when "google-oauth2"
-            build_google_oauth_url
-          when "apple"
-            build_apple_oauth_url
+          connection = params[:connection]
+          @social_provider_url ||= if StandardId::SocialProviders::Google.supported_connection?(connection)
+                                     build_google_oauth_url(connection)
+          elsif connection == "apple"
+                                     build_apple_oauth_url
           else
-            raise StandardId::InvalidRequestError, "Unsupported connection: #{params[:connection]}"
+                                     raise StandardId::InvalidRequestError, "Unsupported connection: #{connection}"
           end
         end
 
-        def build_google_oauth_url
-          google_params = {
-            client_id: StandardId.config.google_client_id,
-            redirect_uri: "#{params[:base_url]}/api/oauth/callback/google",
-            response_type: "code",
-            scope: "openid email profile",
-            state: encode_state_with_original_params
-          }
+        def build_google_oauth_url(connection)
+          callback_path = case connection
+          when "google-oauth2-android"
+                            "/api/oauth/callback/google_android"
+          when "google-oauth2-ios"
+                            "/api/oauth/callback/google_ios"
+          else
+                            "/api/oauth/callback/google"
+          end
 
-          "https://accounts.google.com/o/oauth2/v2/auth?" + URI.encode_www_form(google_params)
+          StandardId::SocialProviders::Google.authorization_url(
+            state: encode_state_with_original_params,
+            redirect_uri: "#{params[:base_url]}#{callback_path}",
+            connection: connection,
+            scope: "openid email profile"
+          )
         end
 
         def build_apple_oauth_url
-          apple_params = {
-            client_id: StandardId.config.apple_client_id,
-            redirect_uri: "#{params[:base_url]}/api/oauth/callback/apple",
-            response_type: "code",
-            scope: "name email",
-            response_mode: "form_post",
-            state: encode_state_with_original_params
-          }
-
-          "https://appleid.apple.com/auth/authorize?" + URI.encode_www_form(apple_params)
+          StandardId::SocialProviders::Apple.authorization_url(
+            state: encode_state_with_original_params,
+            redirect_uri: "#{params[:base_url]}/api/oauth/callback/apple"
+          )
         end
 
         def encode_state_with_original_params
