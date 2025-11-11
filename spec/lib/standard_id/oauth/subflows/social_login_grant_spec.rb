@@ -10,7 +10,7 @@ RSpec.describe StandardId::Oauth::Subflows::SocialLoginGrant do
       state: "random_state",
       code_challenge: "challenge123",
       code_challenge_method: "S256",
-      connection: "google-oauth2",
+      connection: "google",
       base_url: "https://auth.example.com"
     }
   end
@@ -20,7 +20,6 @@ RSpec.describe StandardId::Oauth::Subflows::SocialLoginGrant do
   before do
     allow(StandardId.config).to receive(:google_client_id).and_return("google_client_123")
     allow(StandardId.config).to receive(:google_client_secret).and_return("google_secret")
-    allow(StandardId.config).to receive(:google_android_client_id).and_return("google_android_789")
     allow(StandardId.config).to receive(:apple_client_id).and_return("apple_client_456")
   end
 
@@ -38,13 +37,13 @@ RSpec.describe StandardId::Oauth::Subflows::SocialLoginGrant do
         expect(result[:redirect_to]).to include("state=")
       end
 
-      context "with Google Android connection" do
-        let(:params) { super().merge(connection: "google-oauth2-android") }
+      context "with Google connection" do
+        let(:params) { super().merge(connection: "google") }
 
-        it "uses android client id" do
+        it "uses googlee client id" do
           result = subject.call
 
-          expect(result[:redirect_to]).to include("client_id=google_android_789")
+          expect(result[:redirect_to]).to include("client_id=google_client_123")
         end
       end
     end

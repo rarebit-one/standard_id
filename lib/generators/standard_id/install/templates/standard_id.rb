@@ -35,8 +35,6 @@ StandardId.configure do |c|
   # Social login credentials (if enabled in your app)
   # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]
   # c.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
-  # c.social.google_android_client_id = ENV["GOOGLE_ANDROID_CLIENT_ID"]
-  # c.social.google_ios_client_id     = ENV["GOOGLE_IOS_CLIENT_ID"]
   # c.social.apple_client_id      = ENV["APPLE_CLIENT_ID"]
   # c.social.apple_private_key    = ENV["APPLE_PRIVATE_KEY"]
   # c.social.apple_key_id         = ENV["APPLE_KEY_ID"]

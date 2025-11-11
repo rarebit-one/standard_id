@@ -9,30 +9,20 @@ module StandardId
         private
 
         def social_provider_url
-          connection = params[:connection]
-          @social_provider_url ||= if StandardId::SocialProviders::Google.supported_connection?(connection)
-                                     build_google_oauth_url(connection)
-          elsif connection == "apple"
-                                     build_apple_oauth_url
+          @social_provider_url ||= case params[:connection]
+          when "google"
+            build_google_oauth_url
+          when "apple"
+            build_apple_oauth_url
           else
-                                     raise StandardId::InvalidRequestError, "Unsupported connection: #{connection}"
+            raise StandardId::InvalidRequestError, "Unsupported connection: #{params[:connection]}"
           end
         end
 
-        def build_google_oauth_url(connection)
-          callback_path = case connection
-          when "google-oauth2-android"
-                            "/api/oauth/callback/google_android"
-          when "google-oauth2-ios"
-                            "/api/oauth/callback/google_ios"
-          else
-                            "/api/oauth/callback/google"
-          end
-
+        def build_google_oauth_url
           StandardId::SocialProviders::Google.authorization_url(
             state: encode_state_with_original_params,
-            redirect_uri: "#{params[:base_url]}#{callback_path}",
-            connection: connection,
+            redirect_uri: "#{params[:base_url]}/api/oauth/callback/google",
             scope: "openid email profile"
           )
         end

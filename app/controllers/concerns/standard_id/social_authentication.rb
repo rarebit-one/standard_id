@@ -5,21 +5,21 @@ module StandardId
     private
 
     def get_user_info_from_provider(connection, redirect_uri: nil)
-      if StandardId::SocialProviders::Google.supported_connection?(connection)
-        StandardId::SocialProviders::Google.get_user_info(
-          code: params[:code],
-          id_token: params[:id_token],
-          access_token: params[:access_token],
-          redirect_uri: redirect_uri,
-          connection: connection
-        )
-      elsif connection == "apple"
-        StandardId::SocialProviders::Apple.exchange_code_for_user_info(
-          code: params[:code],
-          redirect_uri: redirect_uri
-        )
+      case connection
+      when "google"
+      StandardId::SocialProviders::Google.get_user_info(
+        code: params[:code],
+        id_token: params[:id_token],
+        access_token: params[:access_token],
+        redirect_uri: redirect_uri,
+      )
+      when "apple"
+      StandardId::SocialProviders::Apple.exchange_code_for_user_info(
+        code: params[:code],
+        redirect_uri: redirect_uri
+      )
       else
-        raise StandardId::InvalidRequestError, "Unsupported provider: #{connection}"
+      raise StandardId::InvalidRequestError, "Unsupported provider: #{connection}"
       end
     end
 

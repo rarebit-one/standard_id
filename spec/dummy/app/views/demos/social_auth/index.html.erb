@@ -5,7 +5,7 @@
   <% if @google_enabled %>
     <form action="/login" method="post">
       <input type="hidden" name="authenticity_token" value="<%= form_authenticity_token %>">
-      <input type="hidden" name="connection" value="google-oauth2">
+      <input type="hidden" name="connection" value="google">
       <button type="submit">Continue with Google</button>
     </form>
   <% else %>

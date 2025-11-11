@@ -56,7 +56,7 @@ module StandardId
 
       def callback_url
         case params[:connection]
-        when "google-oauth2"
+        when "google"
           auth_callback_google_url
         when "apple"
           auth_callback_apple_url

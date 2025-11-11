@@ -31,7 +31,7 @@ module StandardId
           ensure_full_credentials!
           raise StandardId::InvalidRequestError, "Missing authorization code" if code.blank?
 
-          token_response = post_form(TOKEN_ENDPOINT, {
+          token_response = HttpClient.post_form(TOKEN_ENDPOINT, {
             client_id: StandardId.config.apple_client_id,
             client_secret: generate_client_secret,
             code: code,
@@ -91,16 +91,6 @@ module StandardId
 
           private_key = OpenSSL::PKey::EC.new(StandardId.config.apple_private_key)
           JWT.encode(payload, private_key, "ES256", header)
-        end
-
-        def post_form(endpoint, params)
-          uri = URI(endpoint)
-          request = Net::HTTP::Post.new(uri)
-          request["Content-Type"] = "application/x-www-form-urlencoded"
-          request.set_form_data(params)
-          Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
-            http.request(request)
-          end
         end
       end
     end

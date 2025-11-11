@@ -25,7 +25,6 @@ module StandardConfig
 
     # Social login provider credentials and hooks
     attr_accessor :google_client_id, :google_client_secret
-    attr_accessor :google_android_client_id, :google_ios_client_id
     attr_accessor :apple_client_id, :apple_client_secret, :apple_private_key, :apple_key_id, :apple_team_id
     attr_accessor :social_account_attributes
 
@@ -51,8 +50,6 @@ module StandardConfig
       @login_url = nil
       @google_client_id = nil
       @google_client_secret = nil
-      @google_android_client_id = nil
-      @google_ios_client_id = nil
       @apple_client_id = nil
       @apple_client_secret = nil
       @apple_private_key = nil

@@ -28,11 +28,11 @@ RSpec.describe "StandardId Web Signup", type: :request do
       it "redirects to social authorize URL with connection param" do
         StandardId.config.define_singleton_method(:default_client_id) { "web_client" }
 
-        http_post "/signup", params: { connection: "google-oauth2", redirect_uri: "/after", signup: { email: "", password: "", password_confirmation: "" } }
+        http_post "/signup", params: { connection: "google", redirect_uri: "/after", signup: { email: "", password: "", password_confirmation: "" } }
 
         expect(response).to have_http_status(:found)
         expect(response.location).to start_with("http://www.example.com/api/authorize?")
-        expect(response.location).to include("connection=google-oauth2")
+        expect(response.location).to include("connection=google")
         expect(response.location).to include("client_id=web_client")
       end
     end

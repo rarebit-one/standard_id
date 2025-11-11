@@ -1,15 +1,15 @@
 require "rails_helper"
 
 RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
-  def state_for(redirect_uri, connection: nil)
-    Base64.urlsafe_encode64({ redirect_uri: redirect_uri, connection: connection }.compact.to_json)
+  def state_for(redirect_uri)
+    Base64.urlsafe_encode64({ redirect_uri: redirect_uri }.to_json)
   end
 
   describe "GET /auth/callback/google" do
     let(:state) { state_for("/dashboard") }
 
     before do
-      allow(StandardId.config).to receive(:google_client_id).and_return("google-client-123")
+      allow(StandardId.config).to receive(:google_client_id).and_return("google_client_123")
       allow(StandardId.config).to receive(:google_client_secret).and_return("google-secret")
       allow(StandardId::SocialProviders::Google).to receive(:exchange_code_for_user_info).and_return(
         { "email" => "user@example.com", "name" => "Test User", "sub" => "prov_123" }
@@ -20,7 +20,7 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
       http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
 
       expect(StandardId::SocialProviders::Google).to have_received(:exchange_code_for_user_info).with(
-        hash_including(code: "auth_code_123", connection: "google-oauth2")
+        hash_including(code: "auth_code_123")
       )
       expect(response).to redirect_to("/dashboard")
       follow_redirect! if response.redirect?
@@ -107,13 +107,3 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
     end
   end
 end
-    it "supports alternate google connection names" do
-      allow(StandardId.config).to receive(:google_android_client_id).and_return("google-android-999")
-      custom_state = state_for("/dashboard", connection: "google-oauth2-android")
-
-      http_get "/auth/callback/google", params: { state: custom_state, code: "auth_code_456" }
-
-      expect(StandardId::SocialProviders::Google).to have_received(:exchange_code_for_user_info).with(
-        hash_including(code: "auth_code_456", connection: "google-oauth2-android")
-      )
-    end

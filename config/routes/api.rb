@@ -16,9 +16,7 @@ StandardId::ApiEngine.routes.draw do
       resource :token, only: [:create]
 
       namespace :callback do
-        get :google, to: "providers#google"
-        get :google_android, to: "providers#google_android"
-        get :google_ios, to: "providers#google_ios"
+        post :google, to: "providers#google"
         post :apple, to: "providers#apple"
       end
     end

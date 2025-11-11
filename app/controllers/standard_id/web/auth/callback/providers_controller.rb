@@ -11,7 +11,7 @@ module StandardId
           skip_before_action :require_browser_session!, only: [:google, :apple]
 
           def google
-            handle_social_callback("google-oauth2")
+            handle_social_callback("google")
           end
 
           def apple

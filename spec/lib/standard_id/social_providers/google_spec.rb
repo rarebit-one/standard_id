@@ -1,28 +1,23 @@
 require "rails_helper"
 
 RSpec.describe StandardId::SocialProviders::Google do
-  let(:google_client_id) { "google-web-client-123" }
-  let(:google_client_secret) { "google-web-secret" }
-  let(:google_android_client_id) { "google-android-client-456" }
-  let(:google_ios_client_id) { "google-ios-client-789" }
+  let(:google_client_id) { "google_client_123" }
+  let(:google_client_secret) { "google_secret" }
 
   before do
     allow(StandardId.config).to receive(:google_client_id).and_return(google_client_id)
     allow(StandardId.config).to receive(:google_client_secret).and_return(google_client_secret)
-    allow(StandardId.config).to receive(:google_android_client_id).and_return(google_android_client_id)
-    allow(StandardId.config).to receive(:google_ios_client_id).and_return(google_ios_client_id)
   end
 
   describe ".authorization_url" do
     let(:state) { "encoded_state_value" }
     let(:redirect_uri) { "https://example.com/callback" }
 
-    it "generates a valid Google OAuth URL for web connection" do
+    it "generates a valid Google OAuth URL" do
       url = described_class.authorization_url(
         state: state,
         redirect_uri: redirect_uri,
-        prompt: "select_account",
-        connection: "google-oauth2"
+        prompt: "select_account"
       )
 
       expect(url).to start_with("https://accounts.google.com/o/oauth2/v2/auth?")
@@ -32,26 +27,6 @@ RSpec.describe StandardId::SocialProviders::Google do
       expect(url).to include("scope=openid+email+profile")
       expect(url).to include("state=#{state}")
       expect(url).to include("prompt=select_account")
-    end
-
-    it "generates URL for Android connection with Android client ID" do
-      url = described_class.authorization_url(
-        state: state,
-        redirect_uri: redirect_uri,
-        connection: "google-oauth2-android"
-      )
-
-      expect(url).to include("client_id=#{google_android_client_id}")
-    end
-
-    it "generates URL for iOS connection with iOS client ID" do
-      url = described_class.authorization_url(
-        state: state,
-        redirect_uri: redirect_uri,
-        connection: "google-oauth2-ios"
-      )
-
-      expect(url).to include("client_id=#{google_ios_client_id}")
     end
 
     it "accepts custom scope" do
@@ -76,18 +51,17 @@ RSpec.describe StandardId::SocialProviders::Google do
   end
 
   describe ".get_user_info" do
-    context "with id_token (mobile flow - recommended)" do
+    context "with id_token" do
       let(:id_token) { "mobile_id_token" }
       let(:user_info) { { "email" => "user@example.com", "name" => "Test User" } }
 
       it "verifies id_token directly" do
         expect(described_class).to receive(:verify_id_token)
-          .with(id_token: id_token, connection: "google-oauth2-android")
+          .with(id_token: id_token)
           .and_return(user_info)
 
         result = described_class.get_user_info(
-          id_token: id_token,
-          connection: "google-oauth2-android"
+          id_token: id_token
         )
 
         expect(result).to eq(user_info)
@@ -100,12 +74,11 @@ RSpec.describe StandardId::SocialProviders::Google do
 
       it "fetches user info directly" do
         expect(described_class).to receive(:fetch_user_info)
-          .with(access_token: access_token, connection: "google-oauth2-android")
+          .with(access_token: access_token)
           .and_return(user_info)
 
         result = described_class.get_user_info(
-          access_token: access_token,
-          connection: "google-oauth2-android"
+          access_token: access_token
         )
 
         expect(result).to eq(user_info)
@@ -119,13 +92,12 @@ RSpec.describe StandardId::SocialProviders::Google do
 
       it "exchanges code for user info" do
         expect(described_class).to receive(:exchange_code_for_user_info)
-          .with(code: code, redirect_uri: redirect_uri, connection: "google-oauth2")
+          .with(code: code, redirect_uri: redirect_uri)
           .and_return(user_info)
 
         result = described_class.get_user_info(
           code: code,
-          redirect_uri: redirect_uri,
-          connection: "google-oauth2"
+          redirect_uri: redirect_uri
         )
 
         expect(result).to eq(user_info)
@@ -135,7 +107,7 @@ RSpec.describe StandardId::SocialProviders::Google do
     context "with none of code, id_token, or access_token" do
       it "raises an error" do
         expect {
-          described_class.get_user_info(connection: "google-oauth2")
+          described_class.get_user_info
         }.to raise_error(StandardId::InvalidRequestError, "Either code, id_token, or access_token must be provided")
       end
     end
@@ -168,8 +140,7 @@ RSpec.describe StandardId::SocialProviders::Google do
 
       result = described_class.exchange_code_for_user_info(
         code: code,
-        redirect_uri: redirect_uri,
-        connection: "google-oauth2"
+        redirect_uri: redirect_uri
       )
 
       expect(result).to eq(user_info)
@@ -214,7 +185,7 @@ RSpec.describe StandardId::SocialProviders::Google do
     let(:token_info) do
       {
         iss: "accounts.google.com",
-        aud: google_android_client_id,
+        aud: google_client_id,
         sub: "123456789",
         email: "user@example.com",
         email_verified: "true",
@@ -232,8 +203,7 @@ RSpec.describe StandardId::SocialProviders::Google do
         .to_return(status: 200, body: token_info.to_json)
 
       result = described_class.verify_id_token(
-        id_token: id_token,
-        connection: "google-oauth2-android"
+        id_token: id_token
       )
 
       expect(result["sub"]).to eq("123456789")
@@ -246,8 +216,7 @@ RSpec.describe StandardId::SocialProviders::Google do
     it "raises error when id_token is blank" do
       expect {
         described_class.verify_id_token(
-          id_token: "",
-          connection: "google-oauth2-android"
+          id_token: ""
         )
       }.to raise_error(StandardId::InvalidRequestError, "Missing id_token")
     end
@@ -258,8 +227,7 @@ RSpec.describe StandardId::SocialProviders::Google do
 
       expect {
         described_class.verify_id_token(
-          id_token: id_token,
-          connection: "google-oauth2-android"
+          id_token: id_token
         )
       }.to raise_error(StandardId::InvalidRequestError, "Invalid or expired id_token")
     end
@@ -271,8 +239,7 @@ RSpec.describe StandardId::SocialProviders::Google do
 
       expect {
         described_class.verify_id_token(
-          id_token: id_token,
-          connection: "google-oauth2-android"
+          id_token: id_token
         )
       }.to raise_error(StandardId::InvalidRequestError, /ID token audience mismatch/)
     end
@@ -284,8 +251,7 @@ RSpec.describe StandardId::SocialProviders::Google do
 
       expect {
         described_class.verify_id_token(
-          id_token: id_token,
-          connection: "google-oauth2-android"
+          id_token: id_token
         )
       }.to raise_error(StandardId::InvalidRequestError, /ID token issuer invalid/)
     end
@@ -297,8 +263,7 @@ RSpec.describe StandardId::SocialProviders::Google do
         .to_return(status: 200, body: https_issuer_token_info.to_json)
 
       result = described_class.verify_id_token(
-        id_token: id_token,
-        connection: "google-oauth2-android"
+        id_token: id_token
       )
 
       expect(result["email"]).to eq("user@example.com")
@@ -312,15 +277,14 @@ RSpec.describe StandardId::SocialProviders::Google do
     it "verifies token and fetches user info" do
       stub_request(:post, "https://www.googleapis.com/oauth2/v3/tokeninfo")
         .with(body: { access_token: access_token })
-        .to_return(status: 200, body: { aud: google_android_client_id, sub: "123456" }.to_json)
+        .to_return(status: 200, body: { aud: google_client_id, sub: "123456" }.to_json)
 
       stub_request(:get, "https://www.googleapis.com/oauth2/v2/userinfo")
         .with(headers: { "Authorization" => "Bearer #{access_token}" })
         .to_return(status: 200, body: user_info.to_json)
 
       result = described_class.fetch_user_info(
-        access_token: access_token,
-        connection: "google-oauth2-android"
+        access_token: access_token
       )
 
       expect(result).to eq(user_info)
@@ -329,23 +293,21 @@ RSpec.describe StandardId::SocialProviders::Google do
     it "raises error when access_token is blank" do
       expect {
         described_class.fetch_user_info(
-          access_token: "",
-          connection: "google-oauth2-android"
+          access_token: ""
         )
       }.to raise_error(StandardId::InvalidRequestError, "Missing access token")
     end
 
     it "raises error when user info fetch fails" do
       stub_request(:post, "https://www.googleapis.com/oauth2/v3/tokeninfo")
-        .to_return(status: 200, body: { aud: google_android_client_id }.to_json)
+        .to_return(status: 200, body: { aud: google_client_id }.to_json)
 
       stub_request(:get, "https://www.googleapis.com/oauth2/v2/userinfo")
         .to_return(status: 401, body: { error: "invalid_token" }.to_json)
 
       expect {
         described_class.fetch_user_info(
-          access_token: access_token,
-          connection: "google-oauth2-android"
+          access_token: access_token
         )
       }.to raise_error(StandardId::InvalidRequestError, "Failed to fetch Google user info")
     end
@@ -353,7 +315,7 @@ RSpec.describe StandardId::SocialProviders::Google do
 
   describe ".verify_token" do
     let(:access_token) { "valid_access_token" }
-    let(:expected_client_id) { google_android_client_id }
+    let(:expected_client_id) { google_client_id }
     let(:token_info) { { "aud" => expected_client_id, "sub" => "123456", "exp" => (Time.now + 3600).to_i } }
 
     it "verifies token with matching client_id" do
@@ -361,7 +323,7 @@ RSpec.describe StandardId::SocialProviders::Google do
         .with(body: { access_token: access_token })
         .to_return(status: 200, body: token_info.to_json)
 
-      result = described_class.send(:verify_token, access_token, expected_client_id)
+      result = described_class.send(:verify_token, access_token)
 
       expect(result).to eq(token_info)
     end
@@ -371,7 +333,7 @@ RSpec.describe StandardId::SocialProviders::Google do
         .to_return(status: 400, body: { error: "invalid_token" }.to_json)
 
       expect {
-        described_class.send(:verify_token, access_token, expected_client_id)
+        described_class.send(:verify_token, access_token)
       }.to raise_error(StandardId::InvalidRequestError, "Invalid or expired access token")
     end
 
@@ -380,102 +342,8 @@ RSpec.describe StandardId::SocialProviders::Google do
         .to_return(status: 200, body: { aud: "wrong_client_id", sub: "123456" }.to_json)
 
       expect {
-        described_class.send(:verify_token, access_token, expected_client_id)
+        described_class.send(:verify_token, access_token)
       }.to raise_error(StandardId::InvalidRequestError, /Access token audience mismatch/)
-    end
-  end
-
-  describe ".supported_connection?" do
-    it "returns true for google-oauth2" do
-      expect(described_class.supported_connection?("google-oauth2")).to be true
-    end
-
-    it "returns true for google-oauth2-android" do
-      expect(described_class.supported_connection?("google-oauth2-android")).to be true
-    end
-
-    it "returns true for google-oauth2-ios" do
-      expect(described_class.supported_connection?("google-oauth2-ios")).to be true
-    end
-
-    it "returns false for unsupported connection" do
-      expect(described_class.supported_connection?("google-oauth2-windows")).to be false
-    end
-
-    it "returns false when client_id is not configured" do
-      allow(StandardId.config).to receive(:google_client_id).and_return(nil)
-
-      expect(described_class.supported_connection?("google-oauth2")).to be false
-    end
-  end
-
-  describe ".credentials_for (private)" do
-    context "with google-oauth2 connection" do
-      it "returns web credentials" do
-        creds = described_class.send(:credentials_for, "google-oauth2")
-
-        expect(creds[:client_id]).to eq(google_client_id)
-        expect(creds[:client_secret]).to eq(google_client_secret)
-      end
-
-      it "raises error when client_id is blank" do
-        allow(StandardId.config).to receive(:google_client_id).and_return(nil)
-
-        expect {
-          described_class.send(:credentials_for, "google-oauth2")
-        }.to raise_error(StandardId::InvalidRequestError, "Google connection google-oauth2 is not configured")
-      end
-
-      it "raises error when client_secret is blank" do
-        allow(StandardId.config).to receive(:google_client_secret).and_return(nil)
-
-        expect {
-          described_class.send(:credentials_for, "google-oauth2")
-        }.to raise_error(StandardId::InvalidRequestError, "Google web connection requires a client secret")
-      end
-    end
-
-    context "with google-oauth2-android connection" do
-      it "returns Android credentials without client_secret" do
-        creds = described_class.send(:credentials_for, "google-oauth2-android")
-
-        expect(creds[:client_id]).to eq(google_android_client_id)
-        expect(creds[:client_secret]).to be_nil
-      end
-
-      it "raises error when client_id is blank" do
-        allow(StandardId.config).to receive(:google_android_client_id).and_return(nil)
-
-        expect {
-          described_class.send(:credentials_for, "google-oauth2-android")
-        }.to raise_error(StandardId::InvalidRequestError, "Google connection google-oauth2-android is not configured")
-      end
-    end
-
-    context "with google-oauth2-ios connection" do
-      it "returns iOS credentials without client_secret" do
-        creds = described_class.send(:credentials_for, "google-oauth2-ios")
-
-        expect(creds[:client_id]).to eq(google_ios_client_id)
-        expect(creds[:client_secret]).to be_nil
-      end
-    end
-
-    context "with unsupported connection" do
-      it "raises error" do
-        expect {
-          described_class.send(:credentials_for, "google-oauth2-macos")
-        }.to raise_error(StandardId::InvalidRequestError, "Unsupported Google connection: google-oauth2-macos")
-      end
-    end
-
-    context "with default connection" do
-      it "uses google-oauth2 when connection is nil" do
-        creds = described_class.send(:credentials_for, nil)
-
-        expect(creds[:client_id]).to eq(google_client_id)
-        expect(creds[:client_secret]).to eq(google_client_secret)
-      end
     end
   end
 end

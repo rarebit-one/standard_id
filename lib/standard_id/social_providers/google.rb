@@ -4,15 +4,13 @@ module StandardId
       AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth".freeze
       TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token".freeze
       USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo".freeze
+      TOKEN_INFO_ENDPOINT = "https://oauth2.googleapis.com/tokeninfo".freeze
       DEFAULT_SCOPE = "openid email profile".freeze
-      DEFAULT_CONNECTION = "google-oauth2".freeze
 
       class << self
-        def authorization_url(state:, redirect_uri:, scope: DEFAULT_SCOPE, prompt: nil, connection: DEFAULT_CONNECTION)
-          creds = credentials_for(connection)
-
+        def authorization_url(state:, redirect_uri:, scope: DEFAULT_SCOPE, prompt: nil)
           query = {
-            client_id: creds[:client_id],
+            client_id: credentials[:client_id],
             redirect_uri: redirect_uri,
             response_type: "code",
             scope: scope,
@@ -24,25 +22,24 @@ module StandardId
           "#{AUTH_ENDPOINT}?#{URI.encode_www_form(query)}"
         end
 
-        def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil, connection: DEFAULT_CONNECTION)
+        def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil)
           if id_token.present?
-            verify_id_token(id_token: id_token, connection: connection)
+            verify_id_token(id_token: id_token)
           elsif access_token.present?
-            fetch_user_info(access_token: access_token, connection: connection)
+            fetch_user_info(access_token: access_token)
           elsif code.present?
-            exchange_code_for_user_info(code: code, redirect_uri: redirect_uri, connection: connection)
+            exchange_code_for_user_info(code: code, redirect_uri: redirect_uri)
           else
             raise StandardId::InvalidRequestError, "Either code, id_token, or access_token must be provided"
           end
         end
 
-        def exchange_code_for_user_info(code:, redirect_uri:, connection: DEFAULT_CONNECTION)
-          creds = credentials_for(connection)
+        def exchange_code_for_user_info(code:, redirect_uri:)
           raise StandardId::InvalidRequestError, "Missing authorization code" if code.blank?
 
-          token_response = post_form(TOKEN_ENDPOINT, {
-            client_id: creds[:client_id],
-            client_secret: creds[:client_secret],
+          token_response = HttpClient.post_form(TOKEN_ENDPOINT, {
+            client_id: credentials[:client_id],
+            client_secret: credentials[:client_secret],
             code: code,
             grant_type: "authorization_code",
             redirect_uri: redirect_uri
@@ -56,19 +53,16 @@ module StandardId
           access_token = parsed_token["access_token"]
           raise StandardId::InvalidRequestError, "Google response missing access token" if access_token.blank?
 
-          fetch_user_info(access_token: access_token, connection: connection)
+          fetch_user_info(access_token: access_token)
         rescue StandardError => e
           raise e if e.is_a?(StandardId::OAuthError)
-          raise StandardId::OAuthError, e.message
+          raise StandardId::OAuthError, e.message, cause: e
         end
 
-        def verify_id_token(id_token:, connection: DEFAULT_CONNECTION)
+        def verify_id_token(id_token:)
           raise StandardId::InvalidRequestError, "Missing id_token" if id_token.blank?
 
-          creds = credentials_for(connection)
-          token_info_uri = URI("https://oauth2.googleapis.com/tokeninfo")
-
-          response = Net::HTTP.post_form(token_info_uri, id_token: id_token)
+          response = HttpClient.post_form(TOKEN_INFO_ENDPOINT, id_token: id_token)
 
           unless response.is_a?(Net::HTTPSuccess)
             raise StandardId::InvalidRequestError, "Invalid or expired id_token"
@@ -76,8 +70,8 @@ module StandardId
 
           token_info = JSON.parse(response.body)
 
-          unless token_info["aud"] == creds[:client_id]
-            raise StandardId::InvalidRequestError, "ID token audience mismatch. Expected: #{creds[:client_id]}, got: #{token_info['aud']}"
+          unless token_info["aud"] == credentials[:client_id]
+            raise StandardId::InvalidRequestError, "ID token audience mismatch. Expected: #{credentials[:client_id]}, got: #{token_info['aud']}"
           end
 
           unless ["accounts.google.com", "https://accounts.google.com"].include?(token_info["iss"])
@@ -96,16 +90,14 @@ module StandardId
           }.compact
         rescue StandardError => e
           raise e if e.is_a?(StandardId::OAuthError)
-          raise StandardId::OAuthError, e.message
+          raise StandardId::OAuthError, e.message, cause: e
         end
 
-        def fetch_user_info(access_token:, connection: DEFAULT_CONNECTION)
+        def fetch_user_info(access_token:)
           raise StandardId::InvalidRequestError, "Missing access token" if access_token.blank?
 
-          creds = credentials_for(connection)
-          verify_token(access_token, creds[:client_id])
-
-          user_response = get_with_bearer(USERINFO_ENDPOINT, access_token)
+          verify_token(access_token)
+          user_response = HttpClient.get_with_bearer(USERINFO_ENDPOINT, access_token)
 
           unless user_response.is_a?(Net::HTTPSuccess)
             raise StandardId::InvalidRequestError, "Failed to fetch Google user info"
@@ -114,70 +106,28 @@ module StandardId
           JSON.parse(user_response.body)
         rescue StandardError => e
           raise e if e.is_a?(StandardId::OAuthError)
-          raise StandardId::OAuthError, e.message
-        end
-
-        def supported_connection?(connection)
-          credentials_for(connection)
-          true
-        rescue StandardId::OAuthError
-          false
+          raise StandardId::OAuthError, e.message, cause: e
         end
 
         private
 
-        def credentials_for(connection)
-          key = (connection.presence || DEFAULT_CONNECTION).to_s
+        def credentials
+          @credentials ||= begin
+            if StandardId.config.google_client_id.blank? || StandardId.config.google_client_secret.blank?
+              raise StandardId::InvalidRequestError, "Google provider is not configured"
+            end
 
-          creds = case key
-          when "google-oauth2"
-                    {
-                      client_id: StandardId.config.google_client_id,
-                      client_secret: StandardId.config.google_client_secret
-                    }
-          when "google-oauth2-android"
-                    {
-                      client_id: StandardId.config.google_android_client_id,
-                      client_secret: nil
-                    }
-          when "google-oauth2-ios"
-                    {
-                      client_id: StandardId.config.google_ios_client_id,
-                      client_secret: nil
-                    }
-          else
-                    raise StandardId::InvalidRequestError, "Unsupported Google connection: #{key}"
-          end
-
-          if creds[:client_id].blank?
-            raise StandardId::InvalidRequestError, "Google connection #{key} is not configured"
-          end
-
-          if key == DEFAULT_CONNECTION && creds[:client_secret].blank?
-            raise StandardId::InvalidRequestError, "Google web connection requires a client secret"
-          end
-
-          creds
-        end
-
-        def post_form(endpoint, params)
-          uri = URI(endpoint)
-          Net::HTTP.post_form(uri, params)
-        end
-
-        def get_with_bearer(endpoint, access_token)
-          uri = URI(endpoint)
-          request = Net::HTTP::Get.new(uri)
-          request["Authorization"] = "Bearer #{access_token}"
-          Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
-            http.request(request)
+            {
+              client_id: StandardId.config.google_client_id,
+              client_secret: StandardId.config.google_client_secret
+            }
           end
         end
 
-        def verify_token(access_token, expected_client_id)
-          token_info_uri = URI("https://www.googleapis.com/oauth2/v3/tokeninfo")
+        def verify_token(access_token)
+          token_info_uri = "https://www.googleapis.com/oauth2/v3/tokeninfo"
 
-          response = Net::HTTP.post_form(token_info_uri, access_token: access_token)
+          response = HttpClient.post_form(token_info_uri, access_token: access_token)
 
           unless response.is_a?(Net::HTTPSuccess)
             raise StandardId::InvalidRequestError, "Invalid or expired access token"
@@ -185,8 +135,8 @@ module StandardId
 
           token_info = JSON.parse(response.body)
 
-          unless token_info["aud"] == expected_client_id
-            raise StandardId::InvalidRequestError, "Access token audience mismatch. Expected: #{expected_client_id}, got: #{token_info['aud']}"
+          unless token_info["aud"] == credentials[:client_id]
+            raise StandardId::InvalidRequestError, "Access token audience mismatch. Expected: #{credentials[:client_id]}, got: #{token_info['aud']}"
           end
 
           token_info
