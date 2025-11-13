@@ -8,11 +8,11 @@ module StandardId
 
         def google
           expect_and_permit!([:id_token], [:id_token])
-          handle_social_callback("google",)
+          handle_social_callback("google")
         end
 
         def apple
-          expect_and_permit!([:state, :code], [:state, :code])
+          expect_and_permit!([:id_token], [:id_token])
           handle_social_callback("apple")
         end
 

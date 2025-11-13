@@ -9,6 +9,7 @@ module StandardId
           # Social callbacks must be accessible without an existing browser session
           # because they create/sign-in the session upon successful callback.
           skip_before_action :require_browser_session!, only: [:google, :apple]
+          skip_before_action :verify_authenticity_token, only: :apple
 
           def google
             handle_social_callback("google")
@@ -37,7 +38,7 @@ module StandardId
 
               redirect_to state_data["redirect_uri"], notice: "Successfully signed in with #{connection.humanize}"
             rescue StandardId::OAuthError => e
-              redirect_to login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
+              redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             end
           end
 
@@ -70,7 +71,7 @@ module StandardId
                             "Authentication failed"
             end
 
-            redirect_to login_path, alert: error_message
+            redirect_to StandardId::WebEngine.routes.url_helpers.login_path, alert: error_message
           end
         end
       end

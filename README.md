@@ -163,6 +163,7 @@ StandardId.configure do |config|
   config.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
 
   # Apple Sign In
+  config.social.apple_mobile_client_id = ENV["APPLE_MOBILE_CLIENT_ID"]
   config.social.apple_client_id = ENV["APPLE_CLIENT_ID"]
   config.social.apple_private_key = ENV["APPLE_PRIVATE_KEY"]
   config.social.apple_key_id = ENV["APPLE_KEY_ID"]

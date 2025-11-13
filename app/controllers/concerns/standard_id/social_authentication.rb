@@ -14,8 +14,9 @@ module StandardId
         redirect_uri: redirect_uri,
       )
       when "apple"
-      StandardId::SocialProviders::Apple.exchange_code_for_user_info(
+      StandardId::SocialProviders::Apple.get_user_info(
         code: params[:code],
+        id_token: params[:id_token],
         redirect_uri: redirect_uri
       )
       else

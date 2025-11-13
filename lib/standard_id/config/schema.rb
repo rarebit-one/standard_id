@@ -47,6 +47,7 @@ StandardConfig.schema.draw do
     field :apple_private_key, type: :string, default: nil
     field :apple_key_id, type: :string, default: nil
     field :apple_team_id, type: :string, default: nil
+    field :apple_mobile_client_id, type: :string, default: nil
     field :social_account_attributes, type: :any, default: nil
   end
 end
