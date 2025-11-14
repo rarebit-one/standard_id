@@ -11,7 +11,7 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
     before do
       allow(StandardId.config).to receive(:google_client_id).and_return("google_client_123")
       allow(StandardId.config).to receive(:google_client_secret).and_return("google-secret")
-      allow(StandardId::SocialProviders::Google).to receive(:exchange_code_for_user_info).and_return(
+      allow(StandardId::SocialProviders::Google).to receive(:get_user_info).and_return(
         { "email" => "user@example.com", "name" => "Test User", "sub" => "prov_123" }
       )
     end
@@ -19,8 +19,8 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
     it "signs in and redirects to decoded redirect_uri with notice" do
       http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
 
-      expect(StandardId::SocialProviders::Google).to have_received(:exchange_code_for_user_info).with(
-        hash_including(code: "auth_code_123")
+      expect(StandardId::SocialProviders::Google).to have_received(:get_user_info).with(
+        hash_including(code: "auth_code_123", redirect_uri: "http://www.example.com/auth/callback/google")
       )
       expect(response).to redirect_to("/dashboard")
       follow_redirect! if response.redirect?
@@ -61,10 +61,10 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
   end
 
   describe "POST /auth/callback/apple" do
-    let(:apple_state) { state_for("/dashboard", connection: "apple") }
+    let(:apple_state) { state_for("/dashboard") }
 
     before do
-      allow(StandardId::SocialProviders::Apple).to receive(:exchange_code_for_user_info).and_return(
+      allow(StandardId::SocialProviders::Apple).to receive(:get_user_info).and_return(
         { "email" => "user@privaterelay.appleid.com", "name" => "Apple User", "sub" => "apple_123" }
       )
     end
@@ -72,7 +72,7 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
     it "signs in and redirects to decoded redirect_uri with notice" do
       http_post "/auth/callback/apple", params: { state: apple_state, code: "apple_code_123" }
 
-      expect(StandardId::SocialProviders::Apple).to have_received(:exchange_code_for_user_info).with(
+      expect(StandardId::SocialProviders::Apple).to have_received(:get_user_info).with(
         hash_including(code: "apple_code_123", redirect_uri: "http://www.example.com/auth/callback/apple")
       )
       expect(response).to redirect_to("/dashboard")
