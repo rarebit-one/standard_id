@@ -4,24 +4,29 @@ module StandardId
 
     private
 
-    def get_user_info_from_provider(connection, redirect_uri: nil)
+    def get_user_info_from_provider(connection, redirect_uri: nil, flow: :web)
       case connection
       when "google"
-      StandardId::SocialProviders::Google.get_user_info(
-        code: params[:code],
-        id_token: params[:id_token],
-        access_token: params[:access_token],
-        redirect_uri: redirect_uri,
-      )
+        StandardId::SocialProviders::Google.get_user_info(
+          code: params[:code],
+          id_token: params[:id_token],
+          access_token: params[:access_token],
+          redirect_uri: redirect_uri
+        )
       when "apple"
-      StandardId::SocialProviders::Apple.get_user_info(
-        code: params[:code],
-        id_token: params[:id_token],
-        redirect_uri: redirect_uri
-      )
+        StandardId::SocialProviders::Apple.get_user_info(
+          code: params[:code],
+          id_token: params[:id_token],
+          redirect_uri: redirect_uri,
+          client_id: apple_client_id_for_flow(flow)
+        )
       else
-      raise StandardId::InvalidRequestError, "Unsupported provider: #{connection}"
+        raise StandardId::InvalidRequestError, "Unsupported provider: #{connection}"
       end
+    end
+
+    def apple_client_id_for_flow(flow)
+      flow == :web ? StandardId.config.apple_client_id : StandardId.config.apple_mobile_client_id
     end
 
     def find_or_create_account_from_social(raw_user_info, provider)
@@ -52,12 +57,12 @@ module StandardId
     def resolve_account_attributes(user_info, provider)
       resolver = StandardId.config.social_account_attributes
       attrs = if resolver.respond_to?(:call)
-                resolver.call(user_info: user_info, provider: provider)
+        resolver.call(user_info: user_info, provider: provider)
       else
-                {
-                  email: user_info[:email],
-                  name: user_info[:name].presence || user_info[:given_name].presence || user_info[:email]
-                }
+        {
+          email: user_info[:email],
+          name: user_info[:name].presence || user_info[:given_name].presence || user_info[:email]
+        }
       end
 
       unless attrs.is_a?(Hash)
@@ -65,6 +70,22 @@ module StandardId
       end
 
       attrs.symbolize_keys
+    end
+
+    def allow_other_host_redirect?(redirect_uri)
+      return false if redirect_uri.blank?
+
+      allowed = Array(StandardId.config.allowed_redirect_url_prefixes)
+      return false if allowed.blank?
+
+      allowed.any? do |entry|
+        case entry
+        when Regexp
+          entry.match?(redirect_uri)
+        else
+          redirect_uri.start_with?(entry.to_s)
+        end
+      end
     end
   end
 end

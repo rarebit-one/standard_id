@@ -8,8 +8,8 @@ module StandardId
 
           # Social callbacks must be accessible without an existing browser session
           # because they create/sign-in the session upon successful callback.
-          skip_before_action :require_browser_session!, only: [:google, :apple]
-          skip_before_action :verify_authenticity_token, only: :apple
+          skip_before_action :require_browser_session!, only: [:google, :apple, :apple_mobile]
+          skip_before_action :verify_authenticity_token, only: [:apple, :apple_mobile]
 
           def google
             handle_social_callback("google")
@@ -17,6 +17,21 @@ module StandardId
 
           def apple
             handle_social_callback("apple")
+          end
+
+          def apple_mobile
+            state_data = decode_state_params
+            destination = state_data["redirect_uri"]
+
+            unless allow_other_host_redirect?(destination)
+              raise StandardId::InvalidRequestError, "Redirect URI is not allowed"
+            end
+
+            relay_params = mobile_relay_params
+            @mobile_redirect_url = build_mobile_redirect(destination, relay_params)
+            render :apple_mobile, layout: false
+          rescue StandardId::InvalidRequestError => e
+            render plain: e.message, status: :unprocessable_entity
           end
 
           private
@@ -36,7 +51,10 @@ module StandardId
               account = find_or_create_account_from_social(user_info, connection)
               session_manager.sign_in_account(account)
 
-              redirect_to state_data["redirect_uri"], notice: "Successfully signed in with #{connection.humanize}"
+              destination = state_data["redirect_uri"]
+              redirect_options = { notice: "Successfully signed in with #{connection.humanize}" }
+              redirect_options[:allow_other_host] = true if allow_other_host_redirect?(destination)
+              redirect_to destination, redirect_options
             rescue StandardId::OAuthError => e
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             end
@@ -72,6 +90,20 @@ module StandardId
             end
 
             redirect_to StandardId::WebEngine.routes.url_helpers.login_path, alert: error_message
+          end
+
+          def mobile_relay_params
+            params.permit(:code, :state, :user, :userIdentifier, :id_token, :identity_token, :nonce).to_h.compact
+          end
+
+          def build_mobile_redirect(destination, extra_params)
+            uri = URI.parse(destination)
+            existing = Rack::Utils.parse_nested_query(uri.query)
+            merged = existing.merge(extra_params)
+            uri.query = merged.to_query.presence
+            uri.to_s
+          rescue URI::InvalidURIError
+            destination
           end
         end
       end

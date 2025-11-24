@@ -10,6 +10,7 @@ StandardId::WebEngine.routes.draw do
       namespace :callback do
         get :google, to: "providers#google"
         post :apple, to: "providers#apple"
+        post :apple_mobile, to: "providers#apple_mobile"
       end
     end
 

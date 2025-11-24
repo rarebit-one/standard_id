@@ -168,6 +168,7 @@ StandardId.configure do |config|
   config.social.apple_private_key = ENV["APPLE_PRIVATE_KEY"]
   config.social.apple_key_id = ENV["APPLE_KEY_ID"]
   config.social.apple_team_id = ENV["APPLE_TEAM_ID"]
+  config.social.allowed_redirect_url_prefixes = ["sidekicklabs://"]
 
   # Optional: adjust which attributes are persisted during social signup
   config.social.social_account_attributes = ->(user_info:, provider:) {

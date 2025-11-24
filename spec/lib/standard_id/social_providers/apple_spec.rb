@@ -193,6 +193,32 @@ RSpec.describe StandardId::SocialProviders::Apple do
       end
     end
 
+    context "with mobile client identifier" do
+      let(:mobile_client_id) { "com.example.mobileapp" }
+
+      before do
+        StandardId.config.apple_mobile_client_id = mobile_client_id
+      end
+
+      after do
+        StandardId.config.apple_mobile_client_id = nil
+      end
+
+      it "uses provided client_id for exchange" do
+        id_token = generate_test_id_token(sub: user_sub, email: user_email, aud: mobile_client_id)
+        stub_token_exchange_request(code: code, id_token: id_token, client_id: mobile_client_id)
+        stub_jwks_request
+
+        result = described_class.exchange_code_for_user_info(
+          code: code,
+          redirect_uri: redirect_uri,
+          client_id: mobile_client_id
+        )
+
+        expect(result["sub"]).to eq(user_sub)
+      end
+    end
+
     context "when token exchange fails" do
       it "raises an error with the failure reason" do
         stub_request(:post, "https://appleid.apple.com/auth/token")
@@ -278,7 +304,7 @@ RSpec.describe StandardId::SocialProviders::Apple do
 
         expect {
           described_class.verify_id_token(id_token: id_token)
-        }.to raise_error(StandardId::InvalidRequestError, /not in authorized client IDs/)
+        }.to raise_error(StandardId::InvalidRequestError, /Invalid Apple ID token audience/)
       end
     end
 
@@ -297,7 +323,7 @@ RSpec.describe StandardId::SocialProviders::Apple do
         id_token = generate_test_id_token(sub: user_sub, email: user_email, aud: mobile_client_id)
         stub_jwks_request
 
-        result = described_class.verify_id_token(id_token: id_token)
+        result = described_class.verify_id_token(id_token: id_token, client_id: mobile_client_id)
 
         expect(result["sub"]).to eq(user_sub)
         expect(result["email"]).to eq(user_email)
@@ -378,13 +404,13 @@ RSpec.describe StandardId::SocialProviders::Apple do
       )
   end
 
-  def stub_token_exchange_request(code:, id_token:)
+  def stub_token_exchange_request(code:, id_token:, client_id: apple_client_id)
     stub_request(:post, "https://appleid.apple.com/auth/token")
       .with { |req|
         body = URI.decode_www_form(req.body).to_h
         body["code"] == code &&
           body["grant_type"] == "authorization_code" &&
-          body["client_id"] == apple_client_id
+          body["client_id"] == client_id
       }
       .to_return(
         status: 200,

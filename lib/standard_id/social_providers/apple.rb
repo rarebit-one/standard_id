@@ -29,23 +29,23 @@ module StandardId
           "#{AUTH_ENDPOINT}?#{URI.encode_www_form(query)}"
         end
 
-        def get_user_info(code: nil, id_token: nil, redirect_uri: nil)
+        def get_user_info(code: nil, id_token: nil, redirect_uri: nil, client_id: StandardId.config.apple_client_id)
           if id_token.present?
-            verify_id_token(id_token: id_token)
+            verify_id_token(id_token: id_token, client_id: client_id)
           elsif code.present?
-            exchange_code_for_user_info(code: code, redirect_uri: redirect_uri)
+            exchange_code_for_user_info(code: code, redirect_uri: redirect_uri, client_id: client_id)
           else
             raise StandardId::InvalidRequestError, "Either code or id_token must be provided"
           end
         end
 
-        def exchange_code_for_user_info(code:, redirect_uri:)
-          ensure_full_credentials!
+        def exchange_code_for_user_info(code:, redirect_uri:, client_id: StandardId.config.apple_client_id)
+          ensure_full_credentials!(client_id: client_id)
           raise StandardId::InvalidRequestError, "Missing authorization code" if code.blank?
 
           token_response = HttpClient.post_form(TOKEN_ENDPOINT, {
-            client_id: StandardId.config.apple_client_id,
-            client_secret: generate_client_secret,
+            client_id: client_id,
+            client_secret: generate_client_secret(client_id: client_id),
             code: code,
             grant_type: "authorization_code",
             redirect_uri: redirect_uri
@@ -60,44 +60,42 @@ module StandardId
           id_token = parsed_token["id_token"]
           raise StandardId::InvalidRequestError, "Apple response missing id_token" if id_token.blank?
 
-          verify_id_token(id_token: id_token)
+          verify_id_token(id_token: id_token, client_id: client_id)
         rescue StandardError => e
           raise e if e.is_a?(StandardId::OAuthError)
           raise StandardId::OAuthError, e.message, cause: e
         end
 
-        def verify_id_token(id_token:)
+        def verify_id_token(id_token:, client_id: StandardId.config.apple_client_id)
           raise StandardId::InvalidRequestError, "Missing id_token" if id_token.blank?
+          if client_id.blank?
+            raise StandardId::InvalidRequestError, "Apple client_id is not configured"
+          end
 
           decoded_token = JWT.decode(id_token, nil, false)
-          payload = decoded_token[0]
           header = decoded_token[1]
 
           jwk = fetch_jwk(kid: header["kid"])
 
-          token_audience = payload["aud"]
-          authorized_client_ids = [StandardId.config.apple_client_id, StandardId.config.apple_mobile_client_id].compact
-
-          unless authorized_client_ids.include?(token_audience)
-            raise StandardId::InvalidRequestError, "ID token audience '#{token_audience}' not in authorized client IDs"
-          end
-
-          JWT.decode(
+          verified_payload, = JWT.decode(
             id_token,
             jwk.public_key,
             true,
             algorithm: "RS256",
             iss: ISSUER,
             verify_iss: true,
-            verify_aud: false # Audience already verified above
+            aud: client_id,
+            verify_aud: true
           )
 
           {
-            "sub" => payload["sub"],
-            "email" => payload["email"],
-            "email_verified" => payload["email_verified"],
-            "is_private_email" => payload["is_private_email"]
+            "sub" => verified_payload["sub"],
+            "email" => verified_payload["email"],
+            "email_verified" => verified_payload["email_verified"],
+            "is_private_email" => verified_payload["is_private_email"]
           }.compact
+        rescue JWT::InvalidAudError => e
+          raise StandardId::InvalidRequestError, "Invalid Apple ID token audience: #{e.message}"
         rescue JWT::DecodeError => e
           raise StandardId::InvalidRequestError, "Invalid Apple ID token: #{e.message}"
         rescue StandardError => e
@@ -107,14 +105,14 @@ module StandardId
 
         private
 
-        def ensure_basic_credentials!
-          if StandardId.config.apple_client_id.blank?
+        def ensure_basic_credentials!(client_id: StandardId.config.apple_client_id)
+          if client_id.blank?
             raise StandardId::InvalidRequestError, "Apple OAuth is not configured"
           end
         end
 
-        def ensure_full_credentials!
-          ensure_basic_credentials!
+        def ensure_full_credentials!(client_id: nil)
+          ensure_basic_credentials!(client_id: client_id)
 
           required = [
             StandardId.config.apple_private_key,
@@ -127,7 +125,7 @@ module StandardId
           end
         end
 
-        def generate_client_secret
+        def generate_client_secret(client_id: StandardId.config.apple_client_id)
           header = {
             alg: "ES256",
             kid: StandardId.config.apple_key_id
@@ -138,7 +136,7 @@ module StandardId
             iat: Time.current.to_i,
             exp: Time.current.to_i + 3600,
             aud: ISSUER,
-            sub: StandardId.config.apple_client_id
+            sub: client_id
           }
 
           private_key = OpenSSL::PKey::EC.new(StandardId.config.apple_private_key)

@@ -49,5 +49,6 @@ StandardConfig.schema.draw do
     field :apple_team_id, type: :string, default: nil
     field :apple_mobile_client_id, type: :string, default: nil
     field :social_account_attributes, type: :any, default: nil
+    field :allowed_redirect_url_prefixes, type: :array, default: []
   end
 end
