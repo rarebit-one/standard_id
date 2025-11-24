@@ -64,7 +64,8 @@ RSpec.describe StandardId::SocialProviders::Google do
           id_token: id_token
         )
 
-        expect(result).to eq(user_info)
+        expect(result[:user_info]).to eq(user_info)
+        expect(result[:tokens]).to eq({ id_token: id_token }.with_indifferent_access)
       end
     end
 
@@ -81,7 +82,8 @@ RSpec.describe StandardId::SocialProviders::Google do
           access_token: access_token
         )
 
-        expect(result).to eq(user_info)
+        expect(result[:user_info]).to eq(user_info)
+        expect(result[:tokens]).to eq({ access_token: access_token }.with_indifferent_access)
       end
     end
 
@@ -93,14 +95,15 @@ RSpec.describe StandardId::SocialProviders::Google do
       it "exchanges code for user info" do
         expect(described_class).to receive(:exchange_code_for_user_info)
           .with(code: code, redirect_uri: redirect_uri)
-          .and_return(user_info)
+          .and_return({ user_info: user_info, tokens: { access_token: "exchanged" } })
 
         result = described_class.get_user_info(
           code: code,
           redirect_uri: redirect_uri
         )
 
-        expect(result).to eq(user_info)
+        expect(result[:user_info]).to eq(user_info)
+        expect(result[:tokens]).to include(:access_token)
       end
     end
 
@@ -128,7 +131,7 @@ RSpec.describe StandardId::SocialProviders::Google do
           grant_type: "authorization_code",
           redirect_uri: redirect_uri
         })
-        .to_return(status: 200, body: { access_token: access_token }.to_json)
+        .to_return(status: 200, body: { access_token: access_token, token_type: "Bearer" }.to_json)
 
       stub_request(:post, "https://www.googleapis.com/oauth2/v3/tokeninfo")
         .with(body: { access_token: access_token })
@@ -143,7 +146,10 @@ RSpec.describe StandardId::SocialProviders::Google do
         redirect_uri: redirect_uri
       )
 
-      expect(result).to eq(user_info)
+      expect(result[:user_info]).to eq(user_info)
+      expect(result[:tokens]).to include(
+        access_token: access_token,
+      )
     end
 
     it "raises error when code is blank" do

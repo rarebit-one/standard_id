@@ -47,9 +47,18 @@ module StandardId
             begin
               state_data = decode_state_params
               redirect_uri = connection == "apple" ? apple_callback_url : google_callback_url
-              user_info = get_user_info_from_provider(connection, redirect_uri: redirect_uri)
-              account = find_or_create_account_from_social(user_info, connection)
+              provider_response = get_user_info_from_provider(connection, redirect_uri: redirect_uri)
+              social_info = provider_response[:user_info]
+              provider_tokens = provider_response[:tokens]
+              account = find_or_create_account_from_social(social_info, connection)
               session_manager.sign_in_account(account)
+
+              run_social_callback(
+                provider: connection,
+                social_info: social_info,
+                provider_tokens: provider_tokens,
+                account: account,
+              )
 
               destination = state_data["redirect_uri"]
               redirect_options = { notice: "Successfully signed in with #{connection.humanize}" }

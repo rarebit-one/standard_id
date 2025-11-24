@@ -2,10 +2,13 @@ require "uri"
 require "net/http"
 require "json"
 require "jwt"
+require_relative "response_builder"
 
 module StandardId
   module SocialProviders
     class Apple
+      include ResponseBuilder
+
       ISSUER = "https://appleid.apple.com".freeze
       AUTH_ENDPOINT = "#{ISSUER}/auth/authorize".freeze
       TOKEN_ENDPOINT = "#{ISSUER}/auth/token".freeze
@@ -31,7 +34,10 @@ module StandardId
 
         def get_user_info(code: nil, id_token: nil, redirect_uri: nil, client_id: StandardId.config.apple_client_id)
           if id_token.present?
-            verify_id_token(id_token: id_token, client_id: client_id)
+            build_response(
+              verify_id_token(id_token: id_token, client_id: client_id),
+              tokens: { id_token: id_token }
+            )
           elsif code.present?
             exchange_code_for_user_info(code: code, redirect_uri: redirect_uri, client_id: client_id)
           else
@@ -60,7 +66,10 @@ module StandardId
           id_token = parsed_token["id_token"]
           raise StandardId::InvalidRequestError, "Apple response missing id_token" if id_token.blank?
 
-          verify_id_token(id_token: id_token, client_id: client_id)
+          tokens = extract_token_payload(parsed_token)
+          user_info = verify_id_token(id_token: id_token, client_id: client_id)
+
+          build_response(user_info, tokens: tokens)
         rescue StandardError => e
           raise e if e.is_a?(StandardId::OAuthError)
           raise StandardId::OAuthError, e.message, cause: e
@@ -160,6 +169,14 @@ module StandardId
         rescue StandardError => e
           raise e if e.is_a?(StandardId::OAuthError)
           raise StandardId::OAuthError, "Failed to fetch JWK: #{e.message}"
+        end
+
+        def extract_token_payload(parsed_token)
+          {
+            access_token: parsed_token["access_token"],
+            refresh_token: parsed_token["refresh_token"],
+            id_token: parsed_token["id_token"]
+          }.compact
         end
       end
     end
