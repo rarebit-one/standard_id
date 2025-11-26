@@ -15,7 +15,7 @@ module StandardId
         )
       when "apple"
         StandardId::SocialProviders::Apple.get_user_info(
-          code: params[:code],
+        code: params[:code],
           id_token: params[:id_token],
           redirect_uri: redirect_uri,
           client_id: apple_client_id_for_flow(flow)
@@ -90,7 +90,6 @@ module StandardId
 
     def run_social_callback(provider:, social_info:, provider_tokens:, account:)
       callback = StandardId.config.social_callback
-      return unless callback.respond_to?(:call)
 
       payload = {
         provider: provider,

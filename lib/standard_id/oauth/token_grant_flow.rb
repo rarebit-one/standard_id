@@ -156,8 +156,6 @@ module StandardId
       end
 
       def resolve_claim_value(resolver)
-        return unless resolver.respond_to?(:call)
-
         filtered_context = StandardId::Utils::CallableParameterFilter.filter(resolver, claim_resolvers_context)
         resolver.call(**filtered_context)
       end

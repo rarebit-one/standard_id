@@ -3,11 +3,9 @@ module StandardId
     class CallableParameterFilter
       class << self
         def filter(callable, context)
-          return {} unless callable.respond_to?(:call)
+          return {} unless callable.respond_to?(:call) && context.present?
 
-          payload = normalize_context(context)
-          return payload if payload.empty?
-
+          payload = context.to_h.symbolize_keys
           accepted_keys = accepted_parameters(callable)
           return payload if accepted_keys.nil?
 
@@ -30,16 +28,6 @@ module StandardId
             callable.method(:call).parameters
           else
             []
-          end
-        end
-
-        def normalize_context(context)
-          return {} unless context.respond_to?(:to_h)
-
-          context.to_h.each_with_object({}) do |(key, value), memo|
-            next if key.nil?
-
-            memo[key.to_sym] = value
           end
         end
       end
