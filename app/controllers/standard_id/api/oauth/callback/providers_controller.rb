@@ -21,8 +21,10 @@ module StandardId
         def handle_social_callback(connection)
           original_params = decode_state_params
           flow = resolve_flow_for(connection)
-          user_info = get_user_info_from_provider(connection, flow: flow)
-          account = find_or_create_account_from_social(user_info, connection)
+          provider_response = get_user_info_from_provider(connection, flow: flow)
+          social_info = provider_response[:user_info]
+          provider_tokens = provider_response[:tokens]
+          account = find_or_create_account_from_social(social_info, connection)
 
           flow = StandardId::Oauth::SocialFlow.new(
             params,
@@ -33,6 +35,12 @@ module StandardId
           )
 
           token_response = flow.execute
+          run_social_callback(
+            provider: connection,
+            social_info: social_info,
+            provider_tokens: provider_tokens,
+            account: account,
+          )
           render json: token_response, status: :ok
         end
 
@@ -52,7 +60,7 @@ module StandardId
           return :mobile unless connection == "apple"
 
           flow_param = params[:flow].to_s.downcase
-          flow_param == "mobile" ? :mobile : :web
+          flow_param == "web" ? :web : :mobile
         end
       end
     end

@@ -155,22 +155,9 @@ module StandardId
         }
       end
 
-      def callable_parameters(resolver)
-        parameters = if resolver.respond_to?(:parameters)
-          resolver.parameters
-        elsif resolver.respond_to?(:method) && resolver.respond_to?(:call)
-          resolver.method(:call).parameters
-        else
-          []
-        end
-
-        accepts_all = parameters.any? { |type, _| type == :keyrest }
-
-        accepts_all ?  claim_resolvers_context.keys : parameters.map { |_, name| name.to_sym }
-      end
-
       def resolve_claim_value(resolver)
-        resolver&.call(**claim_resolvers_context.slice(*callable_parameters(resolver)))
+        filtered_context = StandardId::Utils::CallableParameterFilter.filter(resolver, claim_resolvers_context)
+        resolver.call(**filtered_context)
       end
     end
   end

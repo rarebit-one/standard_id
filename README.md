@@ -171,16 +171,26 @@ StandardId.configure do |config|
   config.social.allowed_redirect_url_prefixes = ["sidekicklabs://"]
 
   # Optional: adjust which attributes are persisted during social signup
-  config.social.social_account_attributes = ->(user_info:, provider:) {
+  config.social.social_account_attributes = ->(social_info:, provider:) {
     {
-      email: user_info[:email],
-      name: user_info[:name] || user_info[:given_name]
+      email: social_info[:email],
+      name: social_info[:name] || social_info[:given_name]
     }
+  }
+
+  # Optional: run a callback whenever a social login completes
+  config.social.social_callback = ->(social_info:, provider:, tokens:, account:) {
+    AuditLog.social_login(
+      provider: provider,
+      email: social_info[:email],
+      tokens: tokens,
+      account_id: account.id,
+    )
   }
 end
 ```
 
-`user_info` is an indifferent-access hash containing at least `email`, `name`, and `provider_id`.
+`social_info` is an indifferent-access hash containing at least `email`, `name`, and `provider_id`.
 
 ### Passwordless Authentication
 

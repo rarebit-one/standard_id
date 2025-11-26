@@ -30,6 +30,7 @@ require "standard_id/oauth/passwordless_otp_flow"
 require "standard_id/passwordless/base_strategy"
 require "standard_id/passwordless/email_strategy"
 require "standard_id/passwordless/sms_strategy"
+require "standard_id/utils/callable_parameter_filter"
 require "standard_id/social_providers/google"
 require "standard_id/social_providers/apple"
 

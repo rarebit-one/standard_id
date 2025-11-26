@@ -41,11 +41,19 @@ StandardId.configure do |c|
   # c.social.apple_key_id         = ENV["APPLE_KEY_ID"]
   # c.social.apple_team_id        = ENV["APPLE_TEAM_ID"]
   # c.social.allowed_redirect_url_prefixes = ["sidekicklabs://"]
-  # c.social.social_account_attributes = ->(user_info:, provider:) {
+  # c.social.social_account_attributes = ->(social_info:, provider:) {
   #   {
-  #     email: user_info[:email],
-  #     name: user_info[:name] || user_info[:given_name]
+  #     email: social_info[:email],
+  #     name: social_info[:name] || social_info[:given_name]
   #   }
+  # }
+  # c.social.social_callback = ->(social_info:, provider:, tokens:, account:) {
+  #   Analytics.track_social_login(
+  #     provider: provider,
+  #     email: social_info[:email],
+  #     tokens: tokens,
+  #     account_id: account.id
+  #   )
   # }
 
   # OIDC Logout allow list
