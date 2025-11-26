@@ -96,8 +96,9 @@ RSpec.describe StandardId::SocialProviders::Apple do
 
         result = described_class.get_user_info(id_token: id_token)
 
-        expect(result["sub"]).to eq(user_sub)
-        expect(result["email"]).to eq(user_email)
+        expect(result[:user_info]["sub"]).to eq(user_sub)
+        expect(result[:user_info]["email"]).to eq(user_email)
+        expect(result[:tokens]).to eq({ id_token: id_token }.with_indifferent_access)
       end
 
       it "raises error when id_token is blank" do
@@ -120,8 +121,9 @@ RSpec.describe StandardId::SocialProviders::Apple do
 
         result = described_class.get_user_info(code: code, redirect_uri: redirect_uri)
 
-        expect(result["sub"]).to eq(user_sub)
-        expect(result["email"]).to eq(user_email)
+        expect(result[:user_info]["sub"]).to eq(user_sub)
+        expect(result[:user_info]["email"]).to eq(user_email)
+        expect(result[:tokens]).to include(:access_token, :id_token)
       end
 
       it "raises error when code is blank" do
@@ -157,9 +159,14 @@ RSpec.describe StandardId::SocialProviders::Apple do
           redirect_uri: redirect_uri
         )
 
-        expect(result["sub"]).to eq(user_sub)
-        expect(result["email"]).to eq(user_email)
-        expect(result["is_private_email"]).to eq("true")
+        expect(result[:user_info]["sub"]).to eq(user_sub)
+        expect(result[:user_info]["email"]).to eq(user_email)
+        expect(result[:user_info]["is_private_email"]).to eq("true")
+        expect(result[:tokens]).to include(
+          access_token: "test_access_token",
+          refresh_token: "test_refresh_token"
+        )
+        expect(result[:tokens]).to include(:id_token)
       end
 
       it "generates a valid client_secret JWT" do
@@ -215,7 +222,7 @@ RSpec.describe StandardId::SocialProviders::Apple do
           client_id: mobile_client_id
         )
 
-        expect(result["sub"]).to eq(user_sub)
+        expect(result.dig(:user_info, :sub)).to eq(user_sub)
       end
     end
 

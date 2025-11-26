@@ -1,6 +1,10 @@
+require_relative "response_builder"
+
 module StandardId
   module SocialProviders
     class Google
+      include ResponseBuilder
+
       AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth".freeze
       TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token".freeze
       USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo".freeze
@@ -24,9 +28,15 @@ module StandardId
 
         def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil)
           if id_token.present?
-            verify_id_token(id_token: id_token)
+            build_response(
+              verify_id_token(id_token: id_token),
+              tokens: { id_token: id_token }
+            )
           elsif access_token.present?
-            fetch_user_info(access_token: access_token)
+            build_response(
+              fetch_user_info(access_token: access_token),
+              tokens: { access_token: access_token }
+            )
           elsif code.present?
             exchange_code_for_user_info(code: code, redirect_uri: redirect_uri)
           else
@@ -53,7 +63,10 @@ module StandardId
           access_token = parsed_token["access_token"]
           raise StandardId::InvalidRequestError, "Google response missing access token" if access_token.blank?
 
-          fetch_user_info(access_token: access_token)
+          tokens = extract_token_payload(parsed_token)
+          user_info = fetch_user_info(access_token: access_token)
+
+          build_response(user_info, tokens: tokens)
         rescue StandardError => e
           raise e if e.is_a?(StandardId::OAuthError)
           raise StandardId::OAuthError, e.message, cause: e
@@ -140,6 +153,14 @@ module StandardId
           end
 
           token_info
+        end
+
+        def extract_token_payload(parsed_token)
+          {
+            access_token: parsed_token["access_token"],
+            refresh_token: parsed_token["refresh_token"],
+            id_token: parsed_token["id_token"]
+          }.compact
         end
       end
     end

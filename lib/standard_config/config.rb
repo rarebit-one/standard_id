@@ -26,7 +26,7 @@ module StandardConfig
     # Social login provider credentials and hooks
     attr_accessor :google_client_id, :google_client_secret
     attr_accessor :apple_client_id, :apple_client_secret, :apple_private_key, :apple_key_id, :apple_team_id
-    attr_accessor :social_account_attributes
+    attr_accessor :social_account_attributes, :social_callback
 
     # Passwordless authentication callbacks
     # These should be callable objects (procs/lambdas) that accept (recipient, code) parameters
@@ -56,6 +56,7 @@ module StandardConfig
       @apple_key_id = nil
       @apple_team_id = nil
       @social_account_attributes = nil
+      @social_callback = nil
       @passwordless_email_sender = nil
       @passwordless_sms_sender = nil
       @allowed_post_logout_redirect_uris = []
