@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    standard_id (0.1.4)
+    standard_id (0.1.5)
       bcrypt (~> 3.1)
       jwt (~> 2.7)
       rails (~> 8.0)

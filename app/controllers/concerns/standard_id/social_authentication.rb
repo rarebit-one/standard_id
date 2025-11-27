@@ -57,7 +57,13 @@ module StandardId
     def resolve_account_attributes(social_info, provider)
       resolver = StandardId.config.social_account_attributes
       attrs = if resolver.respond_to?(:call)
-                resolver.call(social_info: social_info, provider: provider)
+                payload = {
+                  social_info: social_info,
+                  provider: provider
+                }
+
+                filtered_payload = StandardId::Utils::CallableParameterFilter.filter(resolver, payload)
+                resolver.call(**filtered_payload)
       else
                 {
                   email: social_info[:email],
@@ -90,6 +96,7 @@ module StandardId
 
     def run_social_callback(provider:, social_info:, provider_tokens:, account:)
       callback = StandardId.config.social_callback
+      return if callback.blank?
 
       payload = {
         provider: provider,
