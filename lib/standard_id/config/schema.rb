@@ -14,6 +14,8 @@ StandardConfig.schema.draw do
     field :issuer, type: :string, default: nil
     field :login_url, type: :string, default: nil
     field :allowed_post_logout_redirect_uris, type: :array, default: []
+    field :use_inertia, type: :boolean, default: false
+    field :inertia_component_namespace, type: :string, default: "standard_id"
   end
 
   scope :passwordless do

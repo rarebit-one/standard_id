@@ -7,6 +7,14 @@ StandardId.configure do |c|
   # c.cache_store = Rails.cache
   # c.logger = Rails.logger
   # c.web_layout = "application"
+
+  # Inertia.js support (requires inertia_rails gem)
+  # When enabled, StandardId web controllers will render Inertia components
+  # instead of ERB views. You must create the corresponding components in your
+  # frontend (e.g., pages/auth/login/show.tsx)
+  # c.use_inertia = true
+  # c.inertia_component_namespace = "auth" # Component path prefix (e.g., "auth/login/show")
+
   # c.passwordless_email_sender = ->(email, code) { PasswordlessMailer.with(code: code, to: email).deliver_later }
   # c.passwordless_sms_sender   = ->(phone, code) { SmsProvider.send_code(phone: phone, code: code) }
 

@@ -11,6 +11,16 @@ RSpec.describe StandardId do
       expect(StandardId.config.account_class_name).to eq("User")
       expect(StandardId.config.web_layout).to eq("custom")
     end
+
+    it "configures inertia settings" do
+      StandardId.configure do |config|
+        config.use_inertia = true
+        config.inertia_component_namespace = "Auth"
+      end
+
+      expect(StandardId.config.use_inertia).to eq(true)
+      expect(StandardId.config.inertia_component_namespace).to eq("Auth")
+    end
   end
 
   describe ".config" do

@@ -3,6 +3,7 @@ module StandardId
     extend ActiveSupport::Concern
 
     included do
+      include StandardId::InertiaSupport
       helper_method :current_account, :authenticated?
     end
 
@@ -16,6 +17,26 @@ module StandardId
 
     def require_browser_session!
       authentication_guard.require_session!(session_manager, session: session, request: request)
+    end
+
+    # Require authentication with redirect to login page instead of raising an error.
+    # Use this for pages that should redirect unauthenticated users to login.
+    def authenticate_account!
+      return if authenticated?
+
+      store_location_for_redirect
+      redirect_to_login
+    end
+
+    # Store the current URL to redirect back after authentication
+    def store_location_for_redirect
+      session[:return_to_after_authenticating] = request.url if request.get?
+    end
+
+    # Redirect to login page, handling both Inertia and standard requests
+    def redirect_to_login
+      login_path = StandardId.config.login_url.presence || "/login"
+      redirect_with_inertia login_path
     end
 
     def after_authentication_url

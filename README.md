@@ -37,6 +37,11 @@ A comprehensive authentication engine for Rails applications, built on the secur
 - **Remember Me**: Extended session support
 - **Account Lockout**: Protection against brute force attacks
 
+### ⚡ Frontend Framework Support
+- **Inertia.js Integration**: Optional support for React, Vue, or Svelte frontends
+- **Conditional Rendering**: Automatically switches between ERB and Inertia based on configuration
+- **External Redirects**: Proper handling of OAuth redirects in SPA contexts
+
 ## Installation
 
 Add this line to your application's Gemfile:
@@ -113,6 +118,10 @@ StandardId.configure do |config|
 
   # Custom layout for web views
   config.web_layout = "application"
+
+  # Inertia.js support (see Inertia.js Integration section below)
+  # config.use_inertia = true
+  # config.inertia_component_namespace = "auth"
 
   # Passwordless delivery callbacks
   # config.passwordless_email_sender = ->(email, code) { UserMailer.send_code(email, code).deliver_now }
@@ -191,6 +200,160 @@ end
 ```
 
 `social_info` is an indifferent-access hash containing at least `email`, `name`, and `provider_id`.
+
+### Inertia.js Integration
+
+StandardId supports [Inertia.js](https://inertiajs.com/) for modern React, Vue, or Svelte frontends. When enabled, web controllers render Inertia components instead of ERB views.
+
+#### Setup
+
+1. Add the `inertia_rails` gem to your Gemfile:
+
+```ruby
+gem "inertia_rails"
+```
+
+2. Enable Inertia in your StandardId configuration:
+
+```ruby
+StandardId.configure do |config|
+  config.use_inertia = true
+  config.inertia_component_namespace = "auth" # Optional, defaults to "standard_id"
+end
+```
+
+3. Create the corresponding frontend components. The component path follows the pattern:
+   `{namespace}/{ControllerName}/{action}`
+
+For example, with `inertia_component_namespace = "auth"`:
+- Login page: `pages/auth/login/show.tsx`
+- Signup page: `pages/auth/signup/show.tsx`
+
+#### Example Component (React)
+
+```tsx
+// frontend/pages/auth/login/show.tsx
+import { useForm } from '@inertiajs/react'
+
+interface Props {
+  redirect_uri: string
+  connection: string | null
+  flash: { notice?: string; alert?: string }
+  social_providers: { google_enabled: boolean; apple_enabled: boolean }
+}
+
+export default function LoginShow({ redirect_uri, flash, social_providers }: Props) {
+  const { data, setData, post, processing } = useForm({
+    'login[email]': '',
+    'login[password]': '',
+    'login[remember_me]': false,
+    redirect_uri,
+  })
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    post('/login')
+  }
+
+  const handleSocialLogin = (connection: string) => {
+    post('/login', { data: { connection, redirect_uri } })
+  }
+
+  return (
+    <div className="login-container">
+      {flash.alert && <div className="alert alert-error">{flash.alert}</div>}
+      {flash.notice && <div className="alert alert-success">{flash.notice}</div>}
+
+      <form onSubmit={handleSubmit}>
+        <div>
+          <label htmlFor="email">Email</label>
+          <input
+            id="email"
+            type="email"
+            value={data['login[email]']}
+            onChange={e => setData('login[email]', e.target.value)}
+            required
+          />
+        </div>
+
+        <div>
+          <label htmlFor="password">Password</label>
+          <input
+            id="password"
+            type="password"
+            value={data['login[password]']}
+            onChange={e => setData('login[password]', e.target.value)}
+            required
+          />
+        </div>
+
+        <div>
+          <label>
+            <input
+              type="checkbox"
+              checked={data['login[remember_me]'] as boolean}
+              onChange={e => setData('login[remember_me]', e.target.checked)}
+            />
+            Remember me
+          </label>
+        </div>
+
+        <button type="submit" disabled={processing}>
+          {processing ? 'Signing in...' : 'Sign In'}
+        </button>
+      </form>
+
+      {(social_providers.google_enabled || social_providers.apple_enabled) && (
+        <div className="social-login">
+          <p>Or continue with</p>
+          {social_providers.google_enabled && (
+            <button type="button" onClick={() => handleSocialLogin('google')}>
+              Sign in with Google
+            </button>
+          )}
+          {social_providers.apple_enabled && (
+            <button type="button" onClick={() => handleSocialLogin('apple')}>
+              Sign in with Apple
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+```
+
+> **Note:** The `useForm` hook from `@inertiajs/react` automatically handles CSRF tokens. When you call `post()`, `put()`, `patch()`, or `delete()`, Inertia reads the CSRF token from the `<meta name="csrf-token">` tag in your layout and includes it in the request headers.
+
+#### Props Passed to Components
+
+Authentication pages receive the following props:
+
+| Prop | Type | Description |
+|------|------|-------------|
+| `redirect_uri` | `string` | URL to redirect to after authentication |
+| `connection` | `string \| null` | Social provider connection (if any) |
+| `flash` | `{ notice?: string, alert?: string }` | Flash messages |
+| `social_providers` | `{ google_enabled: boolean, apple_enabled: boolean }` | Available social providers |
+| `errors` | `object` | Validation errors (on form submission failures) |
+
+#### Using Authentication in Host App Controllers
+
+You can use the `authenticate_account!` method in your own controllers to require authentication with Inertia-compatible redirects:
+
+```ruby
+class DashboardController < ApplicationController
+  include StandardId::WebAuthentication
+
+  before_action :authenticate_account!
+
+  def show
+    # Only authenticated users can access this
+  end
+end
+```
+
+This will redirect unauthenticated users to the login page using `inertia_location` for Inertia requests, ensuring proper SPA navigation.
 
 ### Passwordless Authentication
 

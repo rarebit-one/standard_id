@@ -42,6 +42,14 @@ module StandardConfig
     # Examples: "application", "standard_id/web/application", "my_custom_layout"
     attr_accessor :web_layout
 
+    # Enable Inertia.js rendering for StandardId Web controllers
+    # When true and inertia_rails gem is available, controllers will render Inertia components
+    attr_accessor :use_inertia
+
+    # Namespace prefix for Inertia component paths
+    # Example: "Auth" will generate component paths like "Auth/Login/show"
+    attr_accessor :inertia_component_namespace
+
     def initialize
       @account_class_name = nil
       @cache_store = nil
@@ -61,6 +69,8 @@ module StandardConfig
       @passwordless_sms_sender = nil
       @allowed_post_logout_redirect_uris = []
       @web_layout = nil
+      @use_inertia = nil
+      @inertia_component_namespace = nil
     end
 
     def account_class

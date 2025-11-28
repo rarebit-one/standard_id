@@ -1,6 +1,8 @@
 module StandardId
   module Web
     class SignupController < BaseController
+      include StandardId::InertiaRendering
+
       layout "public"
 
       skip_before_action :require_browser_session!, only: [:show, :create]
@@ -11,6 +13,8 @@ module StandardId
       def show
         @redirect_uri = params[:redirect_uri] || after_authentication_url
         @connection = params[:connection] # For social login detection
+
+        render_with_inertia props: auth_page_props
       end
 
       def create
@@ -24,7 +28,7 @@ module StandardId
       end
 
       def redirect_if_social_login
-        redirect_to social_signup_url, allow_other_host: true if params[:connection].present?
+        redirect_with_inertia social_signup_url, allow_other_host: true if params[:connection].present?
       end
 
       def handle_password_signup
@@ -35,8 +39,10 @@ module StandardId
           redirect_to params[:redirect_uri] || after_authentication_url,
                       notice: "Account created successfully"
         else
+          @redirect_uri = params[:redirect_uri] || after_authentication_url
+          @connection = params[:connection]
           flash.now[:alert] = form.errors.full_messages.join(", ")
-          render :show, status: :unprocessable_content
+          render_with_inertia action: :show, props: auth_page_props(errors: form.errors.to_hash), status: :unprocessable_content
         end
       end
 

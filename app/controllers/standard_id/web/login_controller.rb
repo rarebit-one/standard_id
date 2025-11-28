@@ -1,6 +1,8 @@
 module StandardId
   module Web
     class LoginController < BaseController
+      include StandardId::InertiaRendering
+
       layout "public"
 
       skip_before_action :require_browser_session!, only: [:show, :create]
@@ -11,6 +13,8 @@ module StandardId
       def show
         @redirect_uri = params[:redirect_uri] || after_authentication_url
         @connection = params[:connection]
+
+        render_with_inertia props: auth_page_props
       end
 
       def create
@@ -18,7 +22,7 @@ module StandardId
           redirect_to params[:redirect_uri] || after_authentication_url, status: :see_other, notice: "Successfully signed in"
         else
           flash.now[:alert] = "Invalid email or password"
-          render :show, status: :unprocessable_content
+          render_with_inertia action: :show, props: auth_page_props, status: :unprocessable_content
         end
       end
 
@@ -29,7 +33,7 @@ module StandardId
       end
 
       def redirect_if_social_login
-        redirect_to social_login_url, allow_other_host: true if params[:connection].present?
+        redirect_with_inertia social_login_url, allow_other_host: true if params[:connection].present?
       end
 
       def social_login_url
