@@ -1,5 +1,3 @@
-# frozen_string_literal: true
-
 module StandardId
   module InertiaRendering
     extend ActiveSupport::Concern

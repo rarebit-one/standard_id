@@ -1,11 +1,9 @@
-# frozen_string_literal: true
-
 module StandardId
   module InertiaSupport
     extend ActiveSupport::Concern
 
     included do
-      helper_method :use_inertia? if respond_to?(:helper_method)
+      helper_method :use_inertia?
     end
 
     private
