@@ -78,3 +78,14 @@ Shoulda::Matchers.configure do |config|
 end
 
 BCrypt::Engine.cost = 1
+
+# Helper module for clearing event subscribers in tests
+module StandardIdEventsTestHelper
+  def clear_event_subscribers!
+    ActiveSupport::Notifications.notifier = ActiveSupport::Notifications::Fanout.new
+  end
+end
+
+RSpec.configure do |config|
+  config.include StandardIdEventsTestHelper
+end

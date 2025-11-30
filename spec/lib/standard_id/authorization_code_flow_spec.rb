@@ -1,12 +1,14 @@
 require "rails_helper"
 
 RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
-  let(:request) { instance_double("ActionDispatch::Request") }
+  let(:request) { instance_double("ActionDispatch::Request", remote_ip: "127.0.0.1", user_agent: "RSpec") }
   let(:client_id) { "client_123" }
   let(:client_secret) { "s3cr3t" }
   let(:code) { "auth_code_abc" }
   let(:redirect_uri) { "https://app.example.com/callback" }
   let(:params) { { client_id: client_id, client_secret: client_secret, code: code, redirect_uri: redirect_uri } }
+
+  let(:account) { instance_double("Account", id: 99) }
 
   let(:credential) do
     double(
@@ -20,6 +22,7 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
       valid_for_client?: true,
       redirect_uri: redirect_uri,
       account_id: 99,
+      account: account,
       scope: "read write"
     ).tap do |ac|
       allow(ac).to receive(:mark_as_used!)

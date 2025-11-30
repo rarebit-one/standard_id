@@ -1,7 +1,7 @@
 require "rails_helper"
 
 RSpec.describe StandardId::Oauth::PasswordFlow do
-  let(:request) { instance_double("ActionDispatch::Request") }
+  let(:request) { instance_double("ActionDispatch::Request", remote_ip: "127.0.0.1", user_agent: "RSpec") }
   let(:client_id) { "client_123" }
   let(:client_secret) { "s3cr3t" }
   let(:username) { "user@example.com" }

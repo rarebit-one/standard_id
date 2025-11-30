@@ -34,9 +34,12 @@ module StandardId
       email = social_info[:email]
       raise StandardId::InvalidRequestError, "No email provided by #{provider}" if email.blank?
 
+      emit_social_user_info_fetched(provider, social_info, email)
+
       identifier = StandardId::EmailIdentifier.find_by(value: email)
 
       if identifier.present?
+        emit_social_account_linked(identifier.account, provider, identifier)
         identifier.account
       else
         account = build_account_from_social(social_info, provider)
@@ -45,13 +48,17 @@ module StandardId
           value: email
         )
         identifier.verify! if identifier.respond_to?(:verify!)
+        emit_social_account_created(account, provider, social_info)
         account
       end
     end
 
     def build_account_from_social(social_info, provider)
+      emit_account_creating_from_social(social_info, provider)
       attrs = resolve_account_attributes(social_info, provider)
-      StandardId.account_class.create!(attrs)
+      account = StandardId.account_class.create!(attrs)
+      emit_account_created_from_social(account, provider)
+      account
     end
 
     def resolve_account_attributes(social_info, provider)
@@ -95,6 +102,7 @@ module StandardId
     end
 
     def run_social_callback(provider:, social_info:, provider_tokens:, account:)
+      emit_social_auth_completed(provider, social_info, provider_tokens, account)
       callback = StandardId.config.social_callback
       return if callback.blank?
 
@@ -107,6 +115,59 @@ module StandardId
 
       filtered_payload = StandardId::Utils::CallableParameterFilter.filter(callback, payload)
       callback.call(**filtered_payload.symbolize_keys)
+    end
+
+    def emit_social_user_info_fetched(provider, social_info, email)
+      StandardId::Events.publish(
+        StandardId::Events::SOCIAL_USER_INFO_FETCHED,
+        provider: provider,
+        social_info: social_info,
+        email: email
+      )
+    end
+
+    def emit_social_account_created(account, provider, social_info)
+      StandardId::Events.publish(
+        StandardId::Events::SOCIAL_ACCOUNT_CREATED,
+        account: account,
+        provider: provider,
+        social_info: social_info
+      )
+    end
+
+    def emit_social_account_linked(account, provider, identifier)
+      StandardId::Events.publish(
+        StandardId::Events::SOCIAL_ACCOUNT_LINKED,
+        account: account,
+        provider: provider,
+        identifier: identifier
+      )
+    end
+
+    def emit_social_auth_completed(provider, social_info, provider_tokens, account)
+      StandardId::Events.publish(
+        StandardId::Events::SOCIAL_AUTH_COMPLETED,
+        account: account,
+        provider: provider,
+        tokens: provider_tokens
+      )
+    end
+
+    def emit_account_creating_from_social(social_info, provider)
+      StandardId::Events.publish(
+        StandardId::Events::ACCOUNT_CREATING,
+        account_params: resolve_account_attributes(social_info, provider),
+        auth_method: "social:#{provider}"
+      )
+    end
+
+    def emit_account_created_from_social(account, provider)
+      StandardId::Events.publish(
+        StandardId::Events::ACCOUNT_CREATED,
+        account: account,
+        auth_method: "social:#{provider}",
+        source: "social"
+      )
     end
   end
 end
