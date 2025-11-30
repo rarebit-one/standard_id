@@ -21,9 +21,19 @@ module StandardId
         end
 
         @authorization_code.mark_as_used!
+        emit_code_consumed
       end
 
       private
+
+      def emit_code_consumed
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_CODE_CONSUMED,
+          authorization_code: @authorization_code,
+          client_id: @credential.client_id,
+          account: @authorization_code.account
+        )
+      end
 
       def subject_id
         @authorization_code.account_id

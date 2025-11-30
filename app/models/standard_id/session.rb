@@ -35,6 +35,12 @@ module StandardId
 
     def revoke!
       update!(revoked_at: Time.current)
+      StandardId::Events.publish(
+        StandardId::Events::SESSION_REVOKED,
+        session: self,
+        account: account,
+        revoked_by: nil
+      )
     end
 
     private

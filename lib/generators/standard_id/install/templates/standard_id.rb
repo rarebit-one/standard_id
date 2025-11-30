@@ -40,6 +40,10 @@ StandardId.configure do |c|
   #   }
   # }
 
+  # Events
+  # Enable or disable logging emitted via the internal event system
+  # c.events.enable_logging = false
+
   # Social login credentials (if enabled in your app)
   # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]
   # c.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]

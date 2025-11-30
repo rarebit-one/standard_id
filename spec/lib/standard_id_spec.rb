@@ -4,11 +4,11 @@ RSpec.describe StandardId do
   describe ".configure" do
     it "yields the static provider for backward compatibility" do
       StandardId.configure do |config|
-        config.account_class_name = "User"
+        config.account_class_name = "Account"
         config.web_layout = "custom"
       end
 
-      expect(StandardId.config.account_class_name).to eq("User")
+      expect(StandardId.config.account_class_name).to eq("Account")
       expect(StandardId.config.web_layout).to eq("custom")
     end
 
@@ -39,14 +39,14 @@ RSpec.describe StandardId do
     context "static configuration (backward compatibility)" do
       before do
         StandardId.configure do |config|
-          config.account_class_name = "User"
+          config.account_class_name = "Account"
           config.cache_store = "test_cache"
           config.logger = 'test_logger'
         end
       end
 
       it "maintains existing configuration interface" do
-        expect(StandardId.config.account_class_name).to eq("User")
+        expect(StandardId.config.account_class_name).to eq("Account")
         expect(StandardId.config.cache_store).to eq("test_cache")
         expect(StandardId.config.logger).to eq("test_logger")
       end
@@ -111,7 +111,7 @@ RSpec.describe StandardId do
       end
 
       it "maintains static configuration across tenants" do
-        expect(StandardId.config.account_class_name).to eq("User")
+        expect(StandardId.config.account_class_name).to eq("Account")
       end
     end
   end

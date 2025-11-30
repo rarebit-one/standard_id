@@ -35,6 +35,7 @@ module StandardId
       end
 
       def generate_token_response
+        emit_token_issuing
         expires_in = token_expiry
         payload = build_jwt_payload(expires_in)
         access_token = StandardId::JwtService.encode(payload, expires_in: expires_in)
@@ -47,7 +48,7 @@ module StandardId
 
         response[:scope] = token_scope if token_scope.present?
         response[:refresh_token] = generate_refresh_token if supports_refresh_token?
-
+        emit_token_issued(expires_in)
         response.compact
       end
 
@@ -158,6 +159,26 @@ module StandardId
       def resolve_claim_value(resolver)
         filtered_context = StandardId::Utils::CallableParameterFilter.filter(resolver, claim_resolvers_context)
         resolver.call(**filtered_context)
+      end
+
+      def emit_token_issuing
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_TOKEN_ISSUING,
+          grant_type: grant_type,
+          client_id: client_id,
+          account: token_account,
+          scope: token_scope
+        )
+      end
+
+      def emit_token_issued(expires_in)
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_TOKEN_ISSUED,
+          grant_type: grant_type,
+          client_id: client_id,
+          account: token_account,
+          expires_in: expires_in
+        )
       end
     end
   end

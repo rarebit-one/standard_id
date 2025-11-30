@@ -18,6 +18,10 @@ StandardConfig.schema.draw do
     field :inertia_component_namespace, type: :string, default: "standard_id"
   end
 
+  scope :events do
+    field :enable_logging, type: :boolean, default: false
+  end
+
   scope :passwordless do
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
     field :max_attempts, type: :integer, default: 3

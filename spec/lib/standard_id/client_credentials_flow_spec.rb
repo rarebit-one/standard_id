@@ -7,12 +7,14 @@ RSpec.describe StandardId::Oauth::ClientCredentialsFlow do
   let(:audience) { "https://api.example.com" }
   let(:params) { { client_id: client_id, client_secret: client_secret, audience: audience } }
 
+  let(:client_application) { double("ClientApplication") }
   let(:credential) do
     double(
       account_id: 42,
       client_id: client_id,
       scopes: "read write",
-      authenticate_client_secret: true
+      authenticate_client_secret: true,
+      client_application: client_application
     )
   end
 
