@@ -1,6 +1,8 @@
 require "rails_helper"
 
 RSpec.describe StandardId::BrowserSession, type: :model do
+  include ActiveSupport::Testing::TimeHelpers
+
   let(:account) { Account.create!(name: "Test User", email: "test@example.com") }
 
   describe "inheritance" do
@@ -14,6 +16,23 @@ RSpec.describe StandardId::BrowserSession, type: :model do
       session = StandardId::BrowserSession.new(account: account, user_agent: "")
       expect(session).not_to be_valid
       expect(session.errors[:user_agent]).to include("can't be blank")
+    end
+  end
+
+  describe "class methods" do
+    describe ".expiry" do
+      it "returns configured browser_session_lifetime from now" do
+        travel_to Time.current do
+          expected_expiry = StandardId.config.session.browser_session_lifetime.seconds.from_now
+          expect(StandardId::BrowserSession.expiry).to eq(expected_expiry)
+        end
+      end
+
+      it "defaults to 24 hours" do
+        travel_to Time.current do
+          expect(StandardId::BrowserSession.expiry).to eq(24.hours.from_now)
+        end
+      end
     end
   end
 

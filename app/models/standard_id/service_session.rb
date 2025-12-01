@@ -21,7 +21,7 @@ module StandardId
     end
 
     def self.default_expiry
-      90.days.from_now # TODO: make this configurable
+      StandardId.config.session.service_session_lifetime.seconds.from_now
     end
 
     def refresh!

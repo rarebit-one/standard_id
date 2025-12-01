@@ -25,6 +25,23 @@ RSpec.describe StandardId::DeviceSession, type: :model do
     end
   end
 
+  describe "class methods" do
+    describe ".expiry" do
+      it "returns configured device_session_lifetime from now" do
+        travel_to Time.current do
+          expected_expiry = StandardId.config.session.device_session_lifetime.seconds.from_now
+          expect(StandardId::DeviceSession.expiry).to eq(expected_expiry)
+        end
+      end
+
+      it "defaults to 30 days" do
+        travel_to Time.current do
+          expect(StandardId::DeviceSession.expiry).to eq(30.days.from_now)
+        end
+      end
+    end
+  end
+
   describe "instance methods" do
     let(:device_session) do
       StandardId::DeviceSession.create!(

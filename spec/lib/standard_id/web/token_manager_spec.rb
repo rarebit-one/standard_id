@@ -15,12 +15,12 @@ RSpec.describe StandardId::Web::TokenManager do
     end
 
     context "with default options" do
-      it "creates a browser session with 24 hour expiry" do
+      it "creates a browser session with configured expiry" do
         expect(StandardId::BrowserSession).to receive(:create!).with(
           account: account,
           ip_address: "127.0.0.1",
           user_agent: "Test Browser",
-          expires_at: be_within(1.minute).of(24.hours.from_now)
+          expires_at: be_within(1.minute).of(StandardId::BrowserSession.expiry)
         )
 
         token_manager.create_browser_session(account)
@@ -37,8 +37,7 @@ RSpec.describe StandardId::Web::TokenManager do
     context "with non-SSL request" do
       it "returns remember token hash with correct attributes" do
         travel_to(Time.current) do
-          expected_expires = 1.month.from_now
-          allow(password_credential).to receive(:expires_at).and_return(expected_expires)
+          expected_expires = StandardId::BrowserSession.remember_me_expiry
 
           result = token_manager.create_remember_token(password_credential)
 
@@ -58,12 +57,12 @@ RSpec.describe StandardId::Web::TokenManager do
 
       it "sets secure flag to true" do
         travel_to(Time.current) do
-          expected_expires = 1.month.from_now
-          allow(password_credential).to receive(:expires_at).and_return(expected_expires)
+          expected_expires = StandardId.config.session.browser_session_remember_me_lifetime.seconds.from_now
 
           result = token_manager.create_remember_token(password_credential)
 
           expect(result[:secure]).to be true
+          expect(result[:expires]).to eq(expected_expires)
         end
       end
     end

@@ -3,6 +3,10 @@ module StandardId
     validates :device_id, presence: true
     validates :device_agent, presence: true
 
+    def self.expiry
+      StandardId.config.session.device_session_lifetime.seconds.from_now
+    end
+
     def device_info
       return {} if device_agent.blank?
 

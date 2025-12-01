@@ -2,6 +2,14 @@ module StandardId
   class BrowserSession < Session
     validates :user_agent, presence: true
 
+    def self.expiry
+      StandardId.config.session.browser_session_lifetime.seconds.from_now
+    end
+
+    def self.remember_me_expiry
+      StandardId.config.session.browser_session_remember_me_lifetime.seconds.from_now
+    end
+
     def browser_info
       return {} if user_agent.blank?
 

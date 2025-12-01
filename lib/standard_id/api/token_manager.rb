@@ -13,7 +13,7 @@ module StandardId
           ip_address: @request.remote_ip,
           device_id: device_id || SecureRandom.uuid,
           device_agent: device_agent || @request.user_agent,
-          expires_at: 30.days.from_now # TODO: make this configurable
+          expires_at: StandardId::DeviceSession.expiry
         )
       end
 

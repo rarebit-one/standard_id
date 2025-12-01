@@ -123,6 +123,12 @@ StandardId.configure do |config|
   # config.use_inertia = true
   # config.inertia_component_namespace = "auth"
 
+  # Session lifetimes
+  # config.session.browser_session_lifetime = 86400      # 24 hours (web sessions)
+  # config.session.browser_session_remember_me_lifetime = 2_592_000 # 30 days (remember me cookies)
+  # config.session.device_session_lifetime = 2_592_000   # 30 days (API device sessions)
+  # config.session.service_session_lifetime = 7_776_000  # 90 days (service-to-service sessions)
+
   # Passwordless delivery callbacks
   # config.passwordless_email_sender = ->(email, code) { UserMailer.send_code(email, code).deliver_now }
   # config.passwordless_sms_sender   = ->(phone, code) { SmsService.send_code(phone, code) }

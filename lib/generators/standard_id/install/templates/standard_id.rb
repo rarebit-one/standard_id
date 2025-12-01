@@ -15,6 +15,12 @@ StandardId.configure do |c|
   # c.use_inertia = true
   # c.inertia_component_namespace = "auth" # Component path prefix (e.g., "auth/login/show")
 
+  # Session lifetimes (in seconds)
+  # c.session.browser_session_lifetime = 86400      # 24 hours (web sessions)
+  # c.session.browser_session_remember_me_lifetime = 2_592_000 # 30 days (remember me cookies)
+  # c.session.device_session_lifetime = 2_592_000   # 30 days (API device sessions)
+  # c.session.service_session_lifetime = 7_776_000  # 90 days (service-to-service sessions)
+
   # c.passwordless_email_sender = ->(email, code) { PasswordlessMailer.with(code: code, to: email).deliver_later }
   # c.passwordless_sms_sender   = ->(phone, code) { SmsProvider.send_code(phone: phone, code: code) }
 

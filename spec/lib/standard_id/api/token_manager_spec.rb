@@ -116,7 +116,7 @@ RSpec.describe StandardId::Api::TokenManager, type: :model do
       expect(session.ip_address).to eq("192.168.1.100")
       expect(session.device_agent).to eq("TestApp/1.0")
       expect(session.device_id).to be_present
-      expect(session.expires_at).to be_within(1.minute).of(30.days.from_now)
+      expect(session.expires_at).to be_within(1.minute).of(StandardId::DeviceSession.expiry)
       expect(session).to be_persisted
     end
 

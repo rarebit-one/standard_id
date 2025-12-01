@@ -31,6 +31,13 @@ StandardConfig.schema.draw do
     field :require_numbers, type: :boolean, default: false
   end
 
+  scope :session do
+    field :browser_session_lifetime, type: :integer, default: 86400 # 24 hours in seconds
+    field :browser_session_remember_me_lifetime, type: :integer, default: 2592000 # 30 days in seconds
+    field :device_session_lifetime, type: :integer, default: 2592000 # 30 days in seconds
+    field :service_session_lifetime, type: :integer, default: 7776000 # 90 days in seconds
+  end
+
   scope :oauth do
     field :default_token_lifetime, type: :integer, default: 3600 # 1 hour in seconds
     field :refresh_token_lifetime, type: :integer, default: 2592000 # 30 days in seconds
