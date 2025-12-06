@@ -71,7 +71,7 @@ RSpec.describe StandardId::Oauth::Subflows::SocialLoginGrant do
       it "raises InvalidRequestError" do
         expect { subject.call }.to raise_error(
           StandardId::InvalidRequestError,
-          "Unsupported connection: facebook"
+          /Unknown provider: facebook/
         )
       end
     end

@@ -61,12 +61,9 @@ module StandardId
       end
 
       def callback_url
-        case params[:connection]
-        when "google"
-          auth_callback_google_url
-        when "apple"
-          auth_callback_apple_url
-        end
+        connection = params[:connection]
+        provider = StandardId::ProviderRegistry.get(connection)
+        "#{request.base_url}#{provider.callback_path}"
       end
 
       def encode_state

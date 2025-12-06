@@ -53,14 +53,6 @@ StandardConfig.schema.draw do
   end
 
   scope :social do
-    field :google_client_id, type: :string, default: nil
-    field :google_client_secret, type: :string, default: nil
-    field :apple_client_id, type: :string, default: nil
-    field :apple_client_secret, type: :string, default: nil
-    field :apple_private_key, type: :string, default: nil
-    field :apple_key_id, type: :string, default: nil
-    field :apple_team_id, type: :string, default: nil
-    field :apple_mobile_client_id, type: :string, default: nil
     field :social_account_attributes, type: :any, default: nil
     field :allowed_redirect_url_prefixes, type: :array, default: []
     field :social_callback, type: :any, default: nil

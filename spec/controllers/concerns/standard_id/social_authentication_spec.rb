@@ -2,7 +2,7 @@ require "rails_helper"
 
 RSpec.describe StandardId::SocialAuthentication do
   let(:dummy_class) do
-    Class.new do
+    Class.new(ActionController::Base) do
       include StandardId::SocialAuthentication
     end
   end

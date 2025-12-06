@@ -2,37 +2,36 @@ module StandardId
   module SocialAuthentication
     extend ActiveSupport::Concern
 
+    included do
+      prepend_before_action :prepare_provider
+    end
+
     private
 
-    def get_user_info_from_provider(connection, redirect_uri: nil, flow: :web)
-      case connection
-      when "google"
-        StandardId::SocialProviders::Google.get_user_info(
-          code: params[:code],
-          id_token: params[:id_token],
-          access_token: params[:access_token],
-          redirect_uri: redirect_uri
-        )
-      when "apple"
-        StandardId::SocialProviders::Apple.get_user_info(
+    attr_reader :provider
+
+    def prepare_provider
+      @provider = StandardId::ProviderRegistry.get(params[:provider])
+    rescue StandardId::ProviderRegistry::ProviderNotFoundError => e
+      raise StandardId::InvalidRequestError, e.message
+    end
+
+    def get_user_info_from_provider(redirect_uri: nil, flow: :web)
+      provider_params = {
         code: params[:code],
-          id_token: params[:id_token],
-          redirect_uri: redirect_uri,
-          client_id: apple_client_id_for_flow(flow)
-        )
-      else
-        raise StandardId::InvalidRequestError, "Unsupported provider: #{connection}"
-      end
+        id_token: params[:id_token],
+        access_token: params[:access_token],
+        redirect_uri: redirect_uri
+      }
+
+      resolved_params = provider.resolve_params(provider_params, context: { flow: flow })
+      provider.get_user_info(**resolved_params.compact)
     end
 
-    def apple_client_id_for_flow(flow)
-      flow == :web ? StandardId.config.apple_client_id : StandardId.config.apple_mobile_client_id
-    end
-
-    def find_or_create_account_from_social(raw_social_info, provider)
+    def find_or_create_account_from_social(raw_social_info)
       social_info = raw_social_info.to_h.with_indifferent_access
       email = social_info[:email]
-      raise StandardId::InvalidRequestError, "No email provided by #{provider}" if email.blank?
+      raise StandardId::InvalidRequestError, "No email provided by #{provider.provider_name}" if email.blank?
 
       emit_social_user_info_fetched(provider, social_info, email)
 
@@ -42,7 +41,7 @@ module StandardId
         emit_social_account_linked(identifier.account, provider, identifier)
         identifier.account
       else
-        account = build_account_from_social(social_info, provider)
+        account = build_account_from_social(social_info)
         identifier = StandardId::EmailIdentifier.create!(
           account: account,
           value: email
@@ -53,20 +52,20 @@ module StandardId
       end
     end
 
-    def build_account_from_social(social_info, provider)
-      emit_account_creating_from_social(social_info, provider)
-      attrs = resolve_account_attributes(social_info, provider)
+    def build_account_from_social(social_info)
+      emit_account_creating_from_social(social_info)
+      attrs = resolve_account_attributes(social_info)
       account = StandardId.account_class.create!(attrs)
-      emit_account_created_from_social(account, provider)
+      emit_account_created_from_social(account)
       account
     end
 
-    def resolve_account_attributes(social_info, provider)
+    def resolve_account_attributes(social_info)
       resolver = StandardId.config.social_account_attributes
       attrs = if resolver.respond_to?(:call)
                 payload = {
                   social_info: social_info,
-                  provider: provider
+                  provider: provider.provider_name
                 }
 
                 filtered_payload = StandardId::Utils::CallableParameterFilter.filter(resolver, payload)
@@ -153,19 +152,19 @@ module StandardId
       )
     end
 
-    def emit_account_creating_from_social(social_info, provider)
+    def emit_account_creating_from_social(social_info)
       StandardId::Events.publish(
         StandardId::Events::ACCOUNT_CREATING,
-        account_params: resolve_account_attributes(social_info, provider),
-        auth_method: "social:#{provider}"
+        account_params: resolve_account_attributes(social_info),
+        auth_method: "social:#{provider.provider_name}"
       )
     end
 
-    def emit_account_created_from_social(account, provider)
+    def emit_account_created_from_social(account)
       StandardId::Events.publish(
         StandardId::Events::ACCOUNT_CREATED,
         account: account,
-        auth_method: "social:#{provider}",
+        auth_method: "social:#{provider.provider_name}",
         source: "social"
       )
     end

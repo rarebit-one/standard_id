@@ -2,13 +2,11 @@ require "uri"
 require "net/http"
 require "json"
 require "jwt"
-require_relative "response_builder"
+require_relative "base"
 
 module StandardId
-  module SocialProviders
-    class Apple
-      include ResponseBuilder
-
+  module Providers
+    class Apple < Base
       ISSUER = "https://appleid.apple.com".freeze
       AUTH_ENDPOINT = "#{ISSUER}/auth/authorize".freeze
       TOKEN_ENDPOINT = "#{ISSUER}/auth/token".freeze
@@ -17,7 +15,14 @@ module StandardId
       DEFAULT_RESPONSE_MODE = "form_post".freeze
 
       class << self
-        def authorization_url(state:, redirect_uri:, scope: DEFAULT_SCOPE, response_mode: DEFAULT_RESPONSE_MODE)
+        def provider_name
+          "apple"
+        end
+
+        def authorization_url(state:, redirect_uri:, **options)
+          scope = options[:scope] || DEFAULT_SCOPE
+          response_mode = options[:response_mode] || DEFAULT_RESPONSE_MODE
+
           ensure_basic_credentials!
 
           query = {
@@ -32,7 +37,9 @@ module StandardId
           "#{AUTH_ENDPOINT}?#{URI.encode_www_form(query)}"
         end
 
-        def get_user_info(code: nil, id_token: nil, redirect_uri: nil, client_id: StandardId.config.apple_client_id)
+        def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil, **options)
+          client_id = options[:client_id] || StandardId.config.apple_client_id
+
           if id_token.present?
             build_response(
               verify_id_token(id_token: id_token, client_id: client_id),
@@ -43,6 +50,35 @@ module StandardId
           else
             raise StandardId::InvalidRequestError, "Either code or id_token must be provided"
           end
+        end
+
+        def config_schema
+          {
+            apple_client_id: { type: :string, default: nil },
+            apple_mobile_client_id: { type: :string, default: nil },
+            apple_private_key: { type: :string, default: nil },
+            apple_key_id: { type: :string, default: nil },
+            apple_team_id: { type: :string, default: nil }
+          }
+        end
+
+        def default_scope
+          DEFAULT_SCOPE
+        end
+
+        def skip_csrf?
+          true
+        end
+
+        def supports_mobile_callback?
+          true
+        end
+
+        def resolve_params(params, context: {})
+          flow = context[:flow] || :web
+          client_id = flow == :mobile ? StandardId.config.apple_mobile_client_id : StandardId.config.apple_client_id
+
+          params.merge(client_id: client_id)
         end
 
         def exchange_code_for_user_info(code:, redirect_uri:, client_id: StandardId.config.apple_client_id)
@@ -182,3 +218,6 @@ module StandardId
     end
   end
 end
+
+# Auto-register with the provider registry
+StandardId::ProviderRegistry.register(:apple, StandardId::Providers::Apple)

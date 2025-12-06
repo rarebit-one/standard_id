@@ -35,8 +35,11 @@ require "standard_id/passwordless/base_strategy"
 require "standard_id/passwordless/email_strategy"
 require "standard_id/passwordless/sms_strategy"
 require "standard_id/utils/callable_parameter_filter"
-require "standard_id/social_providers/google"
-require "standard_id/social_providers/apple"
+
+require "standard_id/providers/base"
+require "standard_id/provider_registry"
+require "standard_id/providers/google"
+require "standard_id/providers/apple"
 
 module StandardId
   class << self

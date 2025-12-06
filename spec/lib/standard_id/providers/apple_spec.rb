@@ -1,6 +1,6 @@
 require "rails_helper"
 
-RSpec.describe StandardId::SocialProviders::Apple do
+RSpec.describe StandardId::Providers::Apple do
   let(:apple_client_id) { "com.example.app" }
   let(:apple_team_id) { "TEAM123456" }
   let(:apple_key_id) { "KEY123456" }
@@ -20,6 +20,28 @@ RSpec.describe StandardId::SocialProviders::Apple do
     StandardId.config.apple_team_id = nil
     StandardId.config.apple_key_id = nil
     StandardId.config.apple_private_key = nil
+  end
+
+  describe "interface compliance" do
+    it "inherits from Base" do
+      expect(described_class).to be < StandardId::Providers::Base
+    end
+
+    it "is registered with the provider registry" do
+      expect(StandardId::ProviderRegistry.get(:apple)).to eq(described_class)
+    end
+  end
+
+  describe ".provider_name" do
+    it 'returns "apple"' do
+      expect(described_class.provider_name).to eq("apple")
+    end
+  end
+
+  describe ".default_scope" do
+    it 'returns "name email"' do
+      expect(described_class.default_scope).to eq("name email")
+    end
   end
 
   describe ".authorization_url" do

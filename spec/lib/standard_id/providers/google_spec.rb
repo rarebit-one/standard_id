@@ -1,12 +1,34 @@
 require "rails_helper"
 
-RSpec.describe StandardId::SocialProviders::Google do
+RSpec.describe StandardId::Providers::Google do
   let(:google_client_id) { "google_client_123" }
   let(:google_client_secret) { "google_secret" }
 
   before do
     allow(StandardId.config).to receive(:google_client_id).and_return(google_client_id)
     allow(StandardId.config).to receive(:google_client_secret).and_return(google_client_secret)
+  end
+
+  describe "interface compliance" do
+    it "inherits from Base" do
+      expect(described_class).to be < StandardId::Providers::Base
+    end
+
+    it "is registered with the provider registry" do
+      expect(StandardId::ProviderRegistry.get(:google)).to eq(described_class)
+    end
+  end
+
+  describe ".provider_name" do
+    it 'returns "google"' do
+      expect(described_class.provider_name).to eq("google")
+    end
+  end
+
+  describe ".default_scope" do
+    it 'returns "openid email profile"' do
+      expect(described_class.default_scope).to eq("openid email profile")
+    end
   end
 
   describe ".authorization_url" do

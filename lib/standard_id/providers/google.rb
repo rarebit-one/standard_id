@@ -1,10 +1,8 @@
-require_relative "response_builder"
+require_relative "base"
 
 module StandardId
-  module SocialProviders
-    class Google
-      include ResponseBuilder
-
+  module Providers
+    class Google < Base
       AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth".freeze
       TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token".freeze
       USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v2/userinfo".freeze
@@ -12,7 +10,14 @@ module StandardId
       DEFAULT_SCOPE = "openid email profile".freeze
 
       class << self
-        def authorization_url(state:, redirect_uri:, scope: DEFAULT_SCOPE, prompt: nil)
+        def provider_name
+          "google"
+        end
+
+        def authorization_url(state:, redirect_uri:, **options)
+          scope = options[:scope] || DEFAULT_SCOPE
+          prompt = options[:prompt]
+
           query = {
             client_id: credentials[:client_id],
             redirect_uri: redirect_uri,
@@ -26,7 +31,7 @@ module StandardId
           "#{AUTH_ENDPOINT}?#{URI.encode_www_form(query)}"
         end
 
-        def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil)
+        def get_user_info(code: nil, id_token: nil, access_token: nil, redirect_uri: nil, **options)
           if id_token.present?
             build_response(
               verify_id_token(id_token: id_token),
@@ -42,6 +47,17 @@ module StandardId
           else
             raise StandardId::InvalidRequestError, "Either code, id_token, or access_token must be provided"
           end
+        end
+
+        def config_schema
+          {
+            google_client_id: { type: :string, default: nil },
+            google_client_secret: { type: :string, default: nil }
+          }
+        end
+
+        def default_scope
+          DEFAULT_SCOPE
         end
 
         def exchange_code_for_user_info(code:, redirect_uri:)
@@ -166,3 +182,6 @@ module StandardId
     end
   end
 end
+
+# Auto-register with the provider registry
+StandardId::ProviderRegistry.register(:google, StandardId::Providers::Google)

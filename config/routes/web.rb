@@ -7,10 +7,11 @@ StandardId::WebEngine.routes.draw do
 
     # Social authentication callbacks (web flow)
     namespace :auth do
+      post "callback_mobile/:provider", to: "callback/providers#mobile_callback", as: :callback_mobile
+
       namespace :callback do
-        get :google, to: "providers#google"
-        post :apple, to: "providers#apple"
-        post :apple_mobile, to: "providers#apple_mobile"
+        get ":provider", to: "providers#callback", as: :provider
+        post ":provider", to: "providers#callback"
       end
     end
 
