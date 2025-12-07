@@ -14,8 +14,11 @@
 #
 # See https://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 
-require File.expand_path("../dummy/config/environment.rb", __FILE__)
+# Set Rails environment to test before loading Rails
+ENV["RAILS_ENV"] ||= "test"
 
+# Load Rails environment
+require File.expand_path("../dummy/config/environment.rb", __FILE__)
 require "rspec/rails"
 
 RSpec.configure do |config|

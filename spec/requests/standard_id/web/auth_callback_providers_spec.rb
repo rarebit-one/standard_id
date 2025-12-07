@@ -9,10 +9,14 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
     let(:state) { state_for("/dashboard") }
 
     before do
+      allow(StandardId.config).to receive(:account_class_name).and_return("Account")
       allow(StandardId.config).to receive(:google_client_id).and_return("google_client_123")
       allow(StandardId.config).to receive(:google_client_secret).and_return("google-secret")
       allow(StandardId::SocialProviders::Google).to receive(:get_user_info).and_return(
-        { "email" => "user@example.com", "name" => "Test User", "sub" => "prov_123" }
+        {
+          user_info: { "email" => "user@example.com", "name" => "Test User", "sub" => "prov_123" },
+          tokens: {}
+        }
       )
     end
 
@@ -64,8 +68,12 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
     let(:apple_state) { state_for("/dashboard") }
 
     before do
+      allow(StandardId.config).to receive(:account_class_name).and_return("Account")
       allow(StandardId::SocialProviders::Apple).to receive(:get_user_info).and_return(
-        { "email" => "user@privaterelay.appleid.com", "name" => "Apple User", "sub" => "apple_123" }
+        {
+          user_info: { "email" => "user@privaterelay.appleid.com", "name" => "Apple User", "sub" => "apple_123" },
+          tokens: {}
+        }
       )
     end
 

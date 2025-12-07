@@ -37,7 +37,7 @@ RSpec.describe StandardId::Web::TokenManager do
     context "with non-SSL request" do
       it "returns remember token hash with correct attributes" do
         travel_to(Time.current) do
-          expected_expires = 1.month.from_now
+          expected_expires = 30.days.from_now
           allow(password_credential).to receive(:expires_at).and_return(expected_expires)
 
           result = token_manager.create_remember_token(password_credential)
@@ -58,7 +58,7 @@ RSpec.describe StandardId::Web::TokenManager do
 
       it "sets secure flag to true" do
         travel_to(Time.current) do
-          expected_expires = 1.month.from_now
+          expected_expires = 30.days.from_now
           allow(password_credential).to receive(:expires_at).and_return(expected_expires)
 
           result = token_manager.create_remember_token(password_credential)

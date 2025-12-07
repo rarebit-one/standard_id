@@ -55,8 +55,8 @@ module StandardConfig
       when :boolean
         case value
         when true, false then value
-        when 'true', '1', 1 then true
-        when 'false', '0', 0 then false
+        when "true", "1", 1 then true
+        when "false", "0", 0 then false
         else !!value
         end
       when :array

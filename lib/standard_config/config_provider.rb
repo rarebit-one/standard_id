@@ -9,9 +9,9 @@ module StandardConfig
     end
 
     def method_missing(method_name, *args)
-      if method_name.to_s.end_with?('=')
+      if method_name.to_s.end_with?("=")
         # Setter - only works for static configs (OpenStruct objects)
-        field_name = method_name.to_s.chomp('=').to_sym
+        field_name = method_name.to_s.chomp("=").to_sym
         validate_field!(field_name)
 
         config_object = @resolver_proc.call
@@ -42,11 +42,11 @@ module StandardConfig
       config_object = @resolver_proc.call
       raw_value = if config_object.respond_to?(field_name)
                     config_object.send(field_name)
-                  elsif config_object.respond_to?(:[])
+      elsif config_object.respond_to?(:[])
                     config_object[field_name] || config_object[field_name.to_s]
-                  else
+      else
                     nil
-                  end
+      end
 
       # Cast the value according to schema
       field_def = @schema&.field_definition(@scope_name, field_name)
@@ -64,7 +64,7 @@ module StandardConfig
     end
 
     def respond_to_missing?(method_name, include_private = false)
-      field_name = method_name.to_s.end_with?('=') ? method_name.to_s.chomp('=').to_sym : method_name.to_sym
+      field_name = method_name.to_s.end_with?("=") ? method_name.to_s.chomp("=").to_sym : method_name.to_sym
       @schema&.valid_field?(@scope_name, field_name) || super
     end
 

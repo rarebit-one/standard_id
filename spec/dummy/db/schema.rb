@@ -10,13 +10,25 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_07_090000) do
+ActiveRecord::Schema[8.0].define(version: 2025_12_02_000000) do
   create_table "accounts", force: :cascade do |t|
     t.string "email", null: false
     t.string "name", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "status", default: "active", null: false
+    t.datetime "activated_at"
+    t.datetime "deactivated_at"
+    t.boolean "locked", default: false, null: false
+    t.datetime "locked_at"
+    t.string "lock_reason"
+    t.integer "locked_by_id"
+    t.string "locked_by_type"
+    t.datetime "unlocked_at"
+    t.integer "unlocked_by_id"
+    t.string "unlocked_by_type"
     t.index ["email"], name: "index_accounts_on_email", unique: true
+    t.index ["locked"], name: "index_accounts_on_locked"
   end
 
   create_table "standard_id_authorization_codes", force: :cascade do |t|
