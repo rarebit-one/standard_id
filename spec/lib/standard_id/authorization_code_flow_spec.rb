@@ -157,7 +157,7 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
   end
 
   describe "custom scope claims" do
-    let(:account) { instance_double("Account", id: 99) }
+    let(:account) { instance_double("Account", id: 99, inactive?: false) }
     let(:client_application) { instance_double("StandardId::ClientApplication") }
     let(:credential_with_app) do
       instance_double(

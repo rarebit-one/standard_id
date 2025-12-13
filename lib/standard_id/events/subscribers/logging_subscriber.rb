@@ -23,6 +23,8 @@ module StandardId
           "account.created" => :info,
           "account.verified" => :info,
           "account.status_changed" => :warn,
+          "account.activated" => :info,
+          "account.deactivated" => :warn,
           "account.locked" => :warn,
           "account.unlocked" => :info,
           "identifier.created" => :debug,

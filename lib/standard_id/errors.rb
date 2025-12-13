@@ -4,6 +4,7 @@ module StandardId
   class InvalidSessionError < StandardError; end
   class ExpiredSessionError < InvalidSessionError; end
   class RevokedSessionError < InvalidSessionError; end
+  class AccountDeactivatedError < StandardError; end
 
   class OAuthError < StandardError
     def oauth_error_code
