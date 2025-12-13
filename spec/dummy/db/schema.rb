@@ -10,12 +10,15 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_09_07_090000) do
+ActiveRecord::Schema[8.0].define(version: 2025_12_01_000000) do
   create_table "accounts", force: :cascade do |t|
     t.string "email", null: false
     t.string "name", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "status", default: "active", null: false
+    t.datetime "activated_at"
+    t.datetime "deactivated_at"
     t.index ["email"], name: "index_accounts_on_email", unique: true
   end
 

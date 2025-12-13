@@ -33,13 +33,13 @@ module StandardId
       revoked_at.present?
     end
 
-    def revoke!
+    def revoke!(reason: nil)
       update!(revoked_at: Time.current)
       StandardId::Events.publish(
         StandardId::Events::SESSION_REVOKED,
         session: self,
         account: account,
-        revoked_by: nil
+        reason: reason
       )
     end
 

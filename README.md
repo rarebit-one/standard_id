@@ -404,7 +404,7 @@ This outputs JSON-structured logs for all authentication events:
 |----------|--------|
 | **Authentication** | `authentication.attempt.started`, `authentication.attempt.succeeded`, `authentication.attempt.failed`, `authentication.password.validated`, `authentication.password.failed`, `authentication.otp.validated`, `authentication.otp.failed` |
 | **Session** | `session.creating`, `session.created`, `session.validating`, `session.validated`, `session.expired`, `session.revoked`, `session.refreshed` |
-| **Account** | `account.creating`, `account.created`, `account.verified`, `account.status_changed`, `account.locked`, `account.unlocked` |
+| **Account** | `account.creating`, `account.created`, `account.verified`, `account.status_changed`, `account.activated`, `account.deactivated`, `account.locked`, `account.unlocked` |
 | **Identifier** | `identifier.created`, `identifier.verification.started`, `identifier.verification.succeeded`, `identifier.verification.failed`, `identifier.linked` |
 | **OAuth** | `oauth.authorization.requested`, `oauth.authorization.granted`, `oauth.authorization.denied`, `oauth.token.issuing`, `oauth.token.issued`, `oauth.token.refreshed`, `oauth.code.consumed` |
 | **Passwordless** | `passwordless.code.requested`, `passwordless.code.generated`, `passwordless.code.sent`, `passwordless.code.verified`, `passwordless.code.failed`, `passwordless.account.created` |
@@ -462,6 +462,131 @@ end
 
 # config/initializers/standard_id_events.rb
 AuditSubscriber.attach
+```
+
+## Account Status (Activation/Deactivation)
+
+StandardId provides an optional `AccountStatus` concern for managing account activation and deactivation. This uses Rails enum with the event system to enforce status checks and handle side effects without modifying core authentication logic.
+
+### Setup
+
+1. Add a migration for the status column. For PostgreSQL (recommended), use a native enum type:
+
+```ruby
+# PostgreSQL with native enum (recommended)
+class AddStatusToUsers < ActiveRecord::Migration[8.0]
+  def up
+    create_enum :account_status, %w[active inactive]
+
+    add_column :users, :status, :enum, enum_type: :account_status, default: "active", null: false
+    add_column :users, :activated_at, :datetime
+    add_column :users, :deactivated_at, :datetime
+  end
+
+  def down
+    remove_column :users, :status
+    remove_column :users, :activated_at
+    remove_column :users, :deactivated_at
+
+    drop_enum :account_status
+  end
+end
+```
+
+For other databases (MySQL, SQLite), use a string column:
+
+```ruby
+# String column (MySQL, SQLite)
+class AddStatusToUsers < ActiveRecord::Migration[8.0]
+  def change
+    add_column :users, :status, :string, default: "active", null: false
+    add_column :users, :activated_at, :datetime
+    add_column :users, :deactivated_at, :datetime
+    add_index :users, :status
+  end
+end
+```
+
+2. Include the concern in your account model:
+
+```ruby
+class User < ApplicationRecord
+  include StandardId::AccountStatus
+  # ...
+end
+```
+
+The concern works with both PostgreSQL enum and string columns - Rails enum handles both transparently.
+
+### Usage
+
+```ruby
+# Deactivate an account
+user.deactivate!
+# => Emits ACCOUNT_DEACTIVATED event
+# => All active sessions are automatically revoked
+
+# Reactivate an account
+user.activate!
+# => Emits ACCOUNT_ACTIVATED event
+# => User can log in again
+
+# Check status
+user.active?    # => true/false
+user.inactive?  # => true/false
+
+# Query scopes
+User.active     # => Users with status 'active'
+User.inactive   # => Users with status 'inactive'
+```
+
+### Configuration
+
+```ruby
+StandardId.configure do |config|
+  # Automatically revoke all sessions when account is deactivated (default: true)
+  config.account_status.revoke_sessions_on_deactivate = true
+end
+```
+
+### Handling AccountDeactivatedError
+
+When an inactive account attempts to authenticate, `StandardId::AccountDeactivatedError` is raised. You need to handle this error in your application controller:
+
+```ruby
+# app/controllers/application_controller.rb
+class ApplicationController < ActionController::Base
+  include StandardId::WebAuthentication
+
+  rescue_from StandardId::AccountDeactivatedError, with: :handle_account_deactivated
+
+  private
+
+  def handle_account_deactivated
+    # For web requests, redirect with a message
+    redirect_to login_path, alert: "Your account has been deactivated. Please contact support."
+  end
+end
+```
+
+For API controllers:
+
+```ruby
+# app/controllers/api/base_controller.rb
+class Api::BaseController < ActionController::API
+  include StandardId::ApiAuthentication
+
+  rescue_from StandardId::AccountDeactivatedError, with: :handle_account_deactivated
+
+  private
+
+  def handle_account_deactivated
+    render json: {
+      error: "account_deactivated",
+      message: "Your account has been deactivated"
+    }, status: :forbidden
+  end
+end
 ```
 
 ## Usage Examples
