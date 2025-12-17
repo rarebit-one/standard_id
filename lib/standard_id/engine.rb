@@ -8,6 +8,7 @@ module StandardId
       end
 
       StandardId::Events::Subscribers::AccountStatusSubscriber.attach if StandardId.config.account_status.revoke_sessions_on_deactivate
+      StandardId::Events::Subscribers::AccountLockingSubscriber.attach if StandardId.config.account_locking.revoke_sessions_on_lock
     end
   end
 end

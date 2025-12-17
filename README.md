@@ -589,6 +589,130 @@ class Api::BaseController < ActionController::API
 end
 ```
 
+## Account Locking (Administrative Security)
+
+StandardId provides an optional `AccountLocking` concern for administrative account locking. This is distinct from account deactivation - locking is for security enforcement by administrators, while deactivation is for lifecycle management.
+
+### Key Differences from Account Deactivation
+
+| Feature | Account Status | Account Locking |
+|---------|---------------|-----------------|
+| **Purpose** | Lifecycle management | Security enforcement |
+| **Who Controls** | System/User | Admin/Staff only |
+| **User Reversible** | Yes (future) | No |
+| **Use Cases** | Inactivity, user choice | Policy violation, security incident, fraud |
+
+An account can be in any combination:
+- Active + Unlocked ✅ (normal operation)
+- Active + Locked ⚠️ (admin locked for security)
+- Inactive + Unlocked ⚠️ (deactivated but not locked)
+- Inactive + Locked 🚫 (both restrictions apply)
+
+### Setup
+
+1. Add a migration for the locking columns:
+
+```ruby
+class AddLockingToUsers < ActiveRecord::Migration[8.0]
+  def change
+    add_column :users, :locked, :boolean, default: false, null: false
+    add_column :users, :locked_at, :datetime
+    add_column :users, :lock_reason, :string
+    add_column :users, :locked_by_id, :integer
+    add_column :users, :locked_by_type, :string
+    add_column :users, :unlocked_at, :datetime
+    add_column :users, :unlocked_by_id, :integer
+    add_column :users, :unlocked_by_type, :string
+
+    add_index :users, :locked
+    add_index :users, [:locked_by_type, :locked_by_id]
+  end
+end
+```
+
+2. Include the concern in your account model:
+
+```ruby
+class User < ApplicationRecord
+  include StandardId::AccountLocking  # For admin locking
+  include StandardId::AccountStatus   # Optional: for activation/deactivation
+  # ...
+end
+```
+
+### Usage
+
+```ruby
+# Lock an account (revokes all active sessions immediately)
+user.lock!(reason: "Suspicious activity detected", locked_by: current_admin)
+# => Emits ACCOUNT_LOCKED event
+# => All active sessions (browser, device, service) are revoked
+
+# Unlock an account (user must log in again)
+user.unlock!(unlocked_by: current_admin)
+# => Emits ACCOUNT_UNLOCKED event
+# => User can log in again
+
+# Check lock status
+user.locked?    # => true/false
+user.unlocked?  # => true/false
+
+# Query scopes
+User.locked     # => Users with locked = true
+User.unlocked   # => Users with locked = false
+
+# Combine with AccountStatus scopes
+User.unlocked.active  # => Users who can log in
+```
+
+### Handling AccountLockedError
+
+When a locked account attempts to authenticate, `StandardId::AccountLockedError` is raised. The error includes metadata about the lock:
+
+```ruby
+# app/controllers/application_controller.rb
+class ApplicationController < ActionController::Base
+  include StandardId::WebAuthentication
+
+  rescue_from StandardId::AccountLockedError, with: :handle_account_locked
+
+  private
+
+  def handle_account_locked(error)
+    # error.account     - The locked account
+    # error.lock_reason - Why the account was locked
+    # error.locked_at   - When the account was locked
+    redirect_to login_path, alert: "Your account has been locked. Please contact support."
+  end
+end
+```
+
+For API controllers:
+
+```ruby
+# app/controllers/api/base_controller.rb
+class Api::BaseController < ActionController::API
+  include StandardId::ApiAuthentication
+
+  rescue_from StandardId::AccountLockedError, with: :handle_account_locked
+
+  private
+
+  def handle_account_locked(error)
+    render json: {
+      error: "account_locked",
+      message: "Your account has been locked. Please contact support.",
+      locked_at: error.locked_at&.iso8601
+      # Note: Consider not exposing lock_reason to end users for security
+    }, status: :forbidden
+  end
+end
+```
+
+### Event Subscriptions
+
+Both `AccountStatus` and `AccountLocking` subscribe to the same events (`OAUTH_TOKEN_ISSUING`, `SESSION_CREATING`, `SESSION_VALIDATING`). The lock check runs alongside the status check - authentication fails if either condition prevents access.
+
 ## Usage Examples
 
 ### Web Authentication

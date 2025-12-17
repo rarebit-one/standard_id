@@ -26,6 +26,10 @@ StandardConfig.schema.draw do
     field :revoke_sessions_on_deactivate, type: :boolean, default: true
   end
 
+  scope :account_locking do
+    field :revoke_sessions_on_lock, type: :boolean, default: true
+  end
+
   scope :passwordless do
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
     field :max_attempts, type: :integer, default: 3
