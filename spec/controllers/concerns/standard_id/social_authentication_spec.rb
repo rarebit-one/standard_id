@@ -12,18 +12,11 @@ RSpec.describe StandardId::SocialAuthentication do
   let(:provider_tokens) { { id_token: "id-token" } }
   let(:account) { double("Account") }
 
-  around do |example|
-    original_callback = StandardId.config.social_callback
-    example.run
-  ensure
-    StandardId.config.social_callback = original_callback
-  end
-
   describe "#run_social_callback" do
     it "passes only the keys accepted by the callback" do
-      received = nil
-      StandardId.config.social_callback = lambda do |provider:, social_info:|
-        received = { provider: provider, social_info: social_info }
+      event_received = nil
+      StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
+        event_received = event
       end
 
       instance.send(
@@ -34,22 +27,11 @@ RSpec.describe StandardId::SocialAuthentication do
         account: account
       )
 
-      expect(received).to eq(provider: "google", social_info: social_info)
-    end
-
-    it "passes the full payload when the callback accepts keyrest" do
-      received = nil
-      StandardId.config.social_callback = ->(**payload) { received = payload }
-
-      instance.send(
-        :run_social_callback,
-        provider: "apple",
-        social_info: social_info,
-        provider_tokens: provider_tokens,
-        account: account
-      )
-
-      expect(received.keys).to contain_exactly(:provider, :social_info, :tokens, :account)
+      expect(event_received).to be_present
+      expect(event_received[:account]).to eq(account)
+      expect(event_received[:provider]).to eq("google")
+      expect(event_received[:social_info]).to match(social_info)
+      expect(event_received[:tokens]).to match(provider_tokens)
     end
   end
 end
