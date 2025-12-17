@@ -1,18 +1,21 @@
 module StandardId
   module Api
     class AuthenticationGuard
-      def require_session!(session_manager)
+      def require_session!(session_manager, request: nil)
         api_session = session_manager.current_session
+        emit_session_validating(api_session, request)
 
         if api_session.blank?
           raise StandardId::NotAuthenticatedError, "Invalid or missing access token"
         elsif api_session.respond_to?(:expired?) && api_session.expired?
+          emit_session_expired(api_session)
           raise StandardId::ExpiredSessionError, "Session has expired"
         elsif api_session.respond_to?(:revoked?) && api_session.revoked?
           session_manager.clear_session!
           raise StandardId::RevokedSessionError, "Session has been revoked"
         end
 
+        emit_session_validated(api_session)
         api_session
       end
 
@@ -50,6 +53,42 @@ module StandardId
         else
           raise ArgumentError, "Scopes must be provided as a String, Symbol, or Array"
         end
+      end
+
+      def emit_session_validating(api_session, request)
+        StandardId::Events.publish(
+          StandardId::Events::SESSION_VALIDATING,
+          session: api_session
+        )
+      end
+
+      def emit_session_validated(api_session)
+        account = if api_session.respond_to?(:account)
+                    api_session.account
+        elsif api_session.respond_to?(:account_id)
+                    StandardId.account_class.find_by(id: api_session.account_id)
+        end
+
+        StandardId::Events.publish(
+          StandardId::Events::SESSION_VALIDATED,
+          session: api_session,
+          account: account
+        )
+      end
+
+      def emit_session_expired(api_session)
+        account = if api_session.respond_to?(:account)
+                    api_session.account
+        elsif api_session.respond_to?(:account_id)
+                    StandardId.account_class.find_by(id: api_session.account_id)
+        end
+
+        StandardId::Events.publish(
+          StandardId::Events::SESSION_EXPIRED,
+          session: api_session,
+          account: account,
+          expired_at: api_session.respond_to?(:expires_at) ? api_session.expires_at : nil
+        )
       end
     end
   end

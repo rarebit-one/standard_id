@@ -49,11 +49,39 @@ module StandardId
       password = login_params[:password]
       remember_me = ActiveModel::Type::Boolean.new.cast(login_params[:remember_me])
 
+      StandardId::Events.publish(
+        StandardId::Events::AUTHENTICATION_ATTEMPT_STARTED,
+        account_lookup: login,
+        auth_method: "password"
+      )
+
       StandardId::PasswordCredential.find_by(login:).tap do |password_credential|
-        return nil unless password_credential&.authenticate(password)
+        unless password_credential&.authenticate(password)
+          StandardId::Events.publish(
+            StandardId::Events::AUTHENTICATION_FAILED,
+            account_lookup: login,
+            auth_method: "password",
+            error_code: "invalid_credentials",
+            error_message: "Invalid login or password"
+          )
+          return nil
+        end
+
+        StandardId::Events.publish(
+          StandardId::Events::PASSWORD_VALIDATED,
+          account: password_credential.account,
+          credential_id: password_credential.id
+        )
 
         session_manager.sign_in_account(password_credential.account)
         session_manager.set_remember_cookie(password_credential) if remember_me
+
+        StandardId::Events.publish(
+          StandardId::Events::AUTHENTICATION_SUCCEEDED,
+          account: password_credential.account,
+          auth_method: "password",
+          session_type: "browser"
+        )
       end
     end
 

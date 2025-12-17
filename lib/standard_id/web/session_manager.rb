@@ -19,9 +19,11 @@ module StandardId
       end
 
       def sign_in_account(account)
+        emit_session_creating(account, "browser")
         token_manager.create_browser_session(account).tap do |browser_session|
           session[:session_token] = browser_session.token
           Current.session = browser_session
+          emit_session_created(browser_session, account, "browser")
         end
       end
 
@@ -48,7 +50,16 @@ module StandardId
         Current.session ||= load_session_from_session_token
         Current.session ||= load_session_from_remember_token
 
-        clear_session! if Current.session.blank? || Current.session.expired? || Current.session.revoked?
+        if Current.session.present?
+          if Current.session.expired?
+            emit_session_expired(Current.session)
+            clear_session!
+          elsif Current.session.revoked?
+            clear_session!
+          end
+        else
+          clear_session!
+        end
 
         Current.session
       end
@@ -65,6 +76,33 @@ module StandardId
           session[:session_token] = browser_session.token
           cookies[:remember_token] = token_manager.create_remember_token(password_credential)
         end
+      end
+
+      def emit_session_creating(account, session_type)
+        StandardId::Events.publish(
+          StandardId::Events::SESSION_CREATING,
+          account: account,
+          session_type: session_type
+        )
+      end
+
+      def emit_session_created(browser_session, account, session_type)
+        StandardId::Events.publish(
+          StandardId::Events::SESSION_CREATED,
+          session: browser_session,
+          account: account,
+          session_type: session_type,
+          token_issued: true
+        )
+      end
+
+      def emit_session_expired(browser_session)
+        StandardId::Events.publish(
+          StandardId::Events::SESSION_EXPIRED,
+          session: browser_session,
+          account: browser_session.account,
+          expired_at: browser_session.expires_at
+        )
       end
     end
   end

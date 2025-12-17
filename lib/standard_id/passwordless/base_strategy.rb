@@ -16,8 +16,11 @@ module StandardId
       def start!(attrs)
         username = attrs[:username]
         validate_username!(username)
+        emit_code_requested(username)
         challenge = create_challenge!(username)
+        emit_code_generated(challenge, username)
         sender_callback&.call(username, challenge.code)
+        emit_code_sent(username)
         challenge
       end
 
@@ -65,6 +68,35 @@ module StandardId
       def sender_callback
         # Implement in subclasses
         nil
+      end
+
+      private
+
+      def emit_code_requested(username)
+        StandardId::Events.publish(
+          StandardId::Events::PASSWORDLESS_CODE_REQUESTED,
+          identifier: username,
+          channel: connection_type
+        )
+      end
+
+      def emit_code_generated(challenge, username)
+        StandardId::Events.publish(
+          StandardId::Events::PASSWORDLESS_CODE_GENERATED,
+          code_challenge: challenge,
+          identifier: username,
+          channel: connection_type,
+          expires_at: challenge.expires_at
+        )
+      end
+
+      def emit_code_sent(username)
+        StandardId::Events.publish(
+          StandardId::Events::PASSWORDLESS_CODE_SENT,
+          identifier: username,
+          channel: connection_type,
+          delivery_status: "sent"
+        )
       end
     end
   end

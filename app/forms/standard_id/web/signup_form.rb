@@ -16,15 +16,21 @@ module StandardId
       def submit
         return false unless valid?
 
+        emit_account_creating
+
         ActiveRecord::Base.transaction do
           @account = Account.create!(account_params)
-          StandardId::PasswordCredential.create!(
+
+          password_credential = StandardId::PasswordCredential.create!(
             password_credential_params.merge(
               credential_attributes: {
                 identifier_attributes: email_identifier_params.merge(account: @account)
               }
             )
           )
+
+          emit_account_created
+          emit_credential_created(password_credential)
         end
 
         true
@@ -37,6 +43,31 @@ module StandardId
       end
 
       private
+
+      def emit_account_creating
+        StandardId::Events.publish(
+          StandardId::Events::ACCOUNT_CREATING,
+          account_params: account_params,
+          auth_method: "password"
+        )
+      end
+
+      def emit_account_created
+        StandardId::Events.publish(
+          StandardId::Events::ACCOUNT_CREATED,
+          account: @account,
+          auth_method: "password",
+          source: "signup"
+        )
+      end
+
+      def emit_credential_created(password_credential)
+        StandardId::Events.publish(
+          StandardId::Events::CREDENTIAL_PASSWORD_CREATED,
+          credential: password_credential,
+          account: @account
+        )
+      end
 
       def account_params
         { name: (email.to_s.split("@").first.presence || "User"), email: }
