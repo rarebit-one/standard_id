@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_12_02_000000) do
+ActiveRecord::Schema[8.0].define(version: 2025_12_13_000000) do
   create_table "accounts", force: :cascade do |t|
     t.string "email", null: false
     t.string "name", null: false
@@ -29,6 +29,26 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_02_000000) do
     t.string "unlocked_by_type"
     t.index ["email"], name: "index_accounts_on_email", unique: true
     t.index ["locked"], name: "index_accounts_on_locked"
+  end
+
+  create_table "standard_id_audit_logs", force: :cascade do |t|
+    t.string "event_type", null: false
+    t.string "request_id"
+    t.string "actor_type"
+    t.bigint "actor_id"
+    t.string "target_type"
+    t.bigint "target_id"
+    t.string "ip_address"
+    t.datetime "occurred_at", null: false
+    t.json "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_type", "actor_id"], name: "index_standard_id_audit_logs_on_actor"
+    t.index ["event_type"], name: "index_standard_id_audit_logs_on_event_type"
+    t.index ["ip_address"], name: "index_standard_id_audit_logs_on_ip_address"
+    t.index ["occurred_at"], name: "index_standard_id_audit_logs_on_occurred_at", order: :desc
+    t.index ["request_id"], name: "index_standard_id_audit_logs_on_request_id"
+    t.index ["target_type", "target_id"], name: "index_standard_id_audit_logs_on_target"
   end
 
   create_table "standard_id_authorization_codes", force: :cascade do |t|

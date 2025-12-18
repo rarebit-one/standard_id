@@ -49,6 +49,14 @@ StandardId.configure do |c|
   # Events
   # Enable or disable logging emitted via the internal event system
   # c.events.enable_logging = false
+  # Persist high-signal events to the `standard_id_audit_logs` table
+  # c.events.enable_audit_log = true
+  # c.events.audit_events = [
+  #   "authentication.attempt.succeeded",
+  #   "authentication.attempt.failed",
+  #   "session.created",
+  #   "credential.password.changed"
+  # ]
 
   # Social login credentials (if enabled in your app)
   # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]

@@ -404,6 +404,26 @@ This outputs JSON-structured logs for all authentication events:
 }
 ```
 
+### Enabling Audit Logging
+
+Enable the built-in audit log subscriber to persist high-signal security events to the `standard_id_audit_logs` table:
+
+```ruby
+StandardId.configure do |config|
+  config.events.enable_audit_log = true
+
+  # Optional: override the default event list (see DEFAULT_AUDIT_EVENTS for the full set)
+  config.events.audit_events = [
+    "authentication.attempt.succeeded",
+    "authentication.attempt.failed",
+    "session.created",
+    "credential.password.changed"
+  ]
+end
+```
+
+When no custom list is provided, StandardId subscribes to `StandardId::Events::Subscribers::AuditLogSubscriber::DEFAULT_AUDIT_EVENTS`, which covers authentication attempts, session lifecycle, account status changes, credential changes, and other sensitive flows. Adding or removing event names in `audit_events` lets each host adjust the coverage without modifying the engine.
+
 ### Available Events
 
 | Category | Events |

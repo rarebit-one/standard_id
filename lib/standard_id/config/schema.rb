@@ -20,6 +20,8 @@ StandardConfig.schema.draw do
 
   scope :events do
     field :enable_logging, type: :boolean, default: false
+    field :enable_audit_log, type: :boolean, default: false
+    field :audit_events, type: :array, default: nil
   end
 
   scope :passwordless do

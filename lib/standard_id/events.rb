@@ -128,6 +128,7 @@ module StandardId
           enriched[:request_id] = ::Current.request_id if ::Current.request_id.present?
           enriched[:ip_address] ||= ::Current.ip_address if ::Current.respond_to?(:ip_address) && ::Current.ip_address.present?
           enriched[:user_agent] ||= ::Current.user_agent if ::Current.respond_to?(:user_agent) && ::Current.user_agent.present?
+          enriched[:current_account] ||= ::Current.account if ::Current.respond_to?(:account) && ::Current.account.present?
         end
 
         enriched.merge(payload)
