@@ -540,15 +540,6 @@ User.active     # => Users with status 'active'
 User.inactive   # => Users with status 'inactive'
 ```
 
-### Configuration
-
-```ruby
-StandardId.configure do |config|
-  # Automatically revoke all sessions when account is deactivated (default: true)
-  config.account_status.revoke_sessions_on_deactivate = true
-end
-```
-
 ### Handling AccountDeactivatedError
 
 When an inactive account attempts to authenticate, `StandardId::AccountDeactivatedError` is raised. You need to handle this error in your application controller:

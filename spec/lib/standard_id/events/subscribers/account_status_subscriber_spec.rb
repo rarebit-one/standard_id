@@ -31,11 +31,7 @@ RSpec.describe StandardId::Events::Subscribers::AccountStatusSubscriber do
       )
     end
 
-    context "when revoke_sessions_on_deactivate is enabled (default)" do
-      before do
-        allow(StandardId.config.account_status).to receive(:revoke_sessions_on_deactivate).and_return(true)
-      end
-
+    context "when account has sessions association" do
       it "revokes all active sessions for the account" do
         active_sessions = account.sessions.active
         expect(active_sessions.count).to be > 0
@@ -73,10 +69,6 @@ RSpec.describe StandardId::Events::Subscribers::AccountStatusSubscriber do
         )
       end
 
-      before do
-        allow(StandardId.config.account_status).to receive(:revoke_sessions_on_deactivate).and_return(true)
-      end
-
       it "does not raise error" do
         expect { subscriber.call(event_without_sessions) }.not_to raise_error
       end
@@ -93,10 +85,6 @@ RSpec.describe StandardId::Events::Subscribers::AccountStatusSubscriber do
         )
       end
 
-      before do
-        allow(StandardId.config.account_status).to receive(:revoke_sessions_on_deactivate).and_return(true)
-      end
-
       it "does not raise error" do
         expect { subscriber.call(event_nil_account) }.not_to raise_error
       end
@@ -105,7 +93,6 @@ RSpec.describe StandardId::Events::Subscribers::AccountStatusSubscriber do
 
   describe "integration with Events.publish" do
     before do
-      allow(StandardId.config.account_status).to receive(:revoke_sessions_on_deactivate).and_return(true)
       described_class.attach
     end
 

@@ -7,7 +7,7 @@ module StandardId
         StandardId::Events::Subscribers::LoggingSubscriber.attach
       end
 
-      StandardId::Events::Subscribers::AccountStatusSubscriber.attach if StandardId.config.account_status.revoke_sessions_on_deactivate
+      StandardId::Events::Subscribers::AccountStatusSubscriber.attach
     end
   end
 end

@@ -5,6 +5,8 @@ module StandardId
     included do
       enum :status, { active: "active", inactive: "inactive" }, default: :active
 
+      after_commit :emit_account_status_changed_event, on: :update, if: :status_previously_changed?
+
       StandardId::Events.subscribe(
         StandardId::Events::OAUTH_TOKEN_ISSUING,
         StandardId::Events::SESSION_CREATING,
@@ -20,31 +22,24 @@ module StandardId
     def activate!
       return true if active?
 
-      previous_status = status
       update!(status: :active, activated_at: Time.current)
-
-      StandardId::Events.publish(
-        StandardId::Events::ACCOUNT_ACTIVATED,
-        account: self,
-        previous_status: previous_status
-      )
-
-      true
     end
 
     def deactivate!
       return true if inactive?
 
-      previous_status = status
       update!(status: :inactive, deactivated_at: Time.current)
+    end
 
+    private
+
+    def emit_account_status_changed_event
+      event = saved_change_to_deactivated_at? ? StandardId::Events::ACCOUNT_DEACTIVATED : StandardId::Events::ACCOUNT_ACTIVATED
       StandardId::Events.publish(
-        StandardId::Events::ACCOUNT_DEACTIVATED,
+        event,
         account: self,
-        previous_status: previous_status
+        previous_status: status_previously_was
       )
-
-      true
     end
   end
 end
