@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_12_02_000000) do
+ActiveRecord::Schema[8.0].define(version: 2025_12_15_000000) do
   create_table "accounts", force: :cascade do |t|
     t.string "email", null: false
     t.string "name", null: false
@@ -135,6 +135,18 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_02_000000) do
     t.datetime "updated_at", null: false
     t.index ["account_id", "type", "value"], name: "index_standard_id_identifiers_on_account_id_and_type_and_value", unique: true
     t.index ["account_id"], name: "index_standard_id_identifiers_on_account_id"
+  end
+
+  create_table "standard_id_metrics", force: :cascade do |t|
+    t.string "name", null: false
+    t.datetime "time_bucket", null: false
+    t.string "status", default: "success", null: false
+    t.bigint "count", default: 0, null: false
+    t.float "total_duration", default: 0.0, null: false
+    t.json "dimensions", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["name", "time_bucket", "status", "dimensions"], name: "index_metrics_unique_bucket", unique: true
   end
 
   create_table "standard_id_password_credentials", force: :cascade do |t|

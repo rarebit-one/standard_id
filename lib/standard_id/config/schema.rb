@@ -20,6 +20,8 @@ StandardConfig.schema.draw do
 
   scope :events do
     field :enable_logging, type: :boolean, default: false
+    field :enable_metrics, type: :boolean, default: false
+    field :metrics_bucket_size, type: :symbol, default: :five_minutes
   end
 
   scope :passwordless do

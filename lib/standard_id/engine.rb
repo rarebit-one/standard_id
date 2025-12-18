@@ -6,6 +6,10 @@ module StandardId
       if StandardId.config.events.enable_logging
         StandardId::Events::Subscribers::LoggingSubscriber.attach
       end
+
+      if StandardId.config.events.enable_metrics
+        StandardId::Events::Subscribers::AggregatedMetricsSubscriber.attach
+      end
     end
   end
 end

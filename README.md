@@ -404,6 +404,86 @@ This outputs JSON-structured logs for all authentication events:
 }
 ```
 
+### Enabling Audit Logging
+
+Enable the built-in audit log subscriber to persist high-signal security events to the `standard_id_audit_logs` table:
+
+```ruby
+StandardId.configure do |config|
+  config.events.enable_audit_log = true
+
+  # Optional: override the default event list (see DEFAULT_AUDIT_EVENTS for the full set)
+  config.events.audit_events = [
+    "authentication.attempt.succeeded",
+    "authentication.attempt.failed",
+    "session.created",
+    "credential.password.changed"
+  ]
+end
+```
+
+When no custom list is provided, StandardId subscribes to `StandardId::Events::Subscribers::AuditLogSubscriber::DEFAULT_AUDIT_EVENTS`, which covers authentication attempts, session lifecycle, account status changes, credential changes, and other sensitive flows. Adding or removing event names in `audit_events` lets each host adjust the coverage without modifying the engine.
+
+### Enabling Aggregated Metrics
+
+Enable the built-in metrics subscriber to track authentication success/failure rates, session patterns, and other metrics using an efficient Postgres upsert pattern:
+
+```ruby
+StandardId.configure do |config|
+  config.events.enable_metrics = true
+
+  # Optional: set the time bucket granularity (default: :five_minutes)
+  # Options: :one_minute, :five_minutes, :fifteen_minutes, :thirty_minutes, :one_hour
+  config.events.metrics_bucket_size = :five_minutes
+end
+```
+
+This creates aggregated metrics in the `standard_id_metrics` table. Instead of storing one row per event (which would explode storage), it increments counters per time bucket. For example, 1 million auth attempts per day results in only ~48 rows (success + failure × 24 hours).
+
+#### Querying Metrics
+
+```ruby
+# Get authentication success rate for today
+range = Time.current.beginning_of_day..Time.current.end_of_day
+StandardId::Metric.success_rate(name: "auth.attempt", time_range: range)
+# => 95.5 (percentage)
+
+# Get total failed authentications this hour
+StandardId::Metric.total_count(
+  name: "auth.attempt",
+  time_range: Time.current.beginning_of_hour..Time.current.end_of_hour,
+  status: "failure"
+)
+# => 42
+
+# Get average authentication latency
+StandardId::Metric.average_duration(name: "auth.attempt", time_range: range)
+# => 45.2 (milliseconds)
+
+# Use scopes for quick queries
+StandardId::Metric.for_metric("auth.attempt").today.successful.sum(:count)
+StandardId::Metric.for_metric("session.created").this_hour.sum(:count)
+```
+
+#### Tracked Metrics
+
+| Metric Name | Status Values | Description |
+|-------------|---------------|-------------|
+| `auth.attempt` | success, failure | Password authentication attempts |
+| `auth.password` | success, failure | Password validation |
+| `auth.otp` | success, failure | OTP validation |
+| `session.created` | success | New sessions created |
+| `session.revoked` | success | Sessions revoked |
+| `session.expired` | success | Sessions expired |
+| `account.created` | success | New accounts created |
+| `account.locked` | success | Accounts locked |
+| `oauth.token.issued` | success | OAuth tokens issued |
+| `oauth.authorization` | success, failure | OAuth authorizations |
+| `passwordless.code` | success, failure | Passwordless code verification |
+| `social.auth` | success | Social login completions |
+
+Additional dimensions (auth_method, provider, grant_type, error_code) are stored in the `dimensions` JSONB column for drill-down analysis.
+
 ### Available Events
 
 | Category | Events |
