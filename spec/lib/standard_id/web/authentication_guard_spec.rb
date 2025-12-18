@@ -3,8 +3,8 @@ require "rails_helper"
 RSpec.describe StandardId::Web::AuthenticationGuard do
   let(:session_manager) { double("SessionManager") }
   let(:session) { {} }
-  let(:request) { double("Request", url: "http://example.com/protected") }
-  let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false) }
+  let(:request) { double("Request", url: "http://example.com/protected", remote_ip: "127.0.0.1") }
+  let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: double("Account")) }
   let(:guard) { described_class.new }
 
   describe "#require_session!" do
@@ -45,7 +45,7 @@ RSpec.describe StandardId::Web::AuthenticationGuard do
     end
 
     context "when session is expired" do
-      let(:expired_session) { double("BrowserSession", expired?: true, revoked?: false) }
+      let(:expired_session) { double("BrowserSession", expired?: true, revoked?: false, account: double("Account"), expires_at: 1.hour.ago) }
 
       before do
         allow(session_manager).to receive(:current_session).and_return(expired_session)

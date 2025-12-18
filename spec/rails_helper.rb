@@ -1,8 +1,6 @@
 # This file is copied to spec/ when you run "rails generate rspec:install"
 require "spec_helper"
-ENV["RAILS_ENV"] ||= "test"
 
-require_relative "dummy/config/environment"
 # Prevent database truncation if the environment is production
 abort("The Rails environment is running in production mode!") if Rails.env.production?
 # Uncomment the line below in case you have `--require rails_helper` in the `.rspec` file
@@ -78,3 +76,14 @@ Shoulda::Matchers.configure do |config|
 end
 
 BCrypt::Engine.cost = 1
+
+# Helper module for clearing event subscribers in tests
+module StandardIdEventsTestHelper
+  def clear_event_subscribers!
+    ActiveSupport::Notifications.notifier = ActiveSupport::Notifications::Fanout.new
+  end
+end
+
+RSpec.configure do |config|
+  config.include StandardIdEventsTestHelper
+end

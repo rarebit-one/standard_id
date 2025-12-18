@@ -2,6 +2,7 @@ module StandardId
   module Api
     class BaseController < ActionController::API
       include StandardId::ApiAuthentication
+      include StandardId::SetCurrentRequestDetails
 
       before_action :validate_content_type!
 

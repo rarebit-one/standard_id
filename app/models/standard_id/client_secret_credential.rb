@@ -18,6 +18,7 @@ module StandardId
 
     def revoke!
       update!(active: false, revoked_at: Time.current)
+      emit_revoked_event
     end
 
     def active?
@@ -55,6 +56,16 @@ module StandardId
 
     def ensure_client_secret
       self.client_secret ||= SecureRandom.hex(32)
+    end
+
+    def emit_revoked_event
+      StandardId::Events.publish(
+        StandardId::Events::CREDENTIAL_CLIENT_SECRET_REVOKED,
+        credential: self,
+        client_application: client_application,
+        client_id: client_id,
+        revoked_at: revoked_at
+      )
     end
 
     # Note: We intentionally do not enforce subset validation for per-secret overrides here.

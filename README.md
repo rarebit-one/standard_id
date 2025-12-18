@@ -377,6 +377,99 @@ StandardId.configure do |config|
 end
 ```
 
+## Event System
+
+StandardId emits events throughout the authentication lifecycle using `ActiveSupport::Notifications`. This enables decoupled handling of cross-cutting concerns like logging, analytics, audit trails, and webhooks.
+
+### Enabling Event Logging
+
+Enable the built-in structured logging subscriber:
+
+```ruby
+StandardId.configure do |config|
+  config.events.enable_logging = true
+end
+```
+
+This outputs JSON-structured logs for all authentication events:
+
+```json
+{
+  "subject": "standard_id.authentication.attempt.succeeded",
+  "severity": "info",
+  "duration": 50.25,
+  "account_id": 123,
+  "auth_method": "password",
+  "ip_address": "192.168.1.1"
+}
+```
+
+### Available Events
+
+| Category | Events |
+|----------|--------|
+| **Authentication** | `authentication.attempt.started`, `authentication.attempt.succeeded`, `authentication.attempt.failed`, `authentication.password.validated`, `authentication.password.failed`, `authentication.otp.validated`, `authentication.otp.failed` |
+| **Session** | `session.creating`, `session.created`, `session.validating`, `session.validated`, `session.expired`, `session.revoked`, `session.refreshed` |
+| **Account** | `account.creating`, `account.created`, `account.verified`, `account.status_changed`, `account.locked`, `account.unlocked` |
+| **Identifier** | `identifier.created`, `identifier.verification.started`, `identifier.verification.succeeded`, `identifier.verification.failed`, `identifier.linked` |
+| **OAuth** | `oauth.authorization.requested`, `oauth.authorization.granted`, `oauth.authorization.denied`, `oauth.token.issuing`, `oauth.token.issued`, `oauth.token.refreshed`, `oauth.code.consumed` |
+| **Passwordless** | `passwordless.code.requested`, `passwordless.code.generated`, `passwordless.code.sent`, `passwordless.code.verified`, `passwordless.code.failed`, `passwordless.account.created` |
+| **Social** | `social.auth.started`, `social.auth.callback_received`, `social.user_info.fetched`, `social.account.created`, `social.account.linked`, `social.auth.completed` |
+| **Credential** | `credential.password.created`, `credential.password.reset_initiated`, `credential.password.reset_completed`, `credential.password.changed`, `credential.client_secret.created`, `credential.client_secret.rotated` |
+
+### Subscribing to Events
+
+#### Block-based (simple)
+
+```ruby
+# config/initializers/standard_id_events.rb
+StandardId::Events.subscribe(StandardId::Events::AUTHENTICATION_SUCCEEDED) do |event|
+  Analytics.track_login(
+    account_id: event[:account].id,
+    method: event[:auth_method],
+    ip: event[:ip_address]
+  )
+end
+
+# Subscribe to multiple events at once
+StandardId::Events.subscribe(
+  StandardId::Events::SESSION_CREATING,
+  StandardId::Events::SESSION_VALIDATING,
+  StandardId::Events::OAUTH_TOKEN_ISSUING
+) do |event|
+  # Handle all three events with the same block
+  check_rate_limit(event[:account], event[:ip_address])
+end
+
+# Subscribe to events with pattern matching
+StandardId::Events.subscribe(/social/) do |event|
+  Rails.logger.info("Social event: #{event.name}")
+end
+```
+
+#### Class-based (complex logic)
+
+```ruby
+# app/subscribers/audit_subscriber.rb
+class AuditSubscriber < StandardId::Events::Subscribers::Base
+  subscribe_to StandardId::Events::AUTHENTICATION_SUCCEEDED
+  subscribe_to StandardId::Events::AUTHENTICATION_FAILED
+  subscribe_to StandardId::Events::SESSION_REVOKED
+
+  def call(event)
+    AuditLog.create!(
+      event_type: event.short_name,
+      account_id: event[:account]&.id,
+      ip_address: event[:ip_address],
+      metadata: event.payload
+    )
+  end
+end
+
+# config/initializers/standard_id_events.rb
+AuditSubscriber.attach
+```
+
 ## Usage Examples
 
 ### Web Authentication

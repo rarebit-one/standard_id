@@ -2,6 +2,7 @@ module StandardId
   module Web
     class BaseController < ApplicationController
       include StandardId::WebAuthentication
+      include StandardId::SetCurrentRequestDetails
 
       include StandardId::WebEngine.routes.url_helpers
       helper StandardId::WebEngine.routes.url_helpers

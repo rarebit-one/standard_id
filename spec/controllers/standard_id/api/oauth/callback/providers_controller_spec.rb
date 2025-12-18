@@ -28,9 +28,9 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
       expect(response.parsed_body).to eq("access_token" => "token")
     end
 
-    it "defaults to web flow when not provided" do
+    it "defaults to mobile flow when not provided" do
       expect_any_instance_of(described_class).to receive(:get_user_info_from_provider)
-        .with("apple", hash_including(flow: :web))
+        .with("apple", hash_including(flow: :mobile))
         .and_return(user_info)
 
       post :apple, params: { code: "abc123" }

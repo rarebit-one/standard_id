@@ -1,3 +1,3 @@
 class Current < ActiveSupport::CurrentAttributes
-  attribute :session, :account
+  include StandardId::CurrentAttributes
 end
