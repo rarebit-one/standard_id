@@ -6,12 +6,6 @@ module StandardId
 
         def call(event)
           account = event[:account]
-          revoke_all_sessions(account, event)
-        end
-
-        private
-
-        def revoke_all_sessions(account, event)
           active_sessions = account.sessions.active
           active_sessions.find_each do |session|
             session.revoke!(reason: "account_deactivated")
