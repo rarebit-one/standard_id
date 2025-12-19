@@ -9,29 +9,18 @@ module StandardId
         private
 
         def social_provider_url
-          @social_provider_url ||= case params[:connection]
-          when "google"
-            build_google_oauth_url
-          when "apple"
-            build_apple_oauth_url
-          else
-            raise StandardId::InvalidRequestError, "Unsupported connection: #{params[:connection]}"
+          @social_provider_url ||= begin
+            connection = params[:connection]
+            provider = StandardId::ProviderRegistry.get(connection)
+
+            provider.authorization_url(
+              state: encode_state_with_original_params,
+              redirect_uri: "#{params[:base_url]}/api/oauth/callback/#{connection}",
+              scope: provider.default_scope
+            )
+          rescue StandardId::ProviderRegistry::ProviderNotFoundError => e
+            raise StandardId::InvalidRequestError, e.message
           end
-        end
-
-        def build_google_oauth_url
-          StandardId::SocialProviders::Google.authorization_url(
-            state: encode_state_with_original_params,
-            redirect_uri: "#{params[:base_url]}/api/oauth/callback/google",
-            scope: "openid email profile"
-          )
-        end
-
-        def build_apple_oauth_url
-          StandardId::SocialProviders::Apple.authorization_url(
-            state: encode_state_with_original_params,
-            redirect_uri: "#{params[:base_url]}/api/oauth/callback/apple"
-          )
         end
 
         def encode_state_with_original_params

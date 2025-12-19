@@ -16,13 +16,13 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
     allow_any_instance_of(described_class).to receive(:find_or_create_account_from_social).and_return(account)
   end
 
-  describe "POST #apple" do
+  describe "POST #callback (apple)" do
     it "passes the flow parameter through" do
       expect_any_instance_of(described_class).to receive(:get_user_info_from_provider)
-        .with("apple", hash_including(flow: :mobile))
+        .with(hash_including(flow: :mobile))
         .and_return(user_info)
 
-      post :apple, params: { code: "abc123", flow: "mobile" }
+      post :callback, params: { provider: "apple", code: "abc123", flow: "mobile" }
 
       expect(response).to have_http_status(:ok)
       expect(response.parsed_body).to eq("access_token" => "token")
@@ -30,10 +30,10 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
 
     it "defaults to mobile flow when not provided" do
       expect_any_instance_of(described_class).to receive(:get_user_info_from_provider)
-        .with("apple", hash_including(flow: :mobile))
+        .with(hash_including(flow: :mobile))
         .and_return(user_info)
 
-      post :apple, params: { code: "abc123" }
+      post :callback, params: { provider: "apple", code: "abc123" }
 
       expect(response).to have_http_status(:ok)
     end

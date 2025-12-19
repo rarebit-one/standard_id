@@ -6,43 +6,32 @@ module StandardId
 
         skip_before_action :validate_content_type!
 
-        def google
-          expect_and_permit!([], [:id_token, :code])
-          handle_social_callback("google")
-        end
-
-        def apple
-          expect_and_permit!([], [:id_token, :code, :state, :flow])
-          handle_social_callback("apple")
-        end
-
-        private
-
-        def handle_social_callback(connection)
+        def callback
           original_params = decode_state_params
-          flow = resolve_flow_for(connection)
-          provider_response = get_user_info_from_provider(connection, flow: flow)
+          provider_response = get_user_info_from_provider(flow: resolve_flow_for(provider.provider_name))
           social_info = provider_response[:user_info]
           provider_tokens = provider_response[:tokens]
-          account = find_or_create_account_from_social(social_info, connection)
+          account = find_or_create_account_from_social(social_info)
 
           flow = StandardId::Oauth::SocialFlow.new(
             params,
             request,
             account: account,
-            connection: connection,
+            connection: provider.provider_name,
             original_params: original_params
           )
 
           token_response = flow.execute
           run_social_callback(
-            provider: connection,
+            provider: provider.provider_name,
             social_info: social_info,
             provider_tokens: provider_tokens,
             account: account,
           )
           render json: token_response, status: :ok
         end
+
+        private
 
         def decode_state_params
           encoded_state = params[:state]

@@ -37,28 +37,15 @@ module StandardId
       end
 
       def social_login_url
-        case params[:connection]
-        when "google"
-          google_authorization_url
-        when "apple"
-          apple_authorization_url
-        else
-          raise StandardId::InvalidRequestError, "Unsupported social connection: #{connection}"
-        end
-      end
+        connection = params[:connection]
+        provider = StandardId::ProviderRegistry.get(connection)
 
-      def google_authorization_url
-        StandardId::SocialProviders::Google.authorization_url(
+        provider.authorization_url(
           state: encode_state,
-          redirect_uri: auth_callback_google_url
+          redirect_uri: "#{request.base_url}#{provider.callback_path}"
         )
-      end
-
-      def apple_authorization_url
-        StandardId::SocialProviders::Apple.authorization_url(
-          state: encode_state,
-          redirect_uri: auth_callback_apple_url
-        )
+      rescue StandardId::ProviderRegistry::ProviderNotFoundError => e
+        raise StandardId::InvalidRequestError, e.message
       end
 
       def encode_state

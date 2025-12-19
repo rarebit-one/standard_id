@@ -16,9 +16,9 @@ RSpec.describe StandardId::Web::Auth::Callback::ProvidersController, type: :cont
     StandardId.config.allowed_redirect_url_prefixes = []
   end
 
-  describe "POST #apple_mobile" do
+  describe "POST #mobile_callback" do
     it "renders an auto-redirecting page for allowed schemes" do
-      post :apple_mobile, params: { state: encoded_state, code: "abc123" }
+      post :mobile_callback, params: { provider: "apple", state: encoded_state, code: "abc123" }
 
       expect(response).to have_http_status(:ok)
       expect(response.media_type).to eq("text/html")
@@ -30,10 +30,23 @@ RSpec.describe StandardId::Web::Auth::Callback::ProvidersController, type: :cont
     it "rejects disallowed redirect URIs" do
       bad_state = Base64.urlsafe_encode64({ "redirect_uri" => "https://example.com" }.to_json)
 
-      post :apple_mobile, params: { state: bad_state }
+      post :mobile_callback, params: { provider: "apple", state: bad_state }
 
       expect(response).to have_http_status(:unprocessable_entity)
       expect(response.body).to match(/not allowed/)
+    end
+
+    it "rejects unknown providers" do
+      expect {
+        post :mobile_callback, params: { provider: "unknown", state: encoded_state }
+      }.to raise_error(StandardId::InvalidRequestError, /Unknown provider/)
+    end
+
+    it "rejects providers that don't support mobile callback" do
+      post :mobile_callback, params: { provider: "google", state: encoded_state }
+
+      expect(response).to have_http_status(:unprocessable_entity)
+      expect(response.body).to match(/does not support mobile callback/)
     end
   end
 end

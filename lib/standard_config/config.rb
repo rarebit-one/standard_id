@@ -23,9 +23,7 @@ module StandardConfig
     # If set, Authorization endpoints can redirect to this path with a redirect_uri param
     attr_accessor :login_url
 
-    # Social login provider credentials and hooks
-    attr_accessor :google_client_id, :google_client_secret
-    attr_accessor :apple_client_id, :apple_client_secret, :apple_private_key, :apple_key_id, :apple_team_id
+    # Social login hooks
     attr_accessor :social_account_attributes
 
     # Passwordless authentication delivery callbacks (deprecated - use events instead)
@@ -55,11 +53,6 @@ module StandardConfig
       @logger = nil
       @issuer = nil
       @login_url = nil
-      @google_client_id = nil
-      @google_client_secret = nil
-      @apple_client_id = nil
-      @apple_client_secret = nil
-      @apple_private_key = nil
       @apple_key_id = nil
       @apple_team_id = nil
       @social_account_attributes = nil
