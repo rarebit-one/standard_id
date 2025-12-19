@@ -21,7 +21,7 @@ module StandardId
 
             begin
               state_data = decode_state_params
-              redirect_uri = callback_url_for(provider.provider_name)
+              redirect_uri = callback_url_for
               provider_response = get_user_info_from_provider(redirect_uri: redirect_uri)
               social_info = provider_response[:user_info]
               provider_tokens = provider_response[:tokens]
@@ -65,7 +65,7 @@ module StandardId
 
           private
 
-          def callback_url_for(provider_name)
+          def callback_url_for
             "#{request.base_url}#{provider.callback_path}"
           end
 
