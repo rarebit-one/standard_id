@@ -8,6 +8,7 @@ module StandardId
       end
 
       StandardId::Events::Subscribers::AccountStatusSubscriber.attach
+      StandardId::Events::Subscribers::AccountLockingSubscriber.attach
     end
   end
 end
