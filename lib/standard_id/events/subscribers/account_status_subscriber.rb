@@ -6,8 +6,6 @@ module StandardId
 
         def call(event)
           account = event[:account]
-          return unless account&.respond_to?(:sessions)
-
           revoke_all_sessions(account, event)
         end
 

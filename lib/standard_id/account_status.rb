@@ -34,7 +34,7 @@ module StandardId
     private
 
     def emit_account_status_changed_event
-      event = saved_change_to_deactivated_at? ? StandardId::Events::ACCOUNT_DEACTIVATED : StandardId::Events::ACCOUNT_ACTIVATED
+      event = inactive? ? StandardId::Events::ACCOUNT_DEACTIVATED : StandardId::Events::ACCOUNT_ACTIVATED
       StandardId::Events.publish(
         event,
         account: self,
