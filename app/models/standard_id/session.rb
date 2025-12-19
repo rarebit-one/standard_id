@@ -19,7 +19,7 @@ module StandardId
     attr_reader :token
 
     before_validation :generate_token, :generate_token_digest, :generate_lookup_hash, on: :create
-
+    after_commit :emit_session_revoked_event, on: :update, if: :just_revoked?
 
     def active?
       !revoked? && !expired?
@@ -33,14 +33,9 @@ module StandardId
       revoked_at.present?
     end
 
-    def revoke!
+    def revoke!(reason: nil)
+      @reason = reason
       update!(revoked_at: Time.current)
-      StandardId::Events.publish(
-        StandardId::Events::SESSION_REVOKED,
-        session: self,
-        account: account,
-        revoked_by: nil
-      )
     end
 
     private
@@ -55,6 +50,19 @@ module StandardId
 
     def generate_lookup_hash
       self.lookup_hash = Digest::SHA256.hexdigest("#{token}:#{Rails.configuration.secret_key_base}")
+    end
+
+    def just_revoked?
+      saved_change_to_revoked_at? && revoked?
+    end
+
+    def emit_session_revoked_event
+      StandardId::Events.publish(
+        StandardId::Events::SESSION_REVOKED,
+        session: self,
+        account:,
+        reason: @reason
+      )
     end
   end
 end

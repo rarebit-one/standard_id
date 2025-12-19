@@ -4,6 +4,18 @@ module StandardId
   class InvalidSessionError < StandardError; end
   class ExpiredSessionError < InvalidSessionError; end
   class RevokedSessionError < InvalidSessionError; end
+  class AccountDeactivatedError < StandardError; end
+
+  class AccountLockedError < StandardError
+    attr_reader :account, :lock_reason, :locked_at
+
+    def initialize(account)
+      @account = account
+      @lock_reason = account.lock_reason
+      @locked_at = account.locked_at
+      super("Account has been locked#{lock_reason ? ": #{lock_reason}" : ""}")
+    end
+  end
 
   class OAuthError < StandardError
     def oauth_error_code

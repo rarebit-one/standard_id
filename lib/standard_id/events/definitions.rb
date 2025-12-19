@@ -21,6 +21,8 @@ module StandardId
       ACCOUNT_CREATED = "account.created"
       ACCOUNT_VERIFIED = "account.verified"
       ACCOUNT_STATUS_CHANGED = "account.status_changed"
+      ACCOUNT_ACTIVATED = "account.activated"
+      ACCOUNT_DEACTIVATED = "account.deactivated"
       ACCOUNT_LOCKED = "account.locked"
       ACCOUNT_UNLOCKED = "account.unlocked"
 
@@ -85,6 +87,8 @@ module StandardId
         ACCOUNT_CREATED,
         ACCOUNT_VERIFIED,
         ACCOUNT_STATUS_CHANGED,
+        ACCOUNT_ACTIVATED,
+        ACCOUNT_DEACTIVATED,
         ACCOUNT_LOCKED,
         ACCOUNT_UNLOCKED
       ].freeze

@@ -55,6 +55,5 @@ StandardConfig.schema.draw do
   scope :social do
     field :social_account_attributes, type: :any, default: nil
     field :allowed_redirect_url_prefixes, type: :array, default: []
-    field :social_callback, type: :any, default: nil
   end
 end

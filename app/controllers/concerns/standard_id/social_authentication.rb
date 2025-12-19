@@ -102,18 +102,6 @@ module StandardId
 
     def run_social_callback(provider:, social_info:, provider_tokens:, account:)
       emit_social_auth_completed(provider, social_info, provider_tokens, account)
-      callback = StandardId.config.social_callback
-      return if callback.blank?
-
-      payload = {
-        provider: provider,
-        social_info: social_info,
-        tokens: provider_tokens.presence,
-        account: account
-      }
-
-      filtered_payload = StandardId::Utils::CallableParameterFilter.filter(callback, payload)
-      callback.call(**filtered_payload.symbolize_keys)
     end
 
     def emit_social_user_info_fetched(provider, social_info, email)
@@ -148,6 +136,7 @@ module StandardId
         StandardId::Events::SOCIAL_AUTH_COMPLETED,
         account: account,
         provider: provider,
+        social_info: social_info,
         tokens: provider_tokens
       )
     end

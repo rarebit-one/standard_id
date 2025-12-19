@@ -129,10 +129,6 @@ StandardId.configure do |config|
   # config.session.device_session_lifetime = 2_592_000   # 30 days (API device sessions)
   # config.session.service_session_lifetime = 7_776_000  # 90 days (service-to-service sessions)
 
-  # Passwordless delivery callbacks
-  # config.passwordless_email_sender = ->(email, code) { UserMailer.send_code(email, code).deliver_now }
-  # config.passwordless_sms_sender   = ->(phone, code) { SmsService.send_code(phone, code) }
-
   # Subset configuration
   # config.password.minimum_length = 12
   # config.password.require_special_chars = true
@@ -192,20 +188,23 @@ StandardId.configure do |config|
       name: social_info[:name] || social_info[:given_name]
     }
   }
-
-  # Optional: run a callback whenever a social login completes
-  config.social.social_callback = ->(social_info:, provider:, tokens:, account:) {
-    AuditLog.social_login(
-      provider: provider,
-      email: social_info[:email],
-      tokens: tokens,
-      account_id: account.id,
-    )
-  }
 end
 ```
 
 `social_info` is an indifferent-access hash containing at least `email`, `name`, and `provider_id`.
+
+To handle social login completion (e.g., for analytics or audit logging), subscribe to the `SOCIAL_AUTH_COMPLETED` event:
+
+```ruby
+# config/initializers/standard_id_events.rb
+StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
+  Analytics.track_social_login(
+    provider: event[:provider],
+    account_id: event[:account].id,
+    tokens: event[:tokens]
+  )
+end
+```
 
 ### Inertia.js Integration
 
@@ -361,21 +360,29 @@ end
 
 This will redirect unauthenticated users to the login page using `inertia_location` for Inertia requests, ensuring proper SPA navigation.
 
-### Passwordless Authentication
+### Passwordless Code Delivery
+
+Subscribe to the `PASSWORDLESS_CODE_GENERATED` event to deliver OTP codes:
 
 ```ruby
-StandardId.configure do |config|
-  # Email delivery
-  config.passwordless_email_sender = ->(email, code) {
-    UserMailer.send_code(email, code).deliver_now
-  }
-
-  # SMS delivery
-  config.passwordless_sms_sender = ->(phone, code) {
-    SmsService.send_code(phone, code)
-  }
+# config/initializers/standard_id_events.rb
+StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
+  case event[:channel]
+  when "email"
+    UserMailer.send_code(event[:identifier], event[:code_challenge].code).deliver_now
+  when "sms"
+    SmsService.send_code(event[:identifier], event[:code_challenge].code)
+  end
 end
 ```
+
+Event payload includes:
+- `channel` - `"email"` or `"sms"`
+- `identifier` - The email address or phone number
+- `code_challenge` - The code challenge object with `.code` method
+- `expires_at` - When the code expires
+
+> **Note**: If you're using the deprecated `passwordless_email_sender` or `passwordless_sms_sender` callbacks, see the [Migration Guide](docs/MIGRATION_GUIDE.md) for upgrade instructions.
 
 ## Event System
 
@@ -410,7 +417,7 @@ This outputs JSON-structured logs for all authentication events:
 |----------|--------|
 | **Authentication** | `authentication.attempt.started`, `authentication.attempt.succeeded`, `authentication.attempt.failed`, `authentication.password.validated`, `authentication.password.failed`, `authentication.otp.validated`, `authentication.otp.failed` |
 | **Session** | `session.creating`, `session.created`, `session.validating`, `session.validated`, `session.expired`, `session.revoked`, `session.refreshed` |
-| **Account** | `account.creating`, `account.created`, `account.verified`, `account.status_changed`, `account.locked`, `account.unlocked` |
+| **Account** | `account.creating`, `account.created`, `account.verified`, `account.status_changed`, `account.activated`, `account.deactivated`, `account.locked`, `account.unlocked` |
 | **Identifier** | `identifier.created`, `identifier.verification.started`, `identifier.verification.succeeded`, `identifier.verification.failed`, `identifier.linked` |
 | **OAuth** | `oauth.authorization.requested`, `oauth.authorization.granted`, `oauth.authorization.denied`, `oauth.token.issuing`, `oauth.token.issued`, `oauth.token.refreshed`, `oauth.code.consumed` |
 | **Passwordless** | `passwordless.code.requested`, `passwordless.code.generated`, `passwordless.code.sent`, `passwordless.code.verified`, `passwordless.code.failed`, `passwordless.account.created` |
@@ -469,6 +476,246 @@ end
 # config/initializers/standard_id_events.rb
 AuditSubscriber.attach
 ```
+
+## Account Status (Activation/Deactivation)
+
+StandardId provides an optional `AccountStatus` concern for managing account activation and deactivation. This uses Rails enum with the event system to enforce status checks and handle side effects without modifying core authentication logic.
+
+### Setup
+
+1. Add a migration for the status column. For PostgreSQL (recommended), use a native enum type:
+
+```ruby
+# PostgreSQL with native enum (recommended)
+class AddStatusToUsers < ActiveRecord::Migration[8.0]
+  def up
+    create_enum :account_status, %w[active inactive]
+
+    add_column :users, :status, :enum, enum_type: :account_status, default: "active", null: false
+    add_column :users, :activated_at, :datetime
+    add_column :users, :deactivated_at, :datetime
+  end
+
+  def down
+    remove_column :users, :status
+    remove_column :users, :activated_at
+    remove_column :users, :deactivated_at
+
+    drop_enum :account_status
+  end
+end
+```
+
+For other databases (MySQL, SQLite), use a string column:
+
+```ruby
+# String column (MySQL, SQLite)
+class AddStatusToUsers < ActiveRecord::Migration[8.0]
+  def change
+    add_column :users, :status, :string, default: "active", null: false
+    add_column :users, :activated_at, :datetime
+    add_column :users, :deactivated_at, :datetime
+    add_index :users, :status
+  end
+end
+```
+
+2. Include the concern in your account model:
+
+```ruby
+class User < ApplicationRecord
+  include StandardId::AccountStatus
+  # ...
+end
+```
+
+The concern works with both PostgreSQL enum and string columns - Rails enum handles both transparently.
+
+### Usage
+
+```ruby
+# Deactivate an account
+user.deactivate!
+# => Emits ACCOUNT_DEACTIVATED event
+# => All active sessions are automatically revoked
+
+# Reactivate an account
+user.activate!
+# => Emits ACCOUNT_ACTIVATED event
+# => User can log in again
+
+# Check status
+user.active?    # => true/false
+user.inactive?  # => true/false
+
+# Query scopes
+User.active     # => Users with status 'active'
+User.inactive   # => Users with status 'inactive'
+```
+
+### Handling AccountDeactivatedError
+
+When an inactive account attempts to authenticate, `StandardId::AccountDeactivatedError` is raised. You need to handle this error in your application controller:
+
+```ruby
+# app/controllers/application_controller.rb
+class ApplicationController < ActionController::Base
+  include StandardId::WebAuthentication
+
+  rescue_from StandardId::AccountDeactivatedError, with: :handle_account_deactivated
+
+  private
+
+  def handle_account_deactivated
+    # For web requests, redirect with a message
+    redirect_to login_path, alert: "Your account has been deactivated. Please contact support."
+  end
+end
+```
+
+For API controllers:
+
+```ruby
+# app/controllers/api/base_controller.rb
+class Api::BaseController < ActionController::API
+  include StandardId::ApiAuthentication
+
+  rescue_from StandardId::AccountDeactivatedError, with: :handle_account_deactivated
+
+  private
+
+  def handle_account_deactivated
+    render json: {
+      error: "account_deactivated",
+      message: "Your account has been deactivated"
+    }, status: :forbidden
+  end
+end
+```
+
+## Account Locking (Administrative Security)
+
+StandardId provides an optional `AccountLocking` concern for administrative account locking. This is distinct from account deactivation - locking is for security enforcement by administrators, while deactivation is for lifecycle management.
+
+### Key Differences from Account Deactivation
+
+| Feature | Account Status | Account Locking |
+|---------|---------------|-----------------|
+| **Purpose** | Lifecycle management | Security enforcement |
+| **Who Controls** | System/User | Admin/Staff only |
+| **User Reversible** | Yes (future) | No |
+| **Use Cases** | Inactivity, user choice | Policy violation, security incident, fraud |
+
+An account can be in any combination:
+- Active + Unlocked ✅ (normal operation)
+- Active + Locked ⚠️ (admin locked for security)
+- Inactive + Unlocked ⚠️ (deactivated but not locked)
+- Inactive + Locked 🚫 (both restrictions apply)
+
+### Setup
+
+1. Add a migration for the locking columns:
+
+```ruby
+class AddLockingToUsers < ActiveRecord::Migration[8.0]
+  def change
+    add_column :users, :locked, :boolean, default: false, null: false
+    add_column :users, :locked_at, :datetime
+    add_column :users, :lock_reason, :string
+    add_column :users, :locked_by_id, :integer
+    add_column :users, :locked_by_type, :string
+    add_column :users, :unlocked_at, :datetime
+    add_column :users, :unlocked_by_id, :integer
+    add_column :users, :unlocked_by_type, :string
+
+    add_index :users, :locked
+    add_index :users, [:locked_by_type, :locked_by_id]
+  end
+end
+```
+
+2. Include the concern in your account model:
+
+```ruby
+class User < ApplicationRecord
+  include StandardId::AccountLocking  # For admin locking
+  include StandardId::AccountStatus   # Optional: for activation/deactivation
+  # ...
+end
+```
+
+### Usage
+
+```ruby
+# Lock an account (revokes all active sessions immediately)
+user.lock!(reason: "Suspicious activity detected", locked_by: current_admin)
+# => Emits ACCOUNT_LOCKED event
+# => All active sessions (browser, device, service) are revoked
+
+# Unlock an account (user must log in again)
+user.unlock!(unlocked_by: current_admin)
+# => Emits ACCOUNT_UNLOCKED event
+# => User can log in again
+
+# Check lock status
+user.locked?    # => true/false
+user.unlocked?  # => true/false
+
+# Query scopes
+User.locked     # => Users with locked = true
+User.unlocked   # => Users with locked = false
+
+# Combine with AccountStatus scopes
+User.unlocked.active  # => Users who can log in
+```
+
+### Handling AccountLockedError
+
+When a locked account attempts to authenticate, `StandardId::AccountLockedError` is raised. The error includes metadata about the lock:
+
+```ruby
+# app/controllers/application_controller.rb
+class ApplicationController < ActionController::Base
+  include StandardId::WebAuthentication
+
+  rescue_from StandardId::AccountLockedError, with: :handle_account_locked
+
+  private
+
+  def handle_account_locked(error)
+    # error.account     - The locked account
+    # error.lock_reason - Why the account was locked
+    # error.locked_at   - When the account was locked
+    redirect_to login_path, alert: "Your account has been locked. Please contact support."
+  end
+end
+```
+
+For API controllers:
+
+```ruby
+# app/controllers/api/base_controller.rb
+class Api::BaseController < ActionController::API
+  include StandardId::ApiAuthentication
+
+  rescue_from StandardId::AccountLockedError, with: :handle_account_locked
+
+  private
+
+  def handle_account_locked(error)
+    render json: {
+      error: "account_locked",
+      message: "Your account has been locked. Please contact support.",
+      locked_at: error.locked_at&.iso8601
+      # Note: Consider not exposing lock_reason to end users for security
+    }, status: :forbidden
+  end
+end
+```
+
+### Event Subscriptions
+
+Both `AccountStatus` and `AccountLocking` subscribe to the same events (`OAUTH_TOKEN_ISSUING`, `SESSION_CREATING`, `SESSION_VALIDATING`). The lock check runs alongside the status check - authentication fails if either condition prevents access.
 
 ## Usage Examples
 

@@ -24,10 +24,9 @@ module StandardConfig
     attr_accessor :login_url
 
     # Social login hooks
-    attr_accessor :social_account_attributes, :social_callback
+    attr_accessor :social_account_attributes
 
-    # Passwordless authentication callbacks
-    # These should be callable objects (procs/lambdas) that accept (recipient, code) parameters
+    # Passwordless authentication delivery callbacks (deprecated - use events instead)
     attr_accessor :passwordless_email_sender, :passwordless_sms_sender
 
     # Allowed post-logout redirect URIs for OIDC logout endpoint
@@ -57,7 +56,6 @@ module StandardConfig
       @apple_key_id = nil
       @apple_team_id = nil
       @social_account_attributes = nil
-      @social_callback = nil
       @passwordless_email_sender = nil
       @passwordless_sms_sender = nil
       @allowed_post_logout_redirect_uris = []
