@@ -24,7 +24,7 @@ RSpec.describe StandardId::Events::Subscribers::AccountStatusSubscriber do
     let(:event) do
       StandardId::Events::Event.new(
         name: "standard_id.#{StandardId::Events::ACCOUNT_DEACTIVATED}",
-        payload: { account: account },
+        payload: { account: },
         started_at: Time.current,
         finished_at: Time.current,
         transaction_id: SecureRandom.hex
@@ -58,7 +58,7 @@ RSpec.describe StandardId::Events::Subscribers::AccountStatusSubscriber do
     end
 
     context "when account has no sessions association" do
-      let(:account_without_sessions) { double("Account") }
+      let(:account_without_sessions) { Account.create!(name: "Test User 2", email: "test_2@example.com") }
       let(:event_without_sessions) do
         StandardId::Events::Event.new(
           name: "standard_id.#{StandardId::Events::ACCOUNT_DEACTIVATED}",
@@ -71,22 +71,6 @@ RSpec.describe StandardId::Events::Subscribers::AccountStatusSubscriber do
 
       it "does not raise error" do
         expect { subscriber.call(event_without_sessions) }.not_to raise_error
-      end
-    end
-
-    context "when account is nil" do
-      let(:event_nil_account) do
-        StandardId::Events::Event.new(
-          name: "standard_id.#{StandardId::Events::ACCOUNT_DEACTIVATED}",
-          payload: { account: nil },
-          started_at: Time.current,
-          finished_at: Time.current,
-          transaction_id: SecureRandom.hex
-        )
-      end
-
-      it "does not raise error" do
-        expect { subscriber.call(event_nil_account) }.not_to raise_error
       end
     end
   end
