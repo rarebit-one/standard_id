@@ -129,10 +129,6 @@ StandardId.configure do |config|
   # config.session.device_session_lifetime = 2_592_000   # 30 days (API device sessions)
   # config.session.service_session_lifetime = 7_776_000  # 90 days (service-to-service sessions)
 
-  # Passwordless delivery callbacks
-  # config.passwordless_email_sender = ->(email, code) { UserMailer.send_code(email, code).deliver_now }
-  # config.passwordless_sms_sender   = ->(phone, code) { SmsService.send_code(phone, code) }
-
   # Subset configuration
   # config.password.minimum_length = 12
   # config.password.require_special_chars = true
@@ -192,20 +188,23 @@ StandardId.configure do |config|
       name: social_info[:name] || social_info[:given_name]
     }
   }
-
-  # Optional: run a callback whenever a social login completes
-  config.social.social_callback = ->(social_info:, provider:, tokens:, account:) {
-    AuditLog.social_login(
-      provider: provider,
-      email: social_info[:email],
-      tokens: tokens,
-      account_id: account.id,
-    )
-  }
 end
 ```
 
 `social_info` is an indifferent-access hash containing at least `email`, `name`, and `provider_id`.
+
+To handle social login completion (e.g., for analytics or audit logging), subscribe to the `SOCIAL_AUTH_COMPLETED` event:
+
+```ruby
+# config/initializers/standard_id_events.rb
+StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
+  Analytics.track_social_login(
+    provider: event[:provider],
+    account_id: event[:account].id,
+    tokens: event[:tokens]
+  )
+end
+```
 
 ### Inertia.js Integration
 
@@ -361,21 +360,29 @@ end
 
 This will redirect unauthenticated users to the login page using `inertia_location` for Inertia requests, ensuring proper SPA navigation.
 
-### Passwordless Authentication
+### Passwordless Code Delivery
+
+Subscribe to the `PASSWORDLESS_CODE_GENERATED` event to deliver OTP codes:
 
 ```ruby
-StandardId.configure do |config|
-  # Email delivery
-  config.passwordless_email_sender = ->(email, code) {
-    UserMailer.send_code(email, code).deliver_now
-  }
-
-  # SMS delivery
-  config.passwordless_sms_sender = ->(phone, code) {
-    SmsService.send_code(phone, code)
-  }
+# config/initializers/standard_id_events.rb
+StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
+  case event[:channel]
+  when "email"
+    UserMailer.send_code(event[:identifier], event[:code_challenge].code).deliver_now
+  when "sms"
+    SmsService.send_code(event[:identifier], event[:code_challenge].code)
+  end
 end
 ```
+
+Event payload includes:
+- `channel` - `"email"` or `"sms"`
+- `identifier` - The email address or phone number
+- `code_challenge` - The code challenge object with `.code` method
+- `expires_at` - When the code expires
+
+> **Note**: If you're using the deprecated `passwordless_email_sender` or `passwordless_sms_sender` callbacks, see the [Migration Guide](docs/MIGRATION_GUIDE.md) for upgrade instructions.
 
 ## Event System
 

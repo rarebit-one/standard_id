@@ -21,6 +21,7 @@ StandardId.configure do |c|
   # c.session.device_session_lifetime = 2_592_000   # 30 days (API device sessions)
   # c.session.service_session_lifetime = 7_776_000  # 90 days (service-to-service sessions)
 
+  # Passwordless authentication delivery (DEPRECATED - use event subscriptions instead)
   # c.passwordless_email_sender = ->(email, code) { PasswordlessMailer.with(code: code, to: email).deliver_later }
   # c.passwordless_sms_sender   = ->(phone, code) { SmsProvider.send_code(phone: phone, code: code) }
 
@@ -64,14 +65,6 @@ StandardId.configure do |c|
   #     email: social_info[:email],
   #     name: social_info[:name] || social_info[:given_name]
   #   }
-  # }
-  # c.social.social_callback = ->(social_info:, provider:, tokens:, account:) {
-  #   Analytics.track_social_login(
-  #     provider: provider,
-  #     email: social_info[:email],
-  #     tokens: tokens,
-  #     account_id: account.id
-  #   )
   # }
 
   # OIDC Logout allow list
