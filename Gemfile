@@ -27,3 +27,9 @@ gem "rubocop-rails-omakase", require: false
 gem "tailwindcss-ruby", "~> 4.1"
 
 gem "tailwindcss-rails", "~> 4.3"
+
+# Apple Sign In
+gem "standard_id-apple", "~> 0.1.1"
+
+# Google Sign In
+gem "standard_id-google", "~> 0.1.1"

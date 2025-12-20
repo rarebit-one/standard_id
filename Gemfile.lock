@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    standard_id (0.1.7)
+    standard_id (0.2.0)
       bcrypt (~> 3.1)
       jwt (~> 2.7)
       rails (~> 8.0)
@@ -275,6 +275,13 @@ GEM
     sqlite3 (2.7.3-x86_64-darwin)
     sqlite3 (2.7.3-x86_64-linux-gnu)
     sqlite3 (2.7.3-x86_64-linux-musl)
+    standard_id-apple (0.1.1)
+      activesupport (>= 8.0)
+      jwt (~> 2.7)
+      standard_id (~> 0.1, >= 0.1.7)
+    standard_id-google (0.1.1)
+      activesupport (>= 8.0)
+      standard_id (~> 0.1, >= 0.1.7)
     stringio (3.1.7)
     tailwindcss-rails (4.3.0)
       railties (>= 7.0.0)
@@ -324,6 +331,8 @@ DEPENDENCIES
   shoulda-matchers (~> 6.0)
   sqlite3
   standard_id!
+  standard_id-apple (~> 0.1.1)
+  standard_id-google (~> 0.1.1)
   tailwindcss-rails (~> 4.3)
   tailwindcss-ruby (~> 4.1)
   webmock (~> 3.26)

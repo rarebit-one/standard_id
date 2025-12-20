@@ -4,7 +4,58 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## v0.1.x to v0.2.0
+
+### Social Login Providers Extracted to Separate Gems
+
+Apple and Google OAuth providers have been extracted from the core `standard_id` gem into separate gems. This allows for more flexible versioning and reduces the core gem's dependencies.
+
+#### Required Changes
+
+Add the provider gems you need to your `Gemfile`:
+
+```ruby
+# Apple Sign In (optional - only if you use Apple OAuth)
+gem "standard_id-apple", "~> 0.1.0"
+
+# Google Sign In (optional - only if you use Google OAuth)
+gem "standard_id-google", "~> 0.1.1"
+```
+
+Then run:
+
+```bash
+bundle install
+```
+
+#### Configuration
+
+**No configuration changes required.** Your existing social provider configuration continues to work exactly as before:
+
+```ruby
+StandardId.configure do |config|
+  # Apple configuration (if using standard_id-apple gem)
+  config.social.apple_client_id = ENV["APPLE_CLIENT_ID"]
+  config.social.apple_team_id = ENV["APPLE_TEAM_ID"]
+  config.social.apple_key_id = ENV["APPLE_KEY_ID"]
+  config.social.apple_private_key = ENV["APPLE_PRIVATE_KEY"]
+
+  # Google configuration (if using standard_id-google gem)
+  config.social.google_client_id = ENV["GOOGLE_CLIENT_ID"]
+  config.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
+end
+```
+
+#### Migration Steps
+
+1. Add the provider gems to your `Gemfile` (see above)
+2. Run `bundle install`
+3. No code changes needed - existing configuration and routes continue to work
 
 ---
 

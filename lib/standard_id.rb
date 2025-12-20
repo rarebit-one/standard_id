@@ -44,8 +44,6 @@ require "concurrent/delay"
 
 require "standard_id/providers/base"
 require "standard_id/provider_registry"
-require "standard_id/providers/google"
-require "standard_id/providers/apple"
 
 module StandardId
   class << self
