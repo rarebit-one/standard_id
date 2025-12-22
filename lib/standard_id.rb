@@ -40,6 +40,8 @@ require "standard_id/passwordless/email_strategy"
 require "standard_id/passwordless/sms_strategy"
 require "standard_id/utils/callable_parameter_filter"
 
+require "concurrent/delay"
+
 require "standard_id/providers/base"
 require "standard_id/provider_registry"
 require "standard_id/providers/google"
@@ -60,15 +62,25 @@ module StandardId
     end
 
     def cache_store
-      @cache_store ||= config.cache_store || Rails.cache
+      cache_store_delay.value
     end
 
     def logger
-      @logger ||= config.logger || Rails.logger
+      logger_delay.value
     end
 
     def account_class
       config.account_class_name.constantize
+    end
+
+    private
+
+    def cache_store_delay
+      @cache_store_delay ||= Concurrent::Delay.new { config.cache_store || Rails.cache }
+    end
+
+    def logger_delay
+      @logger_delay ||= Concurrent::Delay.new { config.logger || Rails.logger }
     end
   end
 end

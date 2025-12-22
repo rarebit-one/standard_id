@@ -141,16 +141,17 @@ module StandardId
         private
 
         def credentials
-          @credentials ||= begin
-            if StandardId.config.google_client_id.blank? || StandardId.config.google_client_secret.blank?
-              raise StandardId::InvalidRequestError, "Google provider is not configured"
-            end
+          client_id = StandardId.config.google_client_id
+          client_secret = StandardId.config.google_client_secret
 
-            {
-              client_id: StandardId.config.google_client_id,
-              client_secret: StandardId.config.google_client_secret
-            }
+          if client_id.blank? || client_secret.blank?
+            raise StandardId::InvalidRequestError, "Google provider is not configured"
           end
+
+          {
+            client_id: client_id,
+            client_secret: client_secret
+          }
         end
 
         def verify_token(access_token)

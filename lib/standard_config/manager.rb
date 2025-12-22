@@ -1,11 +1,13 @@
 require "ostruct"
+require "concurrent/map"
 require "standard_config/config_provider"
 
 module StandardConfig
   class Manager
     def initialize(schema)
       @schema = schema
-      @providers = {}
+      @providers = Concurrent::Map.new
+      @static_configs = Concurrent::Map.new
     end
 
     # Register a configuration provider for a scope
@@ -36,8 +38,10 @@ module StandardConfig
         scopes = @schema.scopes_with_field(field)
         if scopes.size == 1
           s = scopes.first
-          register(s, -> { create_static_config_for_scope(s) }) unless @providers.key?(s)
-          @providers[s].public_send(method_name, *args)
+          provider = @providers.compute_if_absent(s) do
+            ConfigProvider.new(s, -> { create_static_config_for_scope(s) }, @schema)
+          end
+          provider.public_send(method_name, *args)
           return args.first
         end
       end
@@ -46,19 +50,21 @@ module StandardConfig
       scopes = @schema.scopes_with_field(scope_name)
       if scopes.size == 1
         s = scopes.first
-        register(s, -> { create_static_config_for_scope(s) }) unless @providers.key?(s)
-        return @providers[s].get_field(scope_name)
+        provider = @providers.compute_if_absent(s) do
+          ConfigProvider.new(s, -> { create_static_config_for_scope(s) }, @schema)
+        end
+        return provider.get_field(scope_name)
       end
 
       # Handle scope access
-      if @providers.key?(scope_name)
-        return @providers[scope_name]
-      end
+      provider = @providers[scope_name]
+      return provider if provider
 
       # Create static provider for valid scopes on first access
       if @schema.valid_scope?(scope_name)
-        register(scope_name, -> { create_static_config_for_scope(scope_name) })
-        return @providers[scope_name]
+        return @providers.compute_if_absent(scope_name) do
+          ConfigProvider.new(scope_name, -> { create_static_config_for_scope(scope_name) }, @schema)
+        end
       end
 
       super
@@ -75,10 +81,11 @@ module StandardConfig
     private
 
     def create_static_config_for_scope(scope_name)
-      @static_configs ||= {}
-      @static_configs[scope_name] ||= OpenStruct.new.tap do |config|
-        @schema.scopes[scope_name].fields.each do |field_name, field_def|
-          config.send("#{field_name}=", field_def.default_value)
+      @static_configs.compute_if_absent(scope_name) do
+        OpenStruct.new.tap do |config|
+          @schema.scopes[scope_name].fields.each do |field_name, field_def|
+            config.send("#{field_name}=", field_def.default_value)
+          end
         end
       end
     end

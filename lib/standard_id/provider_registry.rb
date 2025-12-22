@@ -1,17 +1,23 @@
+require "concurrent/map"
+
 module StandardId
   class ProviderRegistry
     class ProviderNotFoundError < StandardError; end
     class InvalidProviderError < StandardError; end
 
-    @providers = {}
+    @providers = Concurrent::Map.new
 
     class << self
+      def providers
+        @providers
+      end
+
       # Register a provider
       # @param name [Symbol, String] Provider identifier
       # @param provider_class [Class] Provider implementation class
       def register(name, provider_class)
         validate_provider!(provider_class)
-        @providers[name.to_s] = provider_class
+        providers[name.to_s] = provider_class
         register_config_schema(provider_class)
         provider_class.setup if provider_class.respond_to?(:setup)
         provider_class
@@ -22,9 +28,9 @@ module StandardId
       # @return [Class] Provider class
       # @raise [ProviderNotFoundError] if provider not found
       def get(name)
-        @providers[name.to_s] || raise(
+        providers[name.to_s] || raise(
           ProviderNotFoundError,
-          "Unknown provider: #{name}. Available providers: #{@providers.keys.join(', ')}"
+          "Unknown provider: #{name}. Available providers: #{providers.keys.join(', ')}"
         )
       end
 
@@ -32,14 +38,14 @@ module StandardId
       # Get all registered providers
       # @return [Hash] Provider name => class mapping
       def all
-        @providers.dup
+        providers.each_pair.to_h
       end
 
       # Check if provider is registered
       # @param name [Symbol, String] Provider identifier
       # @return [Boolean]
       def registered?(name)
-        @providers.key?(name.to_s)
+        providers.key?(name.to_s)
       end
 
       private

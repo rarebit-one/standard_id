@@ -1,7 +1,9 @@
+require "concurrent/map"
+
 module StandardConfig
   class Schema
     def initialize
-      @scopes = {}
+      @scopes = Concurrent::Map.new
     end
 
     # DSL entry
@@ -16,7 +18,7 @@ module StandardConfig
 
     def scope(name, &block)
       name_sym = name.to_sym
-      builder = scopes[name_sym] ||= ScopeBuilder.new(name_sym)
+      builder = scopes.compute_if_absent(name_sym) { ScopeBuilder.new(name_sym) }
       builder.instance_eval(&block) if block_given?
       builder
     end
@@ -73,7 +75,7 @@ module StandardConfig
 
       def initialize(name)
         @name = name.to_sym
-        @fields = {}
+        @fields = Concurrent::Map.new
       end
 
       def field(name, type: :string, default: nil, readonly: false)

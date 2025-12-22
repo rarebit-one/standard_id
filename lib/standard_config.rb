@@ -3,14 +3,21 @@ require "standard_config/config_provider"
 require "standard_config/manager"
 require "standard_config/schema"
 
+require "concurrent/delay"
+
 module StandardConfig
+  SCHEMA = Concurrent::Delay.new { Schema.new }
+  MANAGER = Concurrent::Delay.new { Manager.new(SCHEMA.value) }
+
   class << self
     def schema
-      @schema ||= Schema.new
+      SCHEMA.value
     end
 
     def configure(&block)
-      config.register(:base, block) unless config.registered?(:base) if block_given? && block.arity == 0
+      if block_given? && block.arity.zero? && !config.registered?(:base)
+        config.register(:base, block)
+      end
 
       yield config if block_given?
 
@@ -18,7 +25,7 @@ module StandardConfig
     end
 
     def config
-      @manager ||= Manager.new(schema)
+      MANAGER.value
     end
 
     private
