@@ -39,6 +39,50 @@ RSpec.describe StandardId::Events do
       expect(received_event.payload[:custom_data]).to eq("value")
     end
 
+    it "enriches payload with Current context when available" do
+      received_event = nil
+
+      described_class.subscribe("test.event") do |event|
+        received_event = event
+      end
+
+      account = Account.create!(name: "Test User", email: "test@example.com")
+
+      Current.set(
+        request_id: "req-123",
+        ip_address: "192.168.1.1",
+        user_agent: "Mozilla/5.0",
+        account: account
+      ) do
+        described_class.publish("test.event", custom_data: "value")
+      end
+
+      expect(received_event.payload[:request_id]).to eq("req-123")
+      expect(received_event.payload[:ip_address]).to eq("192.168.1.1")
+      expect(received_event.payload[:user_agent]).to eq("Mozilla/5.0")
+      expect(received_event.payload[:current_account]).to eq(account)
+      expect(received_event.payload[:custom_data]).to eq("value")
+    end
+
+    it "does not add Current context when not set" do
+      received_event = nil
+
+      described_class.subscribe("test.event") do |event|
+        received_event = event
+      end
+
+      Current.reset
+
+      described_class.publish("test.event", custom_data: "value")
+
+      expect(received_event.payload[:request_id]).to be_nil
+      expect(received_event.payload[:ip_address]).to be_nil
+      expect(received_event.payload[:user_agent]).to be_nil
+      expect(received_event.payload[:current_account]).to be_nil
+      expect(received_event.payload[:custom_data]).to eq("value")
+    end
+
+
     it "namespaces the event name" do
       received_event = nil
 

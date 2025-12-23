@@ -413,16 +413,58 @@ This outputs JSON-structured logs for all authentication events:
 
 ### Available Events
 
-| Category | Events |
-|----------|--------|
-| **Authentication** | `authentication.attempt.started`, `authentication.attempt.succeeded`, `authentication.attempt.failed`, `authentication.password.validated`, `authentication.password.failed`, `authentication.otp.validated`, `authentication.otp.failed` |
-| **Session** | `session.creating`, `session.created`, `session.validating`, `session.validated`, `session.expired`, `session.revoked`, `session.refreshed` |
-| **Account** | `account.creating`, `account.created`, `account.verified`, `account.status_changed`, `account.activated`, `account.deactivated`, `account.locked`, `account.unlocked` |
-| **Identifier** | `identifier.created`, `identifier.verification.started`, `identifier.verification.succeeded`, `identifier.verification.failed`, `identifier.linked` |
-| **OAuth** | `oauth.authorization.requested`, `oauth.authorization.granted`, `oauth.authorization.denied`, `oauth.token.issuing`, `oauth.token.issued`, `oauth.token.refreshed`, `oauth.code.consumed` |
-| **Passwordless** | `passwordless.code.requested`, `passwordless.code.generated`, `passwordless.code.sent`, `passwordless.code.verified`, `passwordless.code.failed`, `passwordless.account.created` |
-| **Social** | `social.auth.started`, `social.auth.callback_received`, `social.user_info.fetched`, `social.account.created`, `social.account.linked`, `social.auth.completed` |
-| **Credential** | `credential.password.created`, `credential.password.reset_initiated`, `credential.password.reset_completed`, `credential.password.changed`, `credential.client_secret.created`, `credential.client_secret.rotated` |
+Every StandardId event automatically carries tracing metadata (`event_id`, `timestamp`, and request-scoped fields like `request_id`, `ip_address`, `user_agent`, `current_account` when available). The table below lists the domain-specific payload fields and when each event fires.
+
+| Category | Event | Payload fields | When emitted |
+|----------|-------|----------------|--------------|
+| Authentication | `authentication.attempt.started` | `account_lookup`, `auth_method` | Before credential validation begins |
+|  | `authentication.attempt.succeeded` | `account`, `auth_method`, `session_type` | After authentication succeeds |
+|  | `authentication.attempt.failed` | `account_lookup`, `auth_method`, `error_code`, `error_message` | After authentication fails |
+|  | `authentication.password.failed` | `account_lookup`, `error_code`, `error_message` | After password verification fails |
+|  | `authentication.otp.failed` | `identifier`, `channel`, `error_code`, `error_message` | After OTP verification fails |
+| Session | `session.creating` | `account`, `session_type`, `ip_address`, `user_agent` | Before a session record is created |
+|  | `session.created` | `session`, `account`, `session_type`, `token_issued`, `ip_address`, `user_agent` | After session persistence completes |
+|  | `session.validating` | `session` | Before validating an existing session |
+|  | `session.validated` | `session`, `account` | After a session passes validation |
+|  | `session.expired` | `session`, `account`, `expired_at` | When validation fails because the session expired |
+|  | `session.revoked` | `session`, `account`, `reason` | After a session is explicitly revoked |
+|  | `session.refreshed` | `session`, `account`, `old_expires_at`, `new_expires_at` | After a refresh operation extends a session |
+| Account | `account.creating` | `account_params`, `auth_method` | Before an account record is created |
+|  | `account.created` | `account`, `auth_method`, `source` (signup/passwordless/social) | After an account record is created |
+|  | `account.verified` | `account`, `verified_via` (email/phone) | When an account is marked verified |
+|  | `account.status_changed` | `account`, `old_status`, `new_status`, `changed_by` | When account status transitions (Issue #16) |
+|  | `account.locked` | `account`, `lock_reason`, `locked_by` | When an account is administratively locked (Issue #17) |
+|  | `account.unlocked` | `account`, `unlocked_by` | When an account lock is lifted (Issue #17) |
+| Identifier | `identifier.created` | `identifier`, `account` | After an identifier record is created |
+|  | `identifier.verification.started` | `identifier`, `channel` (email/sms), `code_sent` | After a verification code is issued |
+|  | `identifier.verification.succeeded` | `identifier`, `account`, `verified_at` | After identifier verification succeeds |
+|  | `identifier.verification.failed` | `identifier`, `error_code`, `attempts` | After identifier verification fails |
+|  | `identifier.linked` | `identifier`, `account`, `source` (social/manual) | When an identifier is associated to an account |
+| OAuth | `oauth.authorization.requested` | `client_id`, `account`, `scope`, `redirect_uri` | Before issuing an authorization code |
+|  | `oauth.authorization.granted` | `authorization_code`, `client_id`, `account`, `scope` | After an authorization code is created |
+|  | `oauth.authorization.denied` | `client_id`, `account`, `reason` | When a user denies authorization |
+|  | `oauth.token.issuing` | `grant_type`, `client_id`, `account`, `scope` | Before generating access/refresh tokens |
+|  | `oauth.token.issued` | `access_token_id`, `grant_type`, `client_id`, `account`, `expires_in` | After tokens are generated |
+|  | `oauth.token.refreshed` | `old_token_id`, `new_token_id`, `client_id`, `account` | After a refresh token is redeemed |
+|  | `oauth.code.consumed` | `authorization_code`, `client_id`, `account` | After an authorization code is exchanged |
+| Passwordless | `passwordless.code.requested` | `identifier`, `channel` (email/sms) | Before generating an OTP |
+|  | `passwordless.code.generated` | `code_challenge`, `identifier`, `channel`, `expires_at` | After an OTP is created |
+|  | `passwordless.code.sent` | `identifier`, `channel`, `delivery_status` | After an OTP is delivered |
+|  | `passwordless.code.verified` | `code_challenge`, `account`, `channel` | After OTP verification succeeds |
+|  | `passwordless.code.failed` | `identifier`, `channel`, `attempts` | After OTP verification fails |
+|  | `passwordless.account.created` | `account`, `channel`, `identifier` | When an account is created via passwordless flow |
+| Social | `social.auth.started` | `provider`, `redirect_uri`, `state` | Before redirecting to a social provider |
+|  | `social.auth.callback_received` | `provider`, `code`, `state` | After the provider redirects back |
+|  | `social.user_info.fetched` | `provider`, `social_info`, `email` | After fetching user info from the provider |
+|  | `social.account.created` | `account`, `provider`, `social_info` | When a social login creates a new account |
+|  | `social.account.linked` | `account`, `provider`, `identifier` | When a social identity links to an existing account |
+|  | `social.auth.completed` | `account`, `provider`, `tokens` | After social login completes |
+| Credential | `credential.password.created` | `credential`, `account` | After a password credential is created |
+|  | `credential.password.reset_initiated` | `credential`, `account`, `reset_token_expires_at` | After a password reset is initiated |
+|  | `credential.password.reset_completed` | `credential`, `account` | After a password reset is confirmed |
+|  | `credential.password.changed` | `credential`, `account`, `changed_by` | After a password is updated |
+|  | `credential.client_secret.created` | `credential`, `client_id` | After a client secret is created |
+|  | `credential.client_secret.rotated` | `credential`, `client_id`, `old_secret_revoked_at` | After a client secret rotation |
 
 ### Subscribing to Events
 
@@ -459,9 +501,7 @@ end
 ```ruby
 # app/subscribers/audit_subscriber.rb
 class AuditSubscriber < StandardId::Events::Subscribers::Base
-  subscribe_to StandardId::Events::AUTHENTICATION_SUCCEEDED
-  subscribe_to StandardId::Events::AUTHENTICATION_FAILED
-  subscribe_to StandardId::Events::SESSION_REVOKED
+  subscribe_to StandardId::Events::SECURITY_EVENTS
 
   def call(event)
     AuditLog.create!(
