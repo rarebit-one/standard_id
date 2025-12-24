@@ -21,7 +21,7 @@ Add the provider gems you need to your `Gemfile`:
 
 ```ruby
 # Apple Sign In (optional - only if you use Apple OAuth)
-gem "standard_id-apple", "~> 0.1.0"
+gem "standard_id-apple", "~> 0.1.1"
 
 # Google Sign In (optional - only if you use Google OAuth)
 gem "standard_id-google", "~> 0.1.1"
