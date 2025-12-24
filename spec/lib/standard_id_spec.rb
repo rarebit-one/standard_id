@@ -38,6 +38,9 @@ RSpec.describe StandardId do
   describe "integration with existing configuration patterns" do
     context "static configuration (backward compatibility)" do
       before do
+        reset_standard_id_cache_store!
+        reset_standard_id_logger!
+
         StandardId.configure do |config|
           config.account_class_name = "Account"
           config.cache_store = "test_cache"

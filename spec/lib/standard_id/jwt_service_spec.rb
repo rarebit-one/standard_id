@@ -30,6 +30,8 @@ RSpec.describe StandardId::JwtService do
 
     context "when claim resolvers are configured" do
       before do
+        reset_jwt_session_class!
+
         allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
           custom_flag: ->(**) { },
           metadata: ->(**) { },

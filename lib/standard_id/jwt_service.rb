@@ -1,4 +1,5 @@
 require "jwt"
+require "concurrent/delay"
 
 module StandardId
   class JwtService
@@ -6,12 +7,16 @@ module StandardId
     RESERVED_JWT_KEYS = %i[sub client_id scope grant_type exp iat aud iss nbf jti]
     BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type]
 
-    def self.session_class
+    SESSION_CLASS = Concurrent::Delay.new do
       Struct.new(*(BASE_SESSION_FIELDS + claim_resolver_keys), keyword_init: true) do
         def active?
           true
         end
       end
+    end
+
+    def self.session_class
+      SESSION_CLASS.value
     end
 
     def self.encode(payload, expires_in: 1.hour)

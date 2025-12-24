@@ -49,6 +49,9 @@ require "standard_id/providers/apple"
 
 module StandardId
   class << self
+    CACHE_STORE = Concurrent::Delay.new { config.cache_store || Rails.cache }
+    LOGGER = Concurrent::Delay.new { config.logger || Rails.logger }
+
     def configure(&block)
       StandardConfig.configure(&block)
     end
@@ -62,25 +65,15 @@ module StandardId
     end
 
     def cache_store
-      cache_store_delay.value
+      CACHE_STORE.value
     end
 
     def logger
-      logger_delay.value
+      LOGGER.value
     end
 
     def account_class
       config.account_class_name.constantize
-    end
-
-    private
-
-    def cache_store_delay
-      @cache_store_delay ||= Concurrent::Delay.new { config.cache_store || Rails.cache }
-    end
-
-    def logger_delay
-      @logger_delay ||= Concurrent::Delay.new { config.logger || Rails.logger }
     end
   end
 end
