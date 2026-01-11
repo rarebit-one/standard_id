@@ -16,12 +16,13 @@ module StandardId
       raise StandardId::InvalidRequestError, e.message
     end
 
-    def get_user_info_from_provider(redirect_uri: nil, flow: :web)
+    def get_user_info_from_provider(redirect_uri: nil, nonce: nil, flow: :web)
       provider_params = {
         code: params[:code],
         id_token: params[:id_token],
         access_token: params[:access_token],
-        redirect_uri: redirect_uri
+        redirect_uri:,
+        nonce:
       }
 
       resolved_params = provider.resolve_params(provider_params, context: { flow: flow })
@@ -100,8 +101,8 @@ module StandardId
       end
     end
 
-    def run_social_callback(provider:, social_info:, provider_tokens:, account:)
-      emit_social_auth_completed(provider, social_info, provider_tokens, account)
+    def run_social_callback(provider:, social_info:, provider_tokens:, account:, original_request_params: {})
+      emit_social_auth_completed(provider, social_info, provider_tokens, account, original_request_params)
     end
 
     def emit_social_user_info_fetched(provider, social_info, email)
@@ -131,13 +132,14 @@ module StandardId
       )
     end
 
-    def emit_social_auth_completed(provider, social_info, provider_tokens, account)
+    def emit_social_auth_completed(provider, social_info, provider_tokens, account, original_request_params)
       StandardId::Events.publish(
         StandardId::Events::SOCIAL_AUTH_COMPLETED,
         account: account,
         provider: provider,
         social_info: social_info,
-        tokens: provider_tokens
+        tokens: provider_tokens,
+        original_request_params: original_request_params
       )
     end
 

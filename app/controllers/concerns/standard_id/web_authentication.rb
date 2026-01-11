@@ -36,6 +36,16 @@ module StandardId
     # Redirect to login page, handling both Inertia and standard requests
     def redirect_to_login
       login_path = StandardId.config.login_url.presence || "/login"
+
+      # Add redirect_uri parameter to preserve the original destination
+      if request.get?
+        uri = URI.parse(login_path)
+        params = Rack::Utils.parse_nested_query(uri.query)
+        params["redirect_uri"] = request.fullpath
+        uri.query = params.to_query.presence
+        login_path = uri.to_s
+      end
+
       redirect_with_inertia login_path
     end
 

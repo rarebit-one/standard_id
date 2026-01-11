@@ -1,12 +1,9 @@
 require "rails_helper"
 
 RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
-  def state_for(redirect_uri)
-    Base64.urlsafe_encode64({ redirect_uri: redirect_uri }.to_json)
-  end
-
   describe "GET /auth/callback/google" do
-    let(:state) { state_for("/dashboard") }
+    let(:state) { SecureRandom.urlsafe_base64(32) }
+    let(:redirect_uri) { "/dashboard" }
 
     before do
       allow(StandardId.config).to receive(:account_class_name).and_return("Account")
@@ -18,9 +15,16 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
           tokens: { access_token: "token_123" }
         }.with_indifferent_access
       )
+
+      # Stub the controller's consume_oauth_request method to return our test params
+      # This bypasses the cookie encryption complexity in request specs
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request)
+        .with(state)
+        .and_return({ "params" => { "redirect_uri" => redirect_uri }, "nonce" => nil })
     end
 
-    it "signs in and redirects to decoded redirect_uri with notice" do
+    it "signs in and redirects to redirect_uri from social_login_params" do
       http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
 
       expect(StandardId::Providers::Google).to have_received(:get_user_info).with(
@@ -39,10 +43,13 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
       expect(flash[:alert]).to include("Missing state parameter")
     end
 
-    it "redirects to login when state invalid" do
-      http_get "/auth/callback/google", params: { state: "not_base64", code: "auth_code_123" }
+    it "redirects to login when state mismatch (CSRF protection)" do
+      different_state = SecureRandom.urlsafe_base64(32)
+      # The stub is for 'state', but we're sending 'different_state', so consume_oauth_request won't match
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController).to receive(:consume_oauth_request).with(different_state).and_return(nil)
+      http_get "/auth/callback/google", params: { state: different_state, code: "auth_code_123" }
       expect(response).to redirect_to(standard_id_web.login_path)
-      expect(flash[:alert]).to include("Invalid state parameter")
+      expect(flash[:alert]).to include("Invalid or expired state parameter")
     end
 
     it "redirects to login with error when provider passes error param (access_denied)" do
@@ -65,7 +72,8 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
   end
 
   describe "POST /auth/callback/apple" do
-    let(:apple_state) { state_for("/dashboard") }
+    let(:apple_state) { SecureRandom.urlsafe_base64(32) }
+    let(:apple_redirect_uri) { "/dashboard" }
 
     before do
       allow(StandardId.config).to receive(:apple_client_id).and_return("com.example.app")
@@ -75,9 +83,15 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
           tokens: { id_token: "apple_token_123" }
         }.with_indifferent_access
       )
+
+      # Stub the controller's consume_oauth_request method
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request)
+        .with(apple_state)
+        .and_return({ "params" => { "redirect_uri" => apple_redirect_uri }, "nonce" => nil })
     end
 
-    it "signs in and redirects to decoded redirect_uri with notice" do
+    it "signs in and redirects to redirect_uri from social_login_params" do
       http_post "/auth/callback/apple", params: { state: apple_state, code: "apple_code_123" }
 
       expect(StandardId::Providers::Apple).to have_received(:get_user_info).with(
@@ -86,14 +100,18 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
       expect(response).to redirect_to("/dashboard")
     end
 
-    it "redirects to login when state missing or invalid" do
+    it "redirects to login when state missing" do
       http_post "/auth/callback/apple", params: { email: "user@privaterelay.appleid.com" }
       expect(response).to redirect_to(standard_id_web.login_path)
       expect(flash[:alert]).to include("Missing state parameter")
+    end
 
-      http_post "/auth/callback/apple", params: { state: "not_base64", email: "user@privaterelay.appleid.com" }
+    it "redirects to login when state mismatch" do
+      different_state = SecureRandom.urlsafe_base64(32)
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController).to receive(:consume_oauth_request).with(different_state).and_return(nil)
+      http_post "/auth/callback/apple", params: { state: different_state, email: "user@privaterelay.appleid.com" }
       expect(response).to redirect_to(standard_id_web.login_path)
-      expect(flash[:alert]).to include("Invalid state parameter")
+      expect(flash[:alert]).to include("Invalid or expired state parameter")
     end
 
     it "redirects to login with error when provider passes error param (access_denied)" do

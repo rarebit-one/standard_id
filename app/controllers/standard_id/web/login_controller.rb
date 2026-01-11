@@ -2,6 +2,8 @@ module StandardId
   module Web
     class LoginController < BaseController
       include StandardId::InertiaRendering
+      include StandardId::Web::SocialLoginParams
+
 
       layout "public"
 
@@ -33,26 +35,53 @@ module StandardId
       end
 
       def redirect_if_social_login
-        redirect_with_inertia social_login_url, allow_other_host: true if params[:connection].present?
-      end
+        return unless params[:connection].present?
 
-      def social_login_url
-        connection = params[:connection]
-        provider = StandardId::ProviderRegistry.get(connection)
+        provider = StandardId::ProviderRegistry.get(params[:connection].to_s)
 
-        provider.authorization_url(
-          state: encode_state,
-          redirect_uri: "#{request.base_url}#{provider.callback_path}"
+        state = generate_oauth_token
+        nonce = provider_supports_nonce?(provider) ? generate_oauth_token : nil
+
+        store_oauth_request(
+          state:,
+          nonce:,
+          params: extract_social_login_params
         )
+
+        callback_url = "#{request.base_url}#{provider.callback_path}"
+        extra_params = extract_oauth_params(provider)
+
+        # Add nonce to OAuth params if provider supports it
+        extra_params[:nonce] = nonce if nonce.present?
+
+        url = provider.authorization_url(
+          state:,
+          redirect_uri: callback_url,
+          **extra_params.compact
+        )
+
+        redirect_with_inertia url, allow_other_host: true
       rescue StandardId::ProviderRegistry::ProviderNotFoundError => e
         raise StandardId::InvalidRequestError, e.message
       end
 
-      def encode_state
-        Base64.urlsafe_encode64({
-          redirect_uri: params[:redirect_uri] || after_authentication_url,
-          timestamp: Time.current.to_i
-        }.compact.to_json)
+      def extract_social_login_params
+        request.parameters.except("controller", "action", "format", "authenticity_token", "commit", "login").to_h.deep_dup
+      end
+
+      def extract_oauth_params(provider)
+        supported_params = provider.try(:supported_authorization_params)
+        return {} if supported_params.blank?
+
+        params.permit(*supported_params).to_h.compact.symbolize_keys
+      end
+
+      def generate_oauth_token
+        SecureRandom.urlsafe_base64(32)
+      end
+
+      def provider_supports_nonce?(provider)
+        provider.supported_authorization_params.include?(:nonce)
       end
 
       def login_params
