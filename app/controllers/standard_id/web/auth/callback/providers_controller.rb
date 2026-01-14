@@ -5,6 +5,7 @@ module StandardId
         class ProvidersController < StandardId::Web::BaseController
           include StandardId::WebAuthentication
           include StandardId::SocialAuthentication
+          include StandardId::Web::SocialLoginParams
 
           # Social callbacks must be accessible without an existing browser session
           # because they create/sign-in the session upon successful callback.
@@ -20,9 +21,9 @@ module StandardId
             state_data = nil
 
             begin
-              state_data = decode_state_params
+              extract_state_and_nonce => { state_data:, nonce: }
               redirect_uri = callback_url_for
-              provider_response = get_user_info_from_provider(redirect_uri: redirect_uri)
+              provider_response = get_user_info_from_provider(redirect_uri:, nonce:)
               social_info = provider_response[:user_info]
               provider_tokens = provider_response[:tokens]
               account = find_or_create_account_from_social(social_info)
@@ -33,6 +34,7 @@ module StandardId
                 social_info: social_info,
                 provider_tokens: provider_tokens,
                 account: account,
+                original_request_params: state_data
               )
 
               destination = state_data["redirect_uri"]
@@ -49,7 +51,7 @@ module StandardId
               raise StandardId::InvalidRequestError, "Provider #{provider.provider_name} does not support mobile callback"
             end
 
-            state_data = decode_state_params
+            extract_state_and_nonce => { state_data: }
             destination = state_data["redirect_uri"]
 
             unless allow_other_host_redirect?(destination)
@@ -73,15 +75,17 @@ module StandardId
             provider.skip_csrf?
           end
 
-          def decode_state_params
-            encoded_state = params[:state]
-            raise StandardId::InvalidRequestError, "Missing state parameter" if encoded_state.blank?
+          def extract_state_and_nonce
+            state_token = params[:state]
+            raise StandardId::InvalidRequestError, "Missing state parameter" if state_token.blank?
 
-            state = JSON.parse(Base64.urlsafe_decode64(encoded_state))
-            state["redirect_uri"] ||= after_authentication_url
-            state
-          rescue JSON::ParserError, ArgumentError
-            raise StandardId::InvalidRequestError, "Invalid state parameter"
+            oauth_state = consume_oauth_request(state_token)
+            raise StandardId::InvalidRequestError, "Invalid or expired state parameter" if oauth_state.nil?
+
+            {
+              state_data: oauth_state["params"],
+              nonce: oauth_state["nonce"]
+            }
           end
 
           def handle_callback_error

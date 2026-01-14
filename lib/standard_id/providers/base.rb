@@ -209,6 +209,22 @@ module StandardId
           false
         end
 
+        # Returns list of supported authorization parameters for this provider.
+        #
+        # Include :nonce in this list for OIDC providers to enable nonce validation.
+        # Nonce provides replay attack protection for ID tokens.
+        #
+        # @return [Array<Symbol>] List of supported parameters
+        #
+        # @example
+        #   def supported_authorization_params
+        #     [:scope, :prompt, :nonce]
+        #   end
+        #
+        def supported_authorization_params
+          []
+        end
+
         # Optional setup hook called when provider is registered.
         #
         # Override this method to perform initialization tasks like:

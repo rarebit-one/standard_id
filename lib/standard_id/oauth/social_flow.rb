@@ -3,11 +3,10 @@ module StandardId
     class SocialFlow < TokenGrantFlow
       attr_reader :account, :connection, :original_params
 
-      def initialize(params, request, account:, connection:, original_params: {})
+      def initialize(params, request, account:, connection:)
         super(params, request)
         @account = account
         @connection = connection
-        @original_params = original_params
       end
 
       def authenticate!
@@ -21,19 +20,15 @@ module StandardId
       end
 
       def client_id
-        @original_params["client_id"]
+        nil
       end
 
       def token_scope
-        @original_params["scope"]
+        nil
       end
 
       def grant_type
         "social"
-      end
-
-      def audience
-        @original_params["audience"]
       end
 
       def supports_refresh_token?
