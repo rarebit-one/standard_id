@@ -44,7 +44,11 @@ module StandardId
         end
 
         request_data.slice("params", "nonce")
-      rescue JSON::ParserError
+      rescue JSON::ParserError => e
+        StandardId.logger.error({
+          subject: "standard_id.consume_oauth_request.error",
+          error: e.message
+        })
         nil
       end
 
