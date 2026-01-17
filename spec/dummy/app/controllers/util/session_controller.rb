@@ -16,7 +16,10 @@ module Util
         return
       end
 
+      # Set both session and encrypted cookie for backward compatibility
+      # Action Cable will use the encrypted cookie
       session[key.to_sym] = value
+      cookies.encrypted[key.to_sym] = value
       render json: { ok: true }
     end
   end

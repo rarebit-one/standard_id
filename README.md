@@ -101,6 +101,26 @@ class ApiController < ActionController::API
 end
 ```
 
+### 5. Action Cable Authentication
+
+- Include in Your Connection Class
+```ruby
+module ApplicationCable
+  class Connection < ActionCable::Connection::Base
+    include StandardId::CableAuthentication
+  end
+end
+```
+
+- Access Current Account in Channels
+```ruby
+class ChatChannel < ApplicationCable::Channel
+  def subscribed
+    stream_for current_account
+  end
+end
+```
+
 ## Configuration
 
 ### Basic Configuration

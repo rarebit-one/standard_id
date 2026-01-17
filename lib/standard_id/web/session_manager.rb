@@ -21,7 +21,10 @@ module StandardId
       def sign_in_account(account)
         emit_session_creating(account, "browser")
         token_manager.create_browser_session(account).tap do |browser_session|
+          # Store in both session and encrypted cookie for backward compatibility
+          # Action Cable will use the encrypted cookie
           session[:session_token] = browser_session.token
+          cookies.encrypted[:session_token] = browser_session.token
           Current.session = browser_session
           emit_session_created(browser_session, account, "browser")
         end
@@ -39,6 +42,7 @@ module StandardId
       def clear_session!
         # TODO: make token key names configurable
         session.delete(:session_token)
+        cookies.encrypted[:session_token] = nil
         cookies.delete(:remember_token)
 
         Current.session = nil
@@ -65,7 +69,9 @@ module StandardId
       end
 
       def load_session_from_session_token
-        StandardId::BrowserSession.eager_load(:account).by_token(session[:session_token]).first
+        # Try encrypted cookie first (for Action Cable), then fall back to session (for backward compatibility)
+        session_token = cookies.encrypted[:session_token] || session[:session_token]
+        StandardId::BrowserSession.eager_load(:account).by_token(session_token).first
       end
 
       def load_session_from_remember_token
@@ -73,7 +79,9 @@ module StandardId
         return if password_credential.blank?
 
         token_manager.create_browser_session(password_credential.account, remember_me: true).tap do |browser_session|
+          # Store in both session and encrypted cookie for backward compatibility
           session[:session_token] = browser_session.token
+          cookies.encrypted[:session_token] = browser_session.token
           cookies[:remember_token] = token_manager.create_remember_token(password_credential)
         end
       end

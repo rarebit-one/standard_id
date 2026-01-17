@@ -2,7 +2,23 @@ require "rails_helper"
 
 RSpec.describe StandardId::Web::SessionManager do
   let(:session) { {} }
-  let(:cookies) { {} }
+  let(:encrypted_cookies) { {} }
+  let(:plain_cookies) { {} }
+  let(:encrypted_cookies_mock) do
+    double("EncryptedCookies").tap do |ec|
+      allow(ec).to receive(:[]) { |key| encrypted_cookies[key] }
+      allow(ec).to receive(:[]=) { |key, value| encrypted_cookies[key] = value }
+      allow(ec).to receive(:delete) { |key| encrypted_cookies.delete(key) }
+    end
+  end
+  let(:cookies) do
+    double("Cookies").tap do |c|
+      allow(c).to receive(:encrypted).and_return(encrypted_cookies_mock)
+      allow(c).to receive(:[]) { |key| plain_cookies[key] }
+      allow(c).to receive(:[]=) { |key, value| plain_cookies[key] = value }
+      allow(c).to receive(:delete) { |key| plain_cookies.delete(key) }
+    end
+  end
   let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser") }
   let(:token_manager) { double("TokenManager") }
   let(:session_manager) { described_class.new(token_manager, request: request, session: session, cookies: cookies) }
@@ -31,7 +47,7 @@ RSpec.describe StandardId::Web::SessionManager do
       let(:by_token_relation) { double("ByTokenRelation") }
 
       before do
-        session[:session_token] = "valid_token"
+        encrypted_cookies[:session_token] = "valid_token"
         allow(StandardId::BrowserSession).to receive(:eager_load).with(:account).and_return(eager_load_relation)
         allow(eager_load_relation).to receive(:by_token).with("valid_token").and_return(by_token_relation)
         allow(by_token_relation).to receive(:first).and_return(browser_session)
@@ -56,7 +72,7 @@ RSpec.describe StandardId::Web::SessionManager do
       let(:password_credential) { double("PasswordCredential", account: account) }
 
       before do
-        cookies[:remember_token] = "remember_token"
+        plain_cookies[:remember_token] = "remember_token"
         allow(StandardId::PasswordCredential).to receive(:find_by_token_for)
           .with(:remember_me, "remember_token").and_return(password_credential)
         allow(token_manager).to receive(:create_browser_session).with(account, remember_me: true).and_return(browser_session)
@@ -74,14 +90,14 @@ RSpec.describe StandardId::Web::SessionManager do
         expect(token_manager).to have_received(:create_browser_session).with(account, remember_me: true)
       end
 
-      it "sets session token" do
+      it "sets session token in encrypted cookie" do
         session_manager.current_session
-        expect(session[:session_token]).to eq("token_value")
+        expect(encrypted_cookies[:session_token]).to eq("token_value")
       end
 
       it "creates new remember token" do
         session_manager.current_session
-        expect(cookies[:remember_token]).to eq({ value: "new_remember_token" })
+        expect(plain_cookies[:remember_token]).to eq({ value: "new_remember_token" })
       end
     end
 
@@ -91,7 +107,7 @@ RSpec.describe StandardId::Web::SessionManager do
       let(:by_token_relation) { double("ByTokenRelation") }
 
       before do
-        session[:session_token] = "expired_token"
+        encrypted_cookies[:session_token] = "expired_token"
         allow(StandardId::BrowserSession).to receive(:eager_load).with(:account).and_return(eager_load_relation)
         allow(eager_load_relation).to receive(:by_token).with("expired_token").and_return(by_token_relation)
         allow(by_token_relation).to receive(:first).and_return(expired_session)
@@ -100,7 +116,7 @@ RSpec.describe StandardId::Web::SessionManager do
       it "clears session and returns nil" do
         result = session_manager.current_session
         expect(result).to be_nil
-        expect(session[:session_token]).to be_nil
+        expect(encrypted_cookies[:session_token]).to be_nil
       end
     end
 
@@ -110,7 +126,7 @@ RSpec.describe StandardId::Web::SessionManager do
       let(:by_token_relation) { double("ByTokenRelation") }
 
       before do
-        session[:session_token] = "revoked_token"
+        encrypted_cookies[:session_token] = "revoked_token"
         allow(StandardId::BrowserSession).to receive(:eager_load).with(:account).and_return(eager_load_relation)
         allow(eager_load_relation).to receive(:by_token).with("revoked_token").and_return(by_token_relation)
         allow(by_token_relation).to receive(:first).and_return(revoked_session)
@@ -119,26 +135,26 @@ RSpec.describe StandardId::Web::SessionManager do
       it "clears session and returns nil" do
         result = session_manager.current_session
         expect(result).to be_nil
-        expect(session[:session_token]).to be_nil
+        expect(encrypted_cookies[:session_token]).to be_nil
       end
     end
   end
 
   describe "#clear_session!" do
     before do
-      session[:session_token] = "token"
-      cookies[:remember_token] = "remember"
+      encrypted_cookies[:session_token] = "token"
+      plain_cookies[:remember_token] = "remember"
       allow(Current).to receive(:session=)
     end
 
-    it "deletes session token" do
+    it "deletes session token cookie" do
       session_manager.clear_session!
-      expect(session[:session_token]).to be_nil
+      expect(encrypted_cookies[:session_token]).to be_nil
     end
 
     it "deletes remember token cookie" do
       session_manager.clear_session!
-      expect(cookies[:remember_token]).to be_nil
+      expect(plain_cookies[:remember_token]).to be_nil
     end
 
     it "clears Current.session" do
