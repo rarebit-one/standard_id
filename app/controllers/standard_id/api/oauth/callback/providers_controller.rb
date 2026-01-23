@@ -16,7 +16,8 @@ module StandardId
             params,
             request,
             account:,
-            connection: provider.provider_name
+            connection: provider.provider_name,
+            scopes: params[:scope] || params[:scopes]
           )
 
           token_response = flow.execute
@@ -24,7 +25,7 @@ module StandardId
             provider: provider.provider_name,
             social_info:,
             provider_tokens:,
-            account:
+            account:,
           )
           render json: token_response, status: :ok
         end

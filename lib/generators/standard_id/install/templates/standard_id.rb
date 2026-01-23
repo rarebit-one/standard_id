@@ -60,6 +60,7 @@ StandardId.configure do |c|
   # c.social.apple_key_id         = ENV["APPLE_KEY_ID"]
   # c.social.apple_team_id        = ENV["APPLE_TEAM_ID"]
   # c.social.allowed_redirect_url_prefixes = ["sidekicklabs://"]
+  # c.social.available_scopes = ["profile", "email", "offline_access"]
   # c.social.social_account_attributes = ->(social_info:, provider:) {
   #   {
   #     email: social_info[:email],
