@@ -21,7 +21,7 @@ module StandardId
       end
 
       def client_id
-        nil
+        @connection
       end
 
       def token_scope
