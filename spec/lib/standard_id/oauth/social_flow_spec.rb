@@ -159,6 +159,15 @@ RSpec.describe StandardId::Oauth::SocialFlow do
 
       subject.execute
     end
+
+    it "includes client_id in JWT payload" do
+      expect(StandardId::JwtService).to receive(:encode).with(
+        hash_including(client_id: "google"),
+        anything
+      ).and_return("jwt_token")
+
+      subject.execute
+    end
   end
 
   describe "#token_scope" do
