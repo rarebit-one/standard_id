@@ -41,6 +41,11 @@ module StandardId
         true
       end
 
+      # Audience is bound to the refresh token - cannot be changed on refresh
+      def audience
+        @refresh_payload[:aud]
+      end
+
       def validate_scope_narrowing!
         return unless params[:scope].present?
 

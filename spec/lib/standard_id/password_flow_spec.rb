@@ -133,6 +133,7 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
 
   describe "custom scope claims" do
     let(:client_application) { instance_double("StandardId::ClientApplication") }
+    let(:account_with_status) { instance_double("Account", id: 77, locked?: false, inactive?: false) }
 
     before do
       allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
@@ -147,7 +148,7 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
       allow_any_instance_of(described_class)
         .to receive(:authenticate_account)
         .with(username, password)
-        .and_return(account)
+        .and_return(account_with_status)
 
       encoded_payloads = []
       allow(StandardId::JwtService).to receive(:encode) do |payload, _|
@@ -157,7 +158,130 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
 
       result = described_class.new(params, request).execute
       expect(result[:access_token]).to eq("jwt-token")
-      expect(encoded_payloads.first[:tenant_id]).to eq("#{client_application.object_id}-#{account.id}")
+      expect(encoded_payloads.first[:tenant_id]).to eq("#{client_application.object_id}-#{account_with_status.id}")
+    end
+  end
+
+  describe "audience in refresh token" do
+    let(:account_with_status) { instance_double("Account", id: 77, locked?: false, inactive?: false) }
+    before do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(8.hours.to_i)
+    end
+
+    it "includes audience in refresh token payload" do
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account_with_status)
+
+      refresh_token_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, opts|
+        if payload[:grant_type] == "refresh_token"
+          refresh_token_payloads << payload
+        end
+        "jwt-token"
+      end
+
+      described_class.new(params, request).execute
+
+      expect(refresh_token_payloads.first[:aud]).to eq(audience)
+    end
+
+    it "omits audience from refresh token when not provided" do
+      params_without_audience = base_params.except(:audience).merge(scope: scope)
+
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account_with_status)
+
+      refresh_token_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, opts|
+        if payload[:grant_type] == "refresh_token"
+          refresh_token_payloads << payload
+        end
+        "jwt-token"
+      end
+
+      described_class.new(params_without_audience, request).execute
+
+      expect(refresh_token_payloads.first).not_to have_key(:aud)
+    end
+  end
+
+  describe "audience validation" do
+    let(:account_with_status) { instance_double("Account", id: 77, locked?: false, inactive?: false) }
+
+    before do
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(8.hours.to_i)
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account_with_status)
+    end
+
+    it "allows any audience when allowed_audiences is empty" do
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+      allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+      expect {
+        described_class.new(params.merge(audience: "anything"), request).execute
+      }.not_to raise_error
+    end
+
+    it "allows valid audience when allowed_audiences is configured" do
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[companion_kit admin_kit harness])
+      allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+      expect {
+        described_class.new(params.merge(audience: "harness"), request).execute
+      }.not_to raise_error
+    end
+
+    it "raises InvalidRequestError for invalid audience" do
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[companion_kit admin_kit])
+
+      expect {
+        described_class.new(params.merge(audience: "unknown"), request).execute
+      }.to raise_error(StandardId::InvalidRequestError, "Invalid audience: unknown")
+    end
+
+    it "allows blank audience even when allowed_audiences is configured" do
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[companion_kit admin_kit])
+      allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+      params_without_audience = base_params.except(:audience).merge(scope: scope)
+
+      expect {
+        described_class.new(params_without_audience, request).execute
+      }.not_to raise_error
+    end
+
+    it "allows array audience when all values are valid" do
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[companion_kit admin_kit harness])
+      allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+      expect {
+        described_class.new(params.merge(audience: %w[companion_kit harness]), request).execute
+      }.not_to raise_error
+    end
+
+    it "raises InvalidRequestError when any array audience value is invalid" do
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[companion_kit admin_kit])
+
+      expect {
+        described_class.new(params.merge(audience: %w[companion_kit unknown]), request).execute
+      }.to raise_error(StandardId::InvalidRequestError, "Invalid audience: unknown")
+    end
+
+    it "raises InvalidRequestError listing all invalid audiences" do
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[companion_kit])
+
+      expect {
+        described_class.new(params.merge(audience: %w[foo bar]), request).execute
+      }.to raise_error(StandardId::InvalidRequestError, "Invalid audience: foo, bar")
     end
   end
 end

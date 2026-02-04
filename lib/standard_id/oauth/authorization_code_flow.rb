@@ -66,6 +66,10 @@ module StandardId
       def token_account
         @authorization_code&.account
       end
+
+      def audience
+        @authorization_code&.audience
+      end
     end
   end
 end

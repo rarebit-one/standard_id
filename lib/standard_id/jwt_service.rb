@@ -5,7 +5,7 @@ module StandardId
   class JwtService
     ALGORITHM = "HS256"
     RESERVED_JWT_KEYS = %i[sub client_id scope grant_type exp iat aud iss nbf jti]
-    BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type]
+    BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type aud]
 
     SESSION_CLASS = Concurrent::Delay.new do
       Struct.new(*(BASE_SESSION_FIELDS + claim_resolver_keys), keyword_init: true) do
@@ -49,6 +49,7 @@ module StandardId
         client_id: payload[:client_id],
         scopes: scopes,
         grant_type: payload[:grant_type],
+        aud: payload[:aud]
       )
     end
 

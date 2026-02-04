@@ -104,7 +104,7 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
     let(:resolver) { double("SessionResolver") }
     it "passes account and client context to the resolver" do
       client_application = instance_double("StandardId::ClientApplication")
-      account = instance_double("Account", id: sub)
+      account = instance_double("Account", id: sub, locked?: false, inactive?: false)
       account_class = class_double("Account", find_by: account)
 
       allow(StandardId).to receive(:account_class).and_return(account_class)
@@ -116,7 +116,8 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       expect(resolver).to receive(:call).with(
         client: client_application,
         account: account,
-        request: request
+        request: request,
+        audience: nil
       ).and_return("session-123")
 
       allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload.merge(scope: "read"))
@@ -130,6 +131,72 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       result = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
       expect(result[:access_token]).to eq("jwt-token")
       expect(encoded_payloads.first[:session_id]).to eq("session-123")
+    end
+  end
+
+  describe "audience persistence" do
+    let(:audience) { "companion_kit" }
+    let(:refresh_payload_with_aud) { refresh_payload.merge(aud: audience) }
+
+    it "uses stored audience from refresh token" do
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload_with_aud)
+
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+      flow.authenticate!
+
+      expect(flow.send(:audience)).to eq(audience)
+    end
+
+    it "includes stored audience in new access token" do
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload_with_aud)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
+
+      # First payload is the access token
+      expect(encoded_payloads.first[:aud]).to eq(audience)
+    end
+
+    it "includes stored audience in new refresh token" do
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload_with_aud)
+
+      all_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        all_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
+
+      # Last payload is the new refresh token
+      expect(all_payloads.last[:aud]).to eq(audience)
+    end
+
+    it "ignores audience param passed on refresh request (cannot change audience)" do
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload_with_aud)
+
+      flow = described_class.new({
+        client_id: client_id,
+        refresh_token: "rtok",
+        audience: "different_audience"  # Should be ignored
+      }, request)
+      flow.authenticate!
+
+      expect(flow.send(:audience)).to eq(audience)  # Uses stored, not requested
+    end
+
+    it "returns nil audience when refresh token has no audience" do
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+      flow.authenticate!
+
+      expect(flow.send(:audience)).to be_nil
     end
   end
 end

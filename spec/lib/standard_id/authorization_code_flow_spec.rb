@@ -23,7 +23,8 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
       redirect_uri: redirect_uri,
       account_id: 99,
       account: account,
-      scope: "read write"
+      scope: "read write",
+      audience: nil
     ).tap do |ac|
       allow(ac).to receive(:mark_as_used!)
       allow(ac).to receive(:pkce_valid?).and_return(true)
@@ -174,7 +175,8 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
         redirect_uri: redirect_uri,
         account_id: account.id,
         account: account,
-        scope: "profile"
+        scope: "profile",
+        audience: nil
       )
       allow(scoped_code).to receive(:mark_as_used!)
       allow(scoped_code).to receive(:pkce_valid?).and_return(true)

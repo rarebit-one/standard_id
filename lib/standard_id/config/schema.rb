@@ -50,6 +50,7 @@ StandardConfig.schema.draw do
     field :client_secret, type: :string, default: nil
     field :scope_claims, type: :hash, default: -> { {} }
     field :claim_resolvers, type: :hash, default: -> { {} }
+    field :allowed_audiences, type: :array, default: -> { [] } # Empty = no validation, any audience allowed
   end
 
   scope :social do

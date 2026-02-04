@@ -44,8 +44,12 @@ StandardId.configure do |c|
   #   email: ->(account:) { account.email },
   #   display_name: ->(account:, client:) {
   #     "#{account.name} for #{client.client_id}"
+  #   },
+  #   profile_id: ->(account:, audience:) {
+  #     account.profiles.find_by(type: audience)&.id
   #   }
   # }
+  # c.oauth.allowed_audiences = %w[web mobile admin] # Empty = no validation
 
   # Events
   # Enable or disable logging emitted via the internal event system

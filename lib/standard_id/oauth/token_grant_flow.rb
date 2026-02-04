@@ -35,6 +35,7 @@ module StandardId
       end
 
       def generate_token_response
+        validate_audience!
         emit_token_issuing
         expires_in = token_expiry
         payload = build_jwt_payload(expires_in)
@@ -77,8 +78,9 @@ module StandardId
           sub: subject_id,
           client_id: client_id,
           scope: token_scope,
+          aud: audience,
           grant_type: "refresh_token"
-        }
+        }.compact
         StandardId::JwtService.encode(payload, expires_in: refresh_token_expiry)
       end
 
@@ -108,6 +110,20 @@ module StandardId
 
       def audience
         params[:audience]
+      end
+
+      def validate_audience!
+        allowed = StandardId.config.oauth.allowed_audiences
+        return if allowed.blank? # No restriction configured
+        return if audience.blank? # Audience not provided (optional)
+
+        # aud can be string or array per JWT spec
+        requested = Array(audience)
+        invalid = requested - allowed
+
+        if invalid.any?
+          raise StandardId::InvalidRequestError, "Invalid audience: #{invalid.join(', ')}"
+        end
       end
 
       def claims_from_scope_mapping
@@ -152,7 +168,8 @@ module StandardId
         @claim_resolvers_context ||= {
           client: token_client,
           account: token_account,
-          request: request
+          request: request,
+          audience: audience
         }
       end
 
