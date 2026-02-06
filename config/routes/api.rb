@@ -19,5 +19,9 @@ StandardId::ApiEngine.routes.draw do
         post ":provider", to: "providers#callback", as: :provider
       end
     end
+
+    scope ".well-known", module: :well_known do
+      get "jwks.json", to: "jwks#show", as: :jwks
+    end
   end
 end

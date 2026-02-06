@@ -1,11 +1,30 @@
 require "jwt"
 require "concurrent/delay"
+require "openssl"
+require "digest"
 
 module StandardId
   class JwtService
-    ALGORITHM = "HS256"
     RESERVED_JWT_KEYS = %i[sub client_id scope grant_type exp iat aud iss nbf jti]
     BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type aud]
+
+    # Supported signing algorithms categorized by type
+    # Symmetric: use shared secret (Rails.application.secret_key_base)
+    # Asymmetric: use key pairs (RSA or EC private key)
+    SUPPORTED_ALGORITHMS = {
+      # HMAC (symmetric)
+      "HS256" => { type: :symmetric },
+      "HS384" => { type: :symmetric },
+      "HS512" => { type: :symmetric },
+      # RSA (asymmetric)
+      "RS256" => { type: :asymmetric, key_class: OpenSSL::PKey::RSA },
+      "RS384" => { type: :asymmetric, key_class: OpenSSL::PKey::RSA },
+      "RS512" => { type: :asymmetric, key_class: OpenSSL::PKey::RSA },
+      # ECDSA (asymmetric)
+      "ES256" => { type: :asymmetric, key_class: OpenSSL::PKey::EC },
+      "ES384" => { type: :asymmetric, key_class: OpenSSL::PKey::EC },
+      "ES512" => { type: :asymmetric, key_class: OpenSSL::PKey::EC }
+    }.freeze
 
     SESSION_CLASS = Concurrent::Delay.new do
       Struct.new(*(BASE_SESSION_FIELDS + claim_resolver_keys), keyword_init: true) do
@@ -19,17 +38,73 @@ module StandardId
       SESSION_CLASS.value
     end
 
+    def self.algorithm
+      StandardId.config.oauth.signing_algorithm.to_s.upcase
+    end
+
+    def self.algorithm_config
+      SUPPORTED_ALGORITHMS[algorithm] || raise(ArgumentError, "Unsupported algorithm: #{algorithm}. Supported: #{SUPPORTED_ALGORITHMS.keys.join(', ')}")
+    end
+
+    def self.asymmetric?
+      algorithm_config[:type] == :asymmetric
+    end
+
+    def self.signing_key
+      if asymmetric?
+        @signing_key_cache ||= parse_private_key(StandardId.config.oauth.signing_key)
+      else
+        Rails.application.secret_key_base
+      end
+    end
+
+    def self.verification_key
+      if asymmetric?
+        key = signing_key
+        # For EC keys, the key itself can be used for verification
+        # For RSA keys, we extract the public key
+        key.is_a?(OpenSSL::PKey::EC) ? key : key.public_key
+      else
+        Rails.application.secret_key_base
+      end
+    end
+
+    def self.key_id
+      return nil unless asymmetric?
+
+      # Generate stable key ID from public key fingerprint
+      # Use public_to_pem which works for both RSA and EC keys
+      @key_id ||= Digest::SHA256.hexdigest(signing_key.public_to_pem)[0..7]
+    end
+
+    def self.reset_cached_key!
+      @key_id = nil
+      @signing_key_cache = nil
+      @jwks = nil
+    end
+
     def self.encode(payload, expires_in: 1.hour)
       payload[:exp] = expires_in.from_now.to_i
       payload[:iat] = Time.current.to_i
+      payload[:iss] ||= StandardId.config.issuer if StandardId.config.issuer.present?
 
-      JWT.encode(payload, secret_key, ALGORITHM)
+      headers = {}
+      headers[:kid] = key_id if asymmetric?
+
+      JWT.encode(payload, signing_key, algorithm, headers)
     end
 
     def self.decode(token)
-      decoded = JWT.decode(token, secret_key, true, { algorithm: ALGORITHM })
+      options = { algorithm: algorithm }
+
+      if StandardId.config.issuer.present?
+        options[:iss] = StandardId.config.issuer
+        options[:verify_iss] = true
+      end
+
+      decoded = JWT.decode(token, verification_key, true, options)
       decoded.first.with_indifferent_access
-    rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::InvalidIatError
+    rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::InvalidIatError, JWT::InvalidIssuerError
       nil
     end
 
@@ -53,10 +128,22 @@ module StandardId
       )
     end
 
+    def self.jwks
+      return nil unless asymmetric?
+
+      @jwks ||= begin
+        jwk = JWT::JWK.new(verification_key, kid: key_id)
+        { keys: [jwk.export] }
+      end
+    end
+
     private
 
-    def self.secret_key
-      Rails.application.secret_key_base
+    def self.parse_private_key(key_source)
+      pem = key_source.is_a?(Pathname) ? File.read(key_source) : key_source
+      key_class = algorithm_config[:key_class]
+
+      key_class.new(pem)
     end
 
     def self.claim_resolver_keys

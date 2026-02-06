@@ -51,6 +51,16 @@ StandardConfig.schema.draw do
     field :scope_claims, type: :hash, default: -> { {} }
     field :claim_resolvers, type: :hash, default: -> { {} }
     field :allowed_audiences, type: :array, default: -> { [] } # Empty = no validation, any audience allowed
+
+    # JWT signing configuration (for asymmetric algorithms)
+    # If nil, uses HS256 with Rails.application.secret_key_base
+    field :signing_key, type: :any, default: nil
+
+    # Signing algorithm (see JwtService::SUPPORTED_ALGORITHMS for full list)
+    # Symmetric (HMAC): :hs256, :hs384, :hs512
+    # Asymmetric (RSA): :rs256, :rs384, :rs512
+    # Asymmetric (ECDSA): :es256, :es384, :es512
+    field :signing_algorithm, type: :symbol, default: :hs256
   end
 
   scope :social do

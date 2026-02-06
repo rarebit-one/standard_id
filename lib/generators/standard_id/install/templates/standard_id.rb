@@ -8,6 +8,10 @@ StandardId.configure do |c|
   # c.logger = Rails.logger
   # c.web_layout = "application"
 
+  # JWT issuer claim (iss) - typically your application's URL
+  # Used in JWT tokens and verified on decode when set
+  # c.issuer = "https://auth.example.com"
+
   # Inertia.js support (requires inertia_rails gem)
   # When enabled, StandardId web controllers will render Inertia components
   # instead of ERB views. You must create the corresponding components in your
@@ -50,6 +54,32 @@ StandardId.configure do |c|
   #   }
   # }
   # c.oauth.allowed_audiences = %w[web mobile admin] # Empty = no validation
+
+  # JWT Signing Configuration (Asymmetric Algorithms)
+  # By default, JWTs are signed with HS256 using Rails.application.secret_key_base.
+  # For asymmetric signing, configure a private key and expose the public key
+  # via the JWKS endpoint at /.well-known/jwks.json
+  #
+  # Algorithm choices:
+  #   ES256 (ECDSA) - Recommended for new projects. Smaller keys, faster, modern.
+  #   RS256 (RSA)   - Wider compatibility with older systems.
+  #
+  # Generate keys:
+  #   ES256: openssl ecparam -name prime256v1 -genkey -noout -out signing_key.pem
+  #   RS256: openssl genrsa -out signing_key.pem 2048
+  #
+  # Option 1: Rails credentials (recommended)
+  # c.oauth.signing_algorithm = :es256
+  # c.oauth.signing_key = Rails.application.credentials.dig(:standard_id, :signing_key)
+  #
+  # Option 2: Environment variable (replace literal \n with newlines)
+  # Convert PEM to env-safe format: awk 'NF {sub(/\r/, ""); printf "%s\\n",$0;}' signing_key.pem
+  # c.oauth.signing_algorithm = :es256
+  # c.oauth.signing_key = ENV["JWT_SIGNING_KEY"]&.gsub('\n', "\n")
+  #
+  # Option 3: File path
+  # c.oauth.signing_algorithm = :es256
+  # c.oauth.signing_key = Rails.root.join("config/signing_key.pem")
 
   # Events
   # Enable or disable logging emitted via the internal event system
