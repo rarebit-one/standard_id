@@ -48,7 +48,11 @@ module StandardId
       end
 
       def requires_authentication?
-        response_type&.include?("token")
+        FLOW_STRATEGIES.key?(response_type) && !social_login?
+      end
+
+      def social_login?
+        params[:connection].present?
       end
 
       def redirect_to_login
