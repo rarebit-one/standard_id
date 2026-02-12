@@ -56,6 +56,11 @@ StandardConfig.schema.draw do
     # If nil, uses HS256 with Rails.application.secret_key_base
     field :signing_key, type: :any, default: nil
 
+    # Previous signing keys for key rotation (array of PEM strings or Pathnames)
+    # During rotation, move the old signing_key here so tokens signed with it
+    # can still be verified. Remove after the grace period.
+    field :previous_signing_keys, type: :array, default: -> { [] }
+
     # Signing algorithm (see JwtService::SUPPORTED_ALGORITHMS for full list)
     # Symmetric (HMAC): :hs256, :hs384, :hs512
     # Asymmetric (RSA): :rs256, :rs384, :rs512

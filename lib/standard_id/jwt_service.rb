@@ -77,9 +77,26 @@ module StandardId
       @key_id ||= Digest::SHA256.hexdigest(signing_key.public_to_pem)[0..7]
     end
 
+    def self.previous_keys
+      return [] unless asymmetric?
+
+      @previous_keys_cache ||= Array(StandardId.config.oauth.previous_signing_keys).filter_map do |entry|
+        parse_previous_key_entry(entry)
+      rescue StandardError
+        nil
+      end
+    end
+
+    def self.all_verification_keys
+      return [] unless asymmetric?
+
+      [{ kid: key_id, key: verification_key }] + previous_keys
+    end
+
     def self.reset_cached_key!
       @key_id = nil
       @signing_key_cache = nil
+      @previous_keys_cache = nil
       @jwks = nil
     end
 
@@ -95,11 +112,31 @@ module StandardId
     end
 
     def self.decode(token)
-      options = { algorithm: algorithm }
+      options = { algorithms: [algorithm] }
 
       if StandardId.config.issuer.present?
         options[:iss] = StandardId.config.issuer
         options[:verify_iss] = true
+      end
+
+      if asymmetric? && previous_keys.any?
+        # Include algorithms from previous keys for cross-algorithm rotation
+        prev_algorithms = previous_keys.filter_map { |k| k[:algorithm] }
+        options[:algorithms] = ([algorithm] + prev_algorithms).uniq
+
+        # Build a JWKS set with all active keys for kid-based matching
+        jwk_set = JWT::JWK::Set.new
+        all_verification_keys.each do |entry|
+          jwk_set << JWT::JWK.new(entry[:key], kid: entry[:kid])
+        end
+        options[:jwks] = jwk_set
+
+        begin
+          decoded = JWT.decode(token, nil, true, options)
+          return decoded.first.with_indifferent_access
+        rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::InvalidIatError, JWT::InvalidIssuerError
+          return nil
+        end
       end
 
       decoded = JWT.decode(token, verification_key, true, options)
@@ -132,16 +169,38 @@ module StandardId
       return nil unless asymmetric?
 
       @jwks ||= begin
-        jwk = JWT::JWK.new(verification_key, kid: key_id)
-        { keys: [jwk.export] }
+        exported_keys = all_verification_keys.map do |entry|
+          JWT::JWK.new(entry[:key], kid: entry[:kid]).export
+        end
+        { keys: exported_keys }
       end
     end
 
     private
 
-    def self.parse_private_key(key_source)
+    # Parses a previous_signing_keys entry into { kid:, key:, algorithm: }
+    # Accepts either:
+    #   - A PEM string or Pathname (uses current algorithm's key class)
+    #   - A Hash with :key (PEM/Pathname) and :algorithm (e.g. :rs256, :es256)
+    def self.parse_previous_key_entry(entry)
+      if entry.is_a?(Hash)
+        entry = entry.symbolize_keys
+        alg = entry[:algorithm].to_s.upcase
+        alg_config = SUPPORTED_ALGORITHMS[alg] || raise(ArgumentError, "Unsupported algorithm: #{alg}")
+        key = parse_private_key(entry[:key], key_class: alg_config[:key_class])
+      else
+        alg = algorithm
+        key = parse_private_key(entry)
+      end
+
+      vkey = key.is_a?(OpenSSL::PKey::EC) ? key : key.public_key
+      kid = Digest::SHA256.hexdigest(key.public_to_pem)[0..7]
+      { kid: kid, key: vkey, algorithm: alg }
+    end
+
+    def self.parse_private_key(key_source, key_class: nil)
       pem = key_source.is_a?(Pathname) ? File.read(key_source) : key_source
-      key_class = algorithm_config[:key_class]
+      key_class ||= algorithm_config[:key_class]
 
       key_class.new(pem)
     end

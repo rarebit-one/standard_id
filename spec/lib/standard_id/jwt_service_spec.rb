@@ -374,6 +374,211 @@ RSpec.describe StandardId::JwtService do
     end
   end
 
+  describe "key rotation" do
+    let(:old_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
+    let(:new_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
+
+    before do
+      allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:rs256)
+      allow(StandardId.config.oauth).to receive(:signing_key).and_return(new_rsa_key.to_pem)
+      allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return([old_rsa_key.to_pem])
+      allow(StandardId.config).to receive(:issuer).and_return(nil)
+    end
+
+    describe ".previous_keys" do
+      it "returns parsed previous keys with kid and verification key" do
+        keys = described_class.previous_keys
+
+        expect(keys.length).to eq(1)
+        expect(keys.first[:kid]).to be_a(String)
+        expect(keys.first[:kid].length).to eq(8)
+        expect(keys.first[:key]).to be_a(OpenSSL::PKey::RSA)
+      end
+
+      it "returns empty array when no previous keys configured" do
+        allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return([])
+        expect(described_class.previous_keys).to eq([])
+      end
+
+      it "skips invalid key entries gracefully" do
+        allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return(["invalid-pem", old_rsa_key.to_pem])
+        keys = described_class.previous_keys
+
+        expect(keys.length).to eq(1)
+      end
+    end
+
+    describe ".all_verification_keys" do
+      it "returns current key plus previous keys" do
+        keys = described_class.all_verification_keys
+
+        expect(keys.length).to eq(2)
+        expect(keys.map { |k| k[:kid] }.uniq.length).to eq(2)
+      end
+
+      it "puts current key first" do
+        keys = described_class.all_verification_keys
+
+        expect(keys.first[:kid]).to eq(described_class.key_id)
+      end
+    end
+
+    describe "decoding tokens signed with previous key" do
+      it "decodes tokens signed with the old key" do
+        # Sign a token with the old key
+        old_kid = Digest::SHA256.hexdigest(old_rsa_key.public_to_pem)[0..7]
+        token = JWT.encode(
+          { sub: "user-123", exp: 1.hour.from_now.to_i, iat: Time.current.to_i },
+          old_rsa_key,
+          "RS256",
+          { kid: old_kid }
+        )
+
+        decoded = described_class.decode(token)
+        expect(decoded["sub"]).to eq("user-123")
+      end
+
+      it "decodes tokens signed with the new (current) key" do
+        token = described_class.encode({ sub: "user-456" })
+
+        decoded = described_class.decode(token)
+        expect(decoded["sub"]).to eq("user-456")
+      end
+
+      it "rejects tokens signed with an unknown key" do
+        unknown_key = OpenSSL::PKey::RSA.generate(2048)
+        token = JWT.encode(
+          { sub: "user-789", exp: 1.hour.from_now.to_i, iat: Time.current.to_i },
+          unknown_key,
+          "RS256",
+          { kid: "unknown1" }
+        )
+
+        expect(described_class.decode(token)).to be_nil
+      end
+    end
+
+    describe ".jwks with rotation" do
+      it "returns all keys in JWKS" do
+        jwks = described_class.jwks
+
+        expect(jwks[:keys].length).to eq(2)
+      end
+
+      it "includes kids for all keys" do
+        jwks = described_class.jwks
+        kids = jwks[:keys].map { |k| k[:kid] }
+
+        expect(kids.length).to eq(2)
+        expect(kids.uniq.length).to eq(2)
+        expect(kids).to include(described_class.key_id)
+      end
+
+      it "can verify tokens signed with any listed key" do
+        jwks = described_class.jwks
+        jwk_set = JWT::JWK::Set.new(jwks)
+
+        # Token signed with old key
+        old_kid = Digest::SHA256.hexdigest(old_rsa_key.public_to_pem)[0..7]
+        old_token = JWT.encode(
+          { sub: "old-user", exp: 1.hour.from_now.to_i },
+          old_rsa_key, "RS256", { kid: old_kid }
+        )
+
+        # Token signed with new key
+        new_token = described_class.encode({ sub: "new-user" })
+
+        old_decoded = JWT.decode(old_token, nil, true, { algorithms: ["RS256"], jwks: jwk_set })
+        new_decoded = JWT.decode(new_token, nil, true, { algorithms: ["RS256"], jwks: jwk_set })
+
+        expect(old_decoded.first["sub"]).to eq("old-user")
+        expect(new_decoded.first["sub"]).to eq("new-user")
+      end
+    end
+
+    describe ".reset_cached_key!" do
+      it "clears previous keys cache" do
+        # Populate cache
+        described_class.previous_keys
+        described_class.reset_cached_key!
+
+        # Should re-read from config
+        allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return([])
+        expect(described_class.previous_keys).to eq([])
+      end
+    end
+  end
+
+  describe "cross-algorithm key rotation" do
+    let(:old_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
+    let(:new_ec_key) { OpenSSL::PKey::EC.generate("prime256v1") }
+
+    before do
+      allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:es256)
+      allow(StandardId.config.oauth).to receive(:signing_key).and_return(new_ec_key.to_pem)
+      allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return([
+        { key: old_rsa_key.to_pem, algorithm: :rs256 }
+      ])
+      allow(StandardId.config).to receive(:issuer).and_return(nil)
+    end
+
+    describe ".previous_keys" do
+      it "parses previous key with explicit algorithm" do
+        keys = described_class.previous_keys
+
+        expect(keys.length).to eq(1)
+        expect(keys.first[:algorithm]).to eq("RS256")
+        expect(keys.first[:key]).to be_a(OpenSSL::PKey::RSA)
+      end
+    end
+
+    describe ".all_verification_keys" do
+      it "includes both EC and RSA keys" do
+        keys = described_class.all_verification_keys
+
+        expect(keys.length).to eq(2)
+        key_types = keys.map { |k| k[:key].class }
+        expect(key_types).to include(OpenSSL::PKey::EC)
+        expect(key_types).to include(OpenSSL::PKey::RSA)
+      end
+    end
+
+    it "decodes tokens signed with the old RSA key" do
+      old_kid = Digest::SHA256.hexdigest(old_rsa_key.public_to_pem)[0..7]
+      token = JWT.encode(
+        { sub: "rsa-user", exp: 1.hour.from_now.to_i, iat: Time.current.to_i },
+        old_rsa_key,
+        "RS256",
+        { kid: old_kid }
+      )
+
+      decoded = described_class.decode(token)
+      expect(decoded["sub"]).to eq("rsa-user")
+    end
+
+    it "decodes tokens signed with the new EC key" do
+      token = described_class.encode({ sub: "ec-user" })
+
+      decoded = described_class.decode(token)
+      expect(decoded["sub"]).to eq("ec-user")
+    end
+
+    it "JWKS contains both RSA and EC keys" do
+      jwks = described_class.jwks
+      key_types = jwks[:keys].map { |k| k[:kty] }
+
+      expect(key_types).to contain_exactly("EC", "RSA")
+    end
+
+    it "new tokens use the new EC key's kid" do
+      token = described_class.encode({ sub: "user-123" })
+      header = JWT.decode(token, nil, false).last
+
+      expect(header["kid"]).to eq(described_class.key_id)
+      expect(header["alg"]).to eq("ES256")
+    end
+  end
+
   describe "signing key from file path" do
     before do
       allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:rs256)

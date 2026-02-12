@@ -80,6 +80,23 @@ StandardId.configure do |c|
   # Option 3: File path
   # c.oauth.signing_algorithm = :es256
   # c.oauth.signing_key = Rails.root.join("config/signing_key.pem")
+  #
+  # Key Rotation:
+  # To rotate signing keys with zero downtime:
+  #   1. Generate a new key
+  #   2. Move the current signing_key into previous_signing_keys
+  #   3. Set signing_key to the new key
+  #   4. After the grace period (longest token lifetime), remove the old key
+  #
+  # Same algorithm rotation (plain PEM strings):
+  # c.oauth.previous_signing_keys = [
+  #   Rails.application.credentials.dig(:standard_id, :previous_signing_key)
+  # ]
+  #
+  # Cross-algorithm rotation (e.g., RS256 -> ES256):
+  # c.oauth.previous_signing_keys = [
+  #   { key: Rails.application.credentials.dig(:standard_id, :old_rsa_key), algorithm: :rs256 }
+  # ]
 
   # Events
   # Enable or disable logging emitted via the internal event system

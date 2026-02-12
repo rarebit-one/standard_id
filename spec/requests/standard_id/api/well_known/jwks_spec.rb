@@ -82,6 +82,68 @@ RSpec.describe "StandardId API JWKS Endpoint", type: :request do
       end
     end
 
+    context "with key rotation (multiple keys)" do
+      let(:old_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
+
+      before do
+        allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:rs256)
+        allow(StandardId.config.oauth).to receive(:signing_key).and_return(rsa_private_key.to_pem)
+        allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return([old_rsa_key.to_pem])
+      end
+
+      it "returns multiple keys in JWKS" do
+        get "/api/.well-known/jwks.json"
+
+        expect(response).to have_http_status(:ok)
+        expect(json_body["keys"].length).to eq(2)
+      end
+
+      it "each key has a unique kid" do
+        get "/api/.well-known/jwks.json"
+
+        kids = json_body["keys"].map { |k| k["kid"] }
+        expect(kids.uniq.length).to eq(2)
+      end
+
+      it "can verify tokens signed with any listed key" do
+        allow(StandardId.config).to receive(:issuer).and_return(nil)
+
+        # Sign token with old key
+        old_kid = Digest::SHA256.hexdigest(old_rsa_key.public_to_pem)[0..7]
+        old_token = JWT.encode(
+          { sub: "old-user", exp: 1.hour.from_now.to_i },
+          old_rsa_key, "RS256", { kid: old_kid }
+        )
+
+        get "/api/.well-known/jwks.json"
+        jwk_set = JWT::JWK::Set.new(json_body)
+
+        decoded = JWT.decode(old_token, nil, true, { algorithms: ["RS256"], jwks: jwk_set })
+        expect(decoded.first["sub"]).to eq("old-user")
+      end
+    end
+
+    context "with cross-algorithm rotation (RS256 -> ES256)" do
+      let(:old_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
+      let(:ec_private_key) { OpenSSL::PKey::EC.generate("prime256v1") }
+
+      before do
+        allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:es256)
+        allow(StandardId.config.oauth).to receive(:signing_key).and_return(ec_private_key.to_pem)
+        allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return([
+          { key: old_rsa_key.to_pem, algorithm: :rs256 }
+        ])
+      end
+
+      it "returns both RSA and EC keys in JWKS" do
+        get "/api/.well-known/jwks.json"
+
+        expect(response).to have_http_status(:ok)
+        key_types = json_body["keys"].map { |k| k["kty"] }
+        expect(key_types).to contain_exactly("EC", "RSA")
+      end
+    end
+
     context "with ES256 algorithm" do
       let(:ec_private_key) { OpenSSL::PKey::EC.generate("prime256v1") }
 
