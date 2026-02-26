@@ -13,7 +13,7 @@ gem "propshaft"
 
 group :development, :test do
   gem "ostruct"
-  gem "rspec-rails", "~> 8.0.0"
+  gem "rspec-rails", "~> 8.0.3"
   gem "shoulda-matchers", "~> 7.0"
   gem "webmock", "~> 3.26"
 
