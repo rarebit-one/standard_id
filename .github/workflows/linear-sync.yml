@@ -1,0 +1,129 @@
+name: Linear Sync on PR Merge
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  linear-comment:
+    name: Post Linear Comment
+    # Only run if the PR was actually merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 2 # Only need merge commit + parent for diff
+
+      - name: Extract Linear Issue ID
+        id: linear
+        env:
+          # Use env vars to avoid direct interpolation of user-controlled content
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Strip user prefix if present (e.g., jaryl/lmt-314-... -> lmt-314-...)
+          BRANCH_SUFFIX="${PR_BRANCH##*/}"
+          # Extract issue ID from start of branch suffix (e.g., lmt-314)
+          ISSUE_ID=$(echo "$BRANCH_SUFFIX" | grep -oiE '^[a-z]+-[0-9]+' | tr '[:lower:]' '[:upper:]' || true)
+
+          # If not found in branch, try PR body (e.g., "Closes LMT-123")
+          if [[ -z "$ISSUE_ID" ]]; then
+            ISSUE_ID=$(echo "$PR_BODY" | grep -oiE '(closes|fixes|resolves)\s+[a-z]+-[0-9]+' | grep -oiE '[a-z]+-[0-9]+' | head -1 | tr '[:lower:]' '[:upper:]' || true)
+          fi
+
+          if [[ -z "$ISSUE_ID" ]]; then
+            echo "No Linear issue ID found in branch name or PR body"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "Found Linear issue: $ISSUE_ID"
+            echo "issue_id=$ISSUE_ID" >> $GITHUB_OUTPUT
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Claude to Analyze and Post Linear Comment
+        if: steps.linear.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          # Pass user-controlled content via env vars for safer handling
+          LINEAR_ISSUE_ID: ${{ steps.linear.outputs.issue_id }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Linear MCP configuration using official remote server with API key auth
+          # Requires LINEAR_API_KEY secret to be set in repository settings
+          # See: https://linear.app/docs/mcp
+          mcp_config: |
+            {
+              "linear": {
+                "command": "npx",
+                "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp", "--header", "Authorization:Bearer ${{ secrets.LINEAR_API_KEY }}"]
+              }
+            }
+          prompt: |
+            A PR has just been merged. Analyze the changes and post a summary comment to the Linear issue.
+
+            ## Context (from environment variables)
+            - Linear Issue ID: $LINEAR_ISSUE_ID
+            - PR Number: #$PR_NUMBER
+            - PR Title: $PR_TITLE
+            - PR URL: $PR_URL
+            - Branch: $PR_BRANCH
+            - Merged by: $PR_MERGED_BY
+
+            ## Instructions
+
+            1. **Check Linear MCP availability** first by attempting to fetch the issue.
+               If Linear MCP tools are not available, report this and exit gracefully.
+
+            2. **Fetch the Linear issue** using `mcp__linear__get_issue` with id "$LINEAR_ISSUE_ID"
+               - Note the issue's requirements/description
+               - Check for any `blocks` or `blockedBy` relationships
+               - Save the issue UUID for posting comments
+
+            3. **Analyze the merged changes**:
+               - Run `git diff HEAD~1 --stat` to see what the merge commit introduced
+               - Review the key files that were modified
+
+            4. **Compare implementation vs requirements**:
+               - Identify any deviations (features not implemented, implemented differently, or added beyond scope)
+               - Note any trade-offs or limitations
+
+            5. **Post a comment to Linear** using `mcp__linear__create_comment`:
+               - Only post if there are notable deviations OR useful implementation notes
+               - Do NOT post a comment if the implementation matches requirements exactly
+               - Use this format:
+                 ```
+                 ## Shipped in PR #$PR_NUMBER
+
+                 **PR:** $PR_URL
+
+                 ### Summary
+                 [Brief summary of what was implemented]
+
+                 ### Deviations from Requirements (if any)
+                 - [Deviation 1]
+                 - [Deviation 2]
+
+                 ### Notes
+                 [Any useful context for future reference]
+                 ```
+
+            6. **Notify downstream issues** (if applicable):
+               - If this issue has `blocks` relationships, consider posting a brief comment to those issues
+               - Format: "Upstream issue [ISSUE_ID] has been shipped. This issue may now be unblocked."
+
+          # Allow Claude to use Linear MCP and git commands
+          claude_args: '--allowed-tools Bash(git diff:*) Bash(git log:*) Bash(git show:*) mcp__linear__*'
