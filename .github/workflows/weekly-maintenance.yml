@@ -20,6 +20,9 @@ jobs:
             echo "::error::ANTHROPIC_API_KEY secret is not set"
             exit 1
           fi
+          if [ -z "${{ secrets.LINEAR_API_KEY }}" ]; then
+            echo "::warning::LINEAR_API_KEY secret is not set — Linear integration will be unavailable"
+          fi
 
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -34,8 +37,20 @@ jobs:
 
       - name: Weekly maintenance
         uses: anthropics/claude-code-action@v1
+        env:
+          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Linear MCP configuration using official remote server with API key auth
+          # Requires LINEAR_API_KEY secret to be set in repository settings
+          # See: https://linear.app/docs/mcp
+          mcp_config: |
+            {
+              "linear": {
+                "command": "npx",
+                "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp", "--header", "Authorization:Bearer ${{ secrets.LINEAR_API_KEY }}"]
+              }
+            }
           prompt: |
             REPO: ${{ github.repository }}
             DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
