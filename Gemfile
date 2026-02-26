@@ -27,12 +27,12 @@ gem "rubocop-rails-omakase", require: false
 # Start debugger with binding.b [https://github.com/ruby/debug]
 # gem "debug", ">= 1.0.0"
 
-gem "tailwindcss-ruby", "~> 4.1"
+gem "tailwindcss-ruby", "~> 4.2"
 
-gem "tailwindcss-rails", "~> 4.3"
+gem "tailwindcss-rails", "~> 4.4"
 
 # Apple Sign In
-gem "standard_id-apple", "~> 0.1.1"
+gem "standard_id-apple", "~> 0.1.2"
 
 # Google Sign In
-gem "standard_id-google", "~> 0.1.1"
+gem "standard_id-google", "~> 0.1.2"
