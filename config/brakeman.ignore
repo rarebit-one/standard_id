@@ -1,0 +1,30 @@
+{
+  "ignored_warnings": [
+    {
+      "fingerprint": "24fc02735a2ad863d6bf1171a4a329b208e9e7c41841fa0149d8e6878d4ce299",
+      "note": "Auth engine intentionally redirects to params[:redirect_uri] after signup for OAuth/post-auth flow"
+    },
+    {
+      "fingerprint": "6b35e9906d62a9b9cd0dff9cf53924d40e74bc4f96cfccf27e67e93551113243",
+      "note": "Auth engine intentionally redirects to params[:redirect_uri] after logout for OAuth/post-auth flow"
+    },
+    {
+      "fingerprint": "8fddb7968577ac46fdda8e799f476c3eced60cc585da9c30fa61117f91e04ab9",
+      "note": "HEAD vs GET distinction is inconsequential here; redirect_to_login adding redirect_uri param on GET-only is safe"
+    },
+    {
+      "fingerprint": "bdbc72619da2ba771b1185ccf16acce801066689bf51adf116eab8c8714b39af",
+      "note": "HEAD vs GET distinction is inconsequential here; storing return URL on GET-only is safe"
+    },
+    {
+      "fingerprint": "caed110d212c8574288610f50a32e3460c781c6766135e637f08df14f9bb74d2",
+      "note": "Auth engine intentionally redirects to params[:redirect_uri] after login for OAuth/post-auth flow"
+    },
+    {
+      "fingerprint": "e4f96cb212c73c3165c3db6eaa6368c29d362b61264f034e80c9fa6705d72e5b",
+      "note": "Auth engine intentionally redirects to params[:redirect_uri] when user is not authenticated"
+    }
+  ],
+  "updated": "2026-02-27",
+  "brakeman_version": "8.0.2"
+}
