@@ -1,0 +1,36 @@
+# Lefthook manages git hooks for pre-push checks.
+#
+# Install:  brew install lefthook && lefthook install
+# Skip:     LEFTHOOK=0 git push
+
+pre-push:
+  parallel: true
+  commands:
+    whitespace:
+      run: .lefthook/whitespace-check.sh
+    signed-commits:
+      run: .lefthook/verify-signatures.sh
+    rubocop:
+      run: bin/rubocop
+      glob: "**/*.rb"
+    brakeman:
+      run: bin/brakeman --no-pager
+    # Runs tests with --fail-fast for quick feedback. Use LEFTHOOK=0 git push to skip.
+    rspec:
+      run: bundle exec rspec --fail-fast
+
+post-checkout:
+  commands:
+    bundle-sync:
+      run: .lefthook/bundle-sync.sh {0} {1} {2}
+
+post-rewrite:
+  commands:
+    bundle-sync:
+      run: .lefthook/bundle-sync.sh
+      use_stdin: true
+
+post-merge:
+  commands:
+    bundle-sync:
+      run: .lefthook/bundle-sync.sh
