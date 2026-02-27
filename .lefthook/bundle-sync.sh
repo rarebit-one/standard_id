@@ -7,7 +7,8 @@
 #
 # Exit: Always 0 — post-hooks can't undo the git operation, so we warn on failure.
 
-set -e
+# Note: No set -e here. Post-hooks are advisory and must always exit 0
+# to avoid blocking git operations.
 
 GEMFILE_CHANGED=false
 
@@ -21,6 +22,11 @@ case "$HOOK_NAME" in
   post-checkout)
     OLD_REF="${1:-}"
     NEW_REF="${2:-}"
+    BRANCH_FLAG="${3:-}"
+    # Skip file-level checkouts (flag=0); only sync on branch checkouts (flag=1)
+    if [[ "$BRANCH_FLAG" == "0" ]]; then
+      exit 0
+    fi
     if [[ -n "$OLD_REF" && -n "$NEW_REF" && "$OLD_REF" != "$NEW_REF" ]]; then
       if git diff --name-only "$OLD_REF" "$NEW_REF" 2>/dev/null | grep -q '^Gemfile\.lock$'; then
         GEMFILE_CHANGED=true

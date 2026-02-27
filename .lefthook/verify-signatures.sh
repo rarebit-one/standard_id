@@ -7,10 +7,13 @@
 # Accepted signature statuses: G (good), U (good but untrusted key)
 # Rejected: N (none), B (bad), E (can't check), X (expired), Y (expired key), R (revoked)
 
-set -e
+set -eo pipefail
 
-MERGE_BASE=$(git merge-base origin/main HEAD 2>/dev/null) || {
-  echo "Failed to find merge-base with origin/main" >&2
+# Detect the upstream tracking branch, falling back to origin/main.
+UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || UPSTREAM="origin/main"
+
+MERGE_BASE=$(git merge-base "$UPSTREAM" HEAD 2>/dev/null) || {
+  echo "Failed to find merge-base with $UPSTREAM" >&2
   exit 1
 }
 
@@ -27,6 +30,9 @@ fi
 UNSIGNED_COMMITS=()
 while IFS= read -r commit; do
   SIG_STATUS=$(git log --format="%G?" -1 "$commit" 2>/dev/null || echo "N")
+  # Accept G (good) and U (good but untrusted key). U is allowed because developers
+  # may use locally-generated keys not yet in the team's trust store. The goal is to
+  # ensure all commits are signed, not to verify signer identity.
   if [[ "$SIG_STATUS" != "G" && "$SIG_STATUS" != "U" ]]; then
     SHORT_HASH=$(git rev-parse --short "$commit")
     SUBJECT=$(git log --format="%s" -1 "$commit")

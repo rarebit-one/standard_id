@@ -7,18 +7,19 @@ pre-push:
   parallel: true
   commands:
     whitespace:
-      run: git diff --check HEAD~ 2>/dev/null || true
+      run: git log --check $(git merge-base origin/main HEAD)..HEAD
     signed-commits:
       run: .lefthook/verify-signatures.sh
     rubocop:
       run: bin/rubocop
-      glob: "*.rb"
+      glob: "**/*.rb"
     brakeman:
+      # Requires bin/brakeman from chore/standardize-workflows PR
       run: bin/brakeman --no-pager
-      glob: "*.rb"
+      glob: "**/*.rb"
     rspec:
       run: bundle exec rspec --fail-fast
-      glob: "*.rb"
+      glob: "**/*.rb"
 
 post-checkout:
   commands:
