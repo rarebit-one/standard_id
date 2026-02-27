@@ -14,12 +14,10 @@ pre-push:
       run: bin/rubocop
       glob: "**/*.rb"
     brakeman:
-      run: test -f bin/brakeman && bin/brakeman --no-pager || echo "bin/brakeman not found, skipping"
-      glob: "**/*.rb"
-    # Intentionally runs the full suite. Use LEFTHOOK=0 git push to skip.
+      run: bin/brakeman --no-pager
+    # Runs tests with --fail-fast for quick feedback. Use LEFTHOOK=0 git push to skip.
     rspec:
       run: bundle exec rspec --fail-fast
-      glob: "**/*.rb"
 
 post-checkout:
   commands:
@@ -30,6 +28,7 @@ post-rewrite:
   commands:
     bundle-sync:
       run: .lefthook/bundle-sync.sh
+      use_stdin: true
 
 post-merge:
   commands:

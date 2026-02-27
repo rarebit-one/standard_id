@@ -9,13 +9,7 @@
 
 set -eo pipefail
 
-# Detect the upstream tracking branch, falling back to origin/main.
-UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null) || UPSTREAM="origin/main"
-
-MERGE_BASE=$(git merge-base "$UPSTREAM" HEAD 2>/dev/null) || {
-  echo "Failed to find merge-base with $UPSTREAM" >&2
-  exit 1
-}
+source "$(dirname "$0")/lib/git-upstream.sh"
 
 COMMITS=$(git log "$MERGE_BASE..HEAD" --format="%H" 2>/dev/null) || {
   echo "Failed to list commits between merge-base and HEAD" >&2

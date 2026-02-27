@@ -3,7 +3,7 @@
 #
 # Used by lefthook post-checkout, post-rewrite, and post-merge hooks.
 # Checks if Gemfile.lock changed between the old and new refs, and if so,
-# runs bundle install inside the devcontainer.
+# runs bundle install.
 #
 # Exit: Always 0 — post-hooks can't undo the git operation, so we warn on failure.
 
