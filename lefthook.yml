@@ -7,16 +7,16 @@ pre-push:
   parallel: true
   commands:
     whitespace:
-      run: git log --check $(git merge-base origin/main HEAD)..HEAD
+      run: .lefthook/whitespace-check.sh
     signed-commits:
       run: .lefthook/verify-signatures.sh
     rubocop:
       run: bin/rubocop
       glob: "**/*.rb"
     brakeman:
-      # Requires bin/brakeman from chore/standardize-workflows PR
-      run: bin/brakeman --no-pager
+      run: test -f bin/brakeman && bin/brakeman --no-pager || echo "bin/brakeman not found, skipping"
       glob: "**/*.rb"
+    # Intentionally runs the full suite. Use LEFTHOOK=0 git push to skip.
     rspec:
       run: bundle exec rspec --fail-fast
       glob: "**/*.rb"

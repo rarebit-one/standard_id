@@ -49,6 +49,8 @@ case "$HOOK_NAME" in
     fi
     ;;
   *)
+    # Fallback: compare against previous HEAD via reflog. May produce no diff
+    # after a fresh clone or reflog-rewriting operations — this is a safe no-op.
     if git diff --name-only HEAD@{1} HEAD 2>/dev/null | grep -q '^Gemfile\.lock$'; then
       GEMFILE_CHANGED=true
     fi

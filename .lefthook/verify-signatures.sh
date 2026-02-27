@@ -46,7 +46,9 @@ if [[ ${#UNSIGNED_COMMITS[@]} -gt 0 ]]; then
     echo "$line" >&2
   done
   echo "" >&2
-  echo "To fix, amend with signature: git commit --amend --no-edit -S" >&2
+  echo "To fix:" >&2
+  echo "  Single commit:    git commit --amend --no-edit -S" >&2
+  echo "  Multiple commits: git rebase --exec 'git commit --amend --no-edit -S' $UPSTREAM" >&2
   exit 1
 fi
 
