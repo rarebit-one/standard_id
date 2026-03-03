@@ -14,16 +14,14 @@
       "Bash(git checkout:*)",
       "Bash(git switch:*)",
       "Bash(git pull:*)",
-      "Bash(git push:*)",
       "Bash(git tag:*)",
       "Bash(gh pr:*)",
       "Bash(gh api:*)",
       "Bash(bundle:*)",
       "Bash(gem build:*)",
-      "Bash(gem push:*)",
-      "Bash(gem search:*)",
-      "Skill(publish-gem)",
-      "Skill(ship)"
+      "Bash(gem info:*)",
+      "Bash(rm *.gem)",
+      "Skill(publish-gem)"
     ]
   }
 }

@@ -23,6 +23,8 @@ This skill handles the gem publishing workflow. It does **NOT**:
 
 The OTP code is required for MFA-enabled RubyGems accounts. If omitted, the skill will ask for it before pushing.
 
+> **Security note:** Passing OTP on the command line exposes it in shell history and process listings. For interactive sessions, you can omit the OTP and let `gem push` prompt for it. The `--otp` flag is a convenience for scripted workflows where the code is ephemeral.
+
 ## Workflow
 
 ### 1. Verify Context
@@ -43,6 +45,7 @@ git status --porcelain
 **Blockers:**
 - Not on `main` branch — warn and ask confirmation before proceeding
 - No `.gemspec` found — stop, not a gem project
+- Multiple `.gemspec` files found — ask the user which one to build
 - Dirty working tree — warn, the build may include uncommitted changes
 
 ### 2. Extract Gem Metadata
@@ -59,11 +62,11 @@ Also read and display:
 - CHANGELOG.md entry for this version (if exists)
 - `spec.files` count to verify packaging
 
-### 3. Pre-Publish Checks
+### 3. Pre-Publish Checks (Remote Registry)
 
 ```bash
-# Check if this version is already published
-gem search -r <gem_name> -v <version>
+# Check if this version is already published on RubyGems.org
+gem info -r <gem_name> -v <version>
 
 # Verify gem credentials exist
 test -f ~/.gem/credentials && echo "Credentials found" || echo "No credentials — run: gem signin"
@@ -113,8 +116,8 @@ If the OTP was not provided as an argument, ask the user for it now.
 # Remove the built .gem file
 rm <name>-<version>.gem
 
-# Create a git tag for the release
-git tag -s v<version> -m "Release v<version>"
+# Create an annotated git tag for the release
+git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
 ```
 
@@ -134,4 +137,5 @@ Report:
 | OTP rejected | Code expired — ask for a new OTP |
 | `gem build` fails | Fix gemspec errors and retry |
 | Tag already exists | Version was previously tagged — skip tagging |
+| Tag signing fails | If `git tag -s` is preferred, ensure GPG is configured; fall back to `git tag -a` |
 | Tag push fails | Likely a permissions issue — report and continue |
