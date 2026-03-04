@@ -24,7 +24,7 @@ module StandardId
       session_token = cookies.encrypted[:session_token] || request.session[:session_token]
       return nil if session_token.blank?
 
-      browser_session = StandardId::BrowserSession.eager_load(:account).by_token(session_token).first
+      browser_session = StandardId::BrowserSession.by_token(session_token).first
       return nil unless browser_session&.active?
 
       browser_session.account
