@@ -47,7 +47,7 @@ module StandardId
           account: account,
           value: email
         )
-        identifier.verify! if identifier.respond_to?(:verify!)
+        identifier.verify! if identifier.respond_to?(:verify!) && social_info[:email_verified]
         emit_social_account_created(account, provider, social_info)
         account
       end
