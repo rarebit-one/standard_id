@@ -51,12 +51,16 @@ module StandardId
       private
 
       def load_current_account
-        account_id = current_session&.account_id
-        return unless account_id
+        if StandardId.config.account_scope
+          account_id = current_session&.account_id
+          return unless account_id
 
-        scope = StandardId.account_class
-        scope = StandardId.config.account_scope.call(scope) if StandardId.config.account_scope
-        scope.find_by(id: account_id)&.tap { |a| a.strict_loading!(false) }
+          scope = StandardId.account_class
+          scope = StandardId.config.account_scope.call(scope)
+          scope.find_by(id: account_id)&.tap { |a| a.strict_loading!(false) }
+        else
+          current_session&.account&.tap { |a| a.strict_loading!(false) }
+        end
       end
 
       def load_current_session
