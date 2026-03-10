@@ -2,6 +2,12 @@ module StandardId
   module ApiAuthentication
     extend ActiveSupport::Concern
 
+    included do
+      if StandardId.config.alias_current_user
+        define_method(:current_user) { current_account }
+      end
+    end
+
     delegate :current_session, :current_account, :revoke_current_session!, to: :session_manager
 
     private
