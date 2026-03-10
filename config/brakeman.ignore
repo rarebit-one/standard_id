@@ -17,7 +17,7 @@
       "note": "HEAD vs GET distinction is inconsequential here; storing return URL on GET-only is safe"
     },
     {
-      "fingerprint": "caed110d212c8574288610f50a32e3460c781c6766135e637f08df14f9bb74d2",
+      "fingerprint": "16bd6ec7c3fa130eb80c15fc90c87f9859d89b37258807bfaffe4101366611a6",
       "note": "Auth engine intentionally redirects to params[:redirect_uri] after login for OAuth/post-auth flow"
     },
     {

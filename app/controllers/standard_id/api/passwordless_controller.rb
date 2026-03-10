@@ -1,10 +1,7 @@
 module StandardId
   module Api
     class PasswordlessController < BaseController
-      STRATEGY_MAP = {
-        "email" => StandardId::Passwordless::EmailStrategy,
-        "sms"   => StandardId::Passwordless::SmsStrategy
-      }.freeze
+      include StandardId::PasswordlessStrategy
 
       def start
         raise StandardId::InvalidRequestError, "username, email, or phone_number parameter is required" if start_params[:username].blank?
@@ -15,12 +12,6 @@ module StandardId
       end
 
       private
-
-      def strategy_for(connection)
-        klass = STRATEGY_MAP[connection]
-        raise StandardId::InvalidRequestError, "Unsupported connection type: #{connection}" unless klass
-        klass.new(request)
-      end
 
       def start_params
         return @start_params if @start_params.present?
