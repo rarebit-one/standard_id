@@ -30,12 +30,9 @@ module StandardId
       end
 
       def bearer_token
-        return @bearer_token if @bearer_token.present?
+        return @bearer_token if defined?(@bearer_token)
 
-        auth_header = @request.headers["Authorization"]
-        return unless auth_header&.start_with?("Bearer ")
-
-        @bearer_token = auth_header.split(" ", 2).last
+        @bearer_token = StandardId::BearerTokenExtraction.extract(@request.headers["Authorization"])
       end
 
       def verify_jwt_token(token: bearer_token)
