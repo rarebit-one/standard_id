@@ -7,12 +7,15 @@ module StandardId
   # `allowed_audiences` list, this concern provides additional defense-in-depth
   # by restricting which audiences are accepted by each controller.
   #
-  # Requires StandardId::ApiAuthentication to be included (provides
-  # `verify_access_token!` and `current_session`).
+  # Requires StandardId::ApiAuthentication to be included before this concern
+  # (provides `verify_access_token!` and `current_session`). An error is raised
+  # at include time if ApiAuthentication is missing.
   #
   # The caller is responsible for registering `before_action :verify_access_token!`
   # (typically via ApiAuthentication or a base controller). This concern only adds
-  # the `verify_audience!` callback, consistent with how `require_scopes!` works.
+  # the `verify_audience!` callback, which must run after token verification so
+  # that `current_session` is populated. This is consistent with how
+  # `require_scopes!` works in ApiAuthentication.
   #
   # @example Single audience
   #   class AdminController < Api::BaseController
@@ -29,6 +32,10 @@ module StandardId
     extend ActiveSupport::Concern
 
     included do
+      unless ancestors.include?(StandardId::ApiAuthentication)
+        raise "#{name || 'Controller'} must include StandardId::ApiAuthentication before StandardId::AudienceVerification"
+      end
+
       before_action :verify_audience!
 
       rescue_from StandardId::InvalidAudienceError, with: :handle_invalid_audience
@@ -73,12 +80,16 @@ module StandardId
     # Returns 403 Forbidden per RFC 6750 §3.1 (insufficient_scope).
     # Includes WWW-Authenticate header per spec, consistent with the gem's
     # 401 handling in Api::BaseController#render_bearer_unauthorized!.
+    #
+    # The header uses a static description rather than interpolating
+    # error.message (which contains raw aud values from the JWT) to
+    # avoid header injection via crafted audience strings.
+    #
     # Override in your controller for custom error formatting.
     def handle_invalid_audience(error)
-      description = error.message.gsub(/[\r\n]/, " ")
       response.set_header(
         "WWW-Authenticate",
-        %Q(Bearer error="insufficient_scope", error_description="#{description}")
+        'Bearer error="insufficient_scope", error_description="The access token audience is not permitted for this resource"'
       )
       render json: { error: "insufficient_scope", error_description: error.message }, status: :forbidden
     end

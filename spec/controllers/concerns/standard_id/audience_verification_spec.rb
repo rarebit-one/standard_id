@@ -3,6 +3,16 @@ require "rails_helper"
 RSpec.describe StandardId::AudienceVerification do
   let(:account) { Account.create!(name: "Test User", email: "user@example.com") }
 
+  describe "dependency guard" do
+    it "raises if ApiAuthentication is not included" do
+      expect {
+        Class.new(ActionController::API) do
+          include StandardId::AudienceVerification
+        end
+      }.to raise_error(RuntimeError, /must include StandardId::ApiAuthentication/)
+    end
+  end
+
   describe ".verify_audience" do
     it "sets the required audiences on the controller class" do
       controller_class = Class.new(ActionController::API) do
@@ -135,7 +145,7 @@ RSpec.describe StandardId::AudienceVerification do
 
     let(:controller) { controller_class.new }
 
-    it "renders a 403 Forbidden JSON response with WWW-Authenticate header" do
+    it "renders a 403 Forbidden JSON response with static WWW-Authenticate header" do
       error = StandardId::InvalidAudienceError.new(required: %w[admin], actual: %w[mobile])
 
       response_headers = {}
@@ -153,7 +163,26 @@ RSpec.describe StandardId::AudienceVerification do
 
       expect(json_body[:error]).to eq("insufficient_scope")
       expect(json_body[:error_description]).to include("admin")
-      expect(response_headers["WWW-Authenticate"]).to start_with('Bearer error="insufficient_scope"')
+      expect(response_headers["WWW-Authenticate"]).to eq(
+        'Bearer error="insufficient_scope", error_description="The access token audience is not permitted for this resource"'
+      )
+    end
+
+    it "does not interpolate raw aud values into the header" do
+      error = StandardId::InvalidAudienceError.new(
+        required: %w[admin],
+        actual: ['x", evil="injected']
+      )
+
+      response_headers = {}
+      response_double = instance_double(ActionDispatch::Response)
+      allow(response_double).to receive(:set_header) { |k, v| response_headers[k] = v }
+      allow(controller).to receive(:response).and_return(response_double)
+      allow(controller).to receive(:render)
+
+      controller.handle_invalid_audience(error)
+
+      expect(response_headers["WWW-Authenticate"]).not_to include("injected")
     end
   end
 end

@@ -1,20 +1,12 @@
 module StandardId
+  # Session errors
   class NotAuthenticatedError < StandardError; end
 
   class InvalidSessionError < StandardError; end
   class ExpiredSessionError < InvalidSessionError; end
   class RevokedSessionError < InvalidSessionError; end
 
-  class InvalidAudienceError < StandardError
-    attr_reader :required, :actual
-
-    def initialize(required:, actual:)
-      @required = required
-      @actual = actual
-      super("Token audience [#{actual.join(', ')}] does not match required audiences: #{required.join(', ')}")
-    end
-  end
-
+  # Account errors
   class AccountDeactivatedError < StandardError; end
 
   class AccountLockedError < StandardError
@@ -28,6 +20,7 @@ module StandardId
     end
   end
 
+  # OAuth errors
   class OAuthError < StandardError
     def oauth_error_code
       :invalid_request
@@ -74,5 +67,16 @@ module StandardId
 
   class UnsupportedResponseTypeError < OAuthError
     def oauth_error_code = :unsupported_response_type
+  end
+
+  # Audience verification errors
+  class InvalidAudienceError < StandardError
+    attr_reader :required, :actual
+
+    def initialize(required:, actual:)
+      @required = required
+      @actual = actual
+      super("Token audience [#{actual.join(', ')}] does not match required audiences: #{required.join(', ')}")
+    end
   end
 end

@@ -30,7 +30,7 @@ module StandardId
       end
 
       def bearer_token
-        return @bearer_token if @bearer_token.present?
+        return @bearer_token if defined?(@bearer_token)
 
         @bearer_token = StandardId::BearerTokenExtraction.extract(@request.headers["Authorization"])
       end
