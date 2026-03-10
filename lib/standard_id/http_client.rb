@@ -7,7 +7,6 @@ module StandardId
     READ_TIMEOUT = 10
 
     class << self
-
       def post_form(endpoint, params)
         uri = URI(endpoint)
         http = Net::HTTP.new(uri.host, uri.port)
