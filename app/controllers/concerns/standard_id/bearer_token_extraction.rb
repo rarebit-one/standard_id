@@ -28,7 +28,17 @@ module StandardId
     #
     # @return [String, nil] the bearer token, or nil if not present
     def extract_bearer_token
-      request.headers["Authorization"]&.match(/\ABearer (.+)\z/)&.captures&.first
+      StandardId::BearerTokenExtraction.extract(request.headers["Authorization"])
+    end
+
+    # Shared extraction logic used by both this concern and TokenManager.
+    #
+    # @param auth_header [String, nil] the raw Authorization header value
+    # @return [String, nil] the bearer token, or nil if not present
+    def self.extract(auth_header)
+      return unless auth_header&.start_with?("Bearer ")
+
+      auth_header.split(" ", 2).last
     end
   end
 end

@@ -107,4 +107,32 @@ RSpec.describe StandardId::AudienceVerification do
       end
     end
   end
+
+  describe "#handle_invalid_audience" do
+    let(:controller_class) do
+      Class.new(ActionController::API) do
+        include StandardId::ApiAuthentication
+        include StandardId::AudienceVerification
+
+        public :handle_invalid_audience
+      end
+    end
+
+    let(:controller) { controller_class.new }
+
+    it "renders a 403 Forbidden JSON response" do
+      error = StandardId::InvalidAudienceError.new(required: %w[admin], actual: %w[mobile])
+
+      json_body = nil
+      allow(controller).to receive(:render) do |options|
+        json_body = options[:json]
+        expect(options[:status]).to eq(:forbidden)
+      end
+
+      controller.handle_invalid_audience(error)
+
+      expect(json_body[:error]).to eq("insufficient_scope")
+      expect(json_body[:error_description]).to include("admin")
+    end
+  end
 end

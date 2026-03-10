@@ -47,7 +47,7 @@ RSpec.describe StandardId::BearerTokenExtraction do
       end
     end
 
-    context "when token contains spaces" do
+    context "when token is a dot-separated JWT" do
       let(:request) do
         instance_double(ActionDispatch::Request, headers: { "Authorization" => "Bearer eyJ.abc.xyz" })
       end

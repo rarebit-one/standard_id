@@ -10,6 +10,10 @@ module StandardId
   # Requires StandardId::ApiAuthentication to be included (provides
   # `verify_access_token!` and `current_session`).
   #
+  # This concern registers `before_action :verify_access_token!` automatically.
+  # Do not separately register that callback when including this concern, or
+  # authentication will run twice.
+  #
   # @example Single audience
   #   class AdminController < Api::BaseController
   #     include StandardId::AudienceVerification
@@ -28,6 +32,10 @@ module StandardId
       before_action :verify_access_token!
       before_action :verify_audience!
 
+      rescue_from StandardId::InvalidAudienceError, with: :handle_invalid_audience
+
+      # Underscore prefix follows Rails class_attribute convention to avoid
+      # collisions with application method names.
       class_attribute :_required_audiences, instance_writer: false, default: []
     end
 
@@ -57,6 +65,12 @@ module StandardId
         required: _required_audiences,
         actual: token_audiences
       )
+    end
+
+    # Returns 403 Forbidden per RFC 6750 §3.1 (insufficient_scope).
+    # Override in your controller for custom error formatting.
+    def handle_invalid_audience(error)
+      render json: { error: "insufficient_scope", error_description: error.message }, status: :forbidden
     end
   end
 end
