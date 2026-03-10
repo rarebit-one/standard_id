@@ -3,7 +3,7 @@ module StandardId
   #
   # This is a standalone concern that host apps can include in their
   # ApplicationController to automatically set Sentry user context
-  # after each request. It eliminates the need for apps to write
+  # for each request. It eliminates the need for apps to write
   # their own SentryContext boilerplate.
   #
   # Safe to include even when the Sentry gem is not installed -- the
@@ -18,22 +18,19 @@ module StandardId
     extend ActiveSupport::Concern
 
     included do
-      after_action :set_standard_id_sentry_context
+      before_action :set_standard_id_sentry_context
     end
 
     private
 
     def set_standard_id_sentry_context
       return unless defined?(Sentry)
-      return unless current_account.present?
+      return unless respond_to?(:current_account, true) && current_account.present?
 
-      user_context = { id: current_account.id }
+      context = { id: current_account.id }
+      context[:session_id] = current_session.id if respond_to?(:current_session, true) && current_session.present?
 
-      if respond_to?(:current_session, true) && current_session.present?
-        user_context[:session_id] = current_session.id
-      end
-
-      Sentry.set_user(user_context)
+      Sentry.set_user(context)
     end
   end
 end
