@@ -12,7 +12,7 @@ RSpec.describe StandardId::CleanupExpiredSessionsJob, type: :job do
         user_agent: "Test"
       )
 
-      described_class.new.perform(grace_period: 7.days)
+      described_class.new.perform(grace_period_seconds: 7.days.to_i)
 
       expect(StandardId::Session.exists?(old_session.id)).to be false
     end
@@ -25,7 +25,7 @@ RSpec.describe StandardId::CleanupExpiredSessionsJob, type: :job do
         user_agent: "Test"
       )
 
-      described_class.new.perform(grace_period: 7.days)
+      described_class.new.perform(grace_period_seconds: 7.days.to_i)
 
       expect(StandardId::Session.exists?(recent_session.id)).to be true
     end
@@ -38,7 +38,7 @@ RSpec.describe StandardId::CleanupExpiredSessionsJob, type: :job do
         user_agent: "Test"
       )
 
-      described_class.new.perform(grace_period: 7.days)
+      described_class.new.perform(grace_period_seconds: 7.days.to_i)
 
       expect(StandardId::Session.exists?(active_session.id)).to be true
     end

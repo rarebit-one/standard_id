@@ -78,7 +78,7 @@ module StandardId
 
         # Perform a dummy bcrypt comparison when the credential doesn't exist
         # to prevent user enumeration via response timing differences.
-        BCrypt::Password.create("") unless @credential
+        BCrypt::Password.new(dummy_password_digest).is_password?(password) unless @credential
 
         @credential&.authenticate(password)&.account
       end
@@ -92,6 +92,10 @@ module StandardId
         if invalid_tokens.any?
           raise StandardId::InvalidScopeError, "Invalid scope tokens: #{invalid_tokens.join(', ')}"
         end
+      end
+
+      def dummy_password_digest
+        @dummy_password_digest ||= BCrypt::Password.create("").freeze
       end
 
       def default_scope

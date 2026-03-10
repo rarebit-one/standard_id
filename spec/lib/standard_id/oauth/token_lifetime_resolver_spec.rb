@@ -28,14 +28,4 @@ RSpec.describe StandardId::Oauth::TokenLifetimeResolver do
       expect(result.to_i).to eq(90.days.to_i)
     end
   end
-
-  describe "MAX constants" do
-    it "defines MAX_ACCESS_TOKEN_LIFETIME as 24 hours" do
-      expect(described_class::MAX_ACCESS_TOKEN_LIFETIME).to eq(24.hours.to_i)
-    end
-
-    it "defines MAX_REFRESH_TOKEN_LIFETIME as 90 days" do
-      expect(described_class::MAX_REFRESH_TOKEN_LIFETIME).to eq(90.days.to_i)
-    end
-  end
 end

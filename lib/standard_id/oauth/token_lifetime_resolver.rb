@@ -9,11 +9,13 @@ module StandardId
       class << self
         def access_token_for(flow_key)
           configured = lookup_token_lifetime(flow_key)
-          clamp_seconds(positive_seconds(configured, default_access_token_lifetime), MAX_ACCESS_TOKEN_LIFETIME)
+          lifetime = positive_seconds(configured, default_access_token_lifetime)
+          clamp_seconds(lifetime, MAX_ACCESS_TOKEN_LIFETIME)
         end
 
         def refresh_token_lifetime
-          clamp_seconds(positive_seconds(oauth_config.refresh_token_lifetime, DEFAULT_REFRESH_TOKEN_LIFETIME), MAX_REFRESH_TOKEN_LIFETIME)
+          lifetime = positive_seconds(oauth_config.refresh_token_lifetime, DEFAULT_REFRESH_TOKEN_LIFETIME)
+          clamp_seconds(lifetime, MAX_REFRESH_TOKEN_LIFETIME)
         end
 
         private
