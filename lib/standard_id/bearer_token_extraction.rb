@@ -22,9 +22,12 @@ module StandardId
   # @example Direct class method (used by TokenManager)
   #   StandardId::BearerTokenExtraction.extract(auth_header)
   module BearerTokenExtraction
-    extend ActiveSupport::Concern
-
     # Extracts the Bearer token from a raw Authorization header value.
+    #
+    # Note: prior to this extraction, TokenManager#bearer_token returned ""
+    # for a bare "Bearer " header. This now returns nil via .presence, which
+    # is the correct behavior — downstream JWT parsing receives nil instead
+    # of attempting to decode an empty string.
     #
     # @param auth_header [String, nil] the raw Authorization header value
     # @return [String, nil] the bearer token, or nil if not present/empty
@@ -37,10 +40,13 @@ module StandardId
     private
 
     # Extracts the token from an "Authorization: Bearer <token>" header.
+    # Result is memoized for the lifetime of the controller instance.
     #
     # @return [String, nil] the bearer token, or nil if not present
     def extract_bearer_token
-      StandardId::BearerTokenExtraction.extract(request.headers["Authorization"])
+      return @_bearer_token if defined?(@_bearer_token)
+
+      @_bearer_token = StandardId::BearerTokenExtraction.extract(request.headers["Authorization"])
     end
   end
 end

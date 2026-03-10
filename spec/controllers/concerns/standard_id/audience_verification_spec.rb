@@ -89,6 +89,21 @@ RSpec.describe StandardId::AudienceVerification do
       end
     end
 
+    context "when current_session is nil (unauthenticated)" do
+      let(:token_audience) { nil }
+
+      before do
+        session_manager = instance_double(StandardId::Api::SessionManager,
+          current_session: nil,
+          current_account: nil)
+        allow(controller).to receive(:session_manager).and_return(session_manager)
+      end
+
+      it "returns without raising so the auth layer can handle 401" do
+        expect { controller.verify_audience! }.not_to raise_error
+      end
+    end
+
     context "when no required audiences are configured" do
       let(:token_audience) { "anything" }
 

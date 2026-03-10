@@ -1,22 +1,48 @@
 require "rails_helper"
 
 RSpec.describe StandardId::BearerTokenExtraction do
-  let(:controller_class) do
-    Class.new(ActionController::API) do
-      include StandardId::BearerTokenExtraction
+  describe ".extract" do
+    it "extracts the token from a valid Bearer header" do
+      expect(described_class.extract("Bearer abc123")).to eq("abc123")
+    end
 
-      # Expose private method for testing
-      public :extract_bearer_token
+    it "returns nil when header is nil" do
+      expect(described_class.extract(nil)).to be_nil
+    end
+
+    it "returns nil when header uses a different scheme" do
+      expect(described_class.extract("Basic dXNlcjpwYXNz")).to be_nil
+    end
+
+    it "returns nil for a bare 'Bearer ' with no token" do
+      expect(described_class.extract("Bearer ")).to be_nil
+    end
+
+    it "returns nil for an empty string" do
+      expect(described_class.extract("")).to be_nil
+    end
+
+    it "preserves the full token for dot-separated JWTs" do
+      expect(described_class.extract("Bearer eyJ.abc.xyz")).to eq("eyJ.abc.xyz")
     end
   end
 
-  let(:controller) { controller_class.new }
-
-  before do
-    allow(controller).to receive(:request).and_return(request)
-  end
-
   describe "#extract_bearer_token" do
+    let(:controller_class) do
+      Class.new(ActionController::API) do
+        include StandardId::BearerTokenExtraction
+
+        # Expose private method for testing
+        public :extract_bearer_token
+      end
+    end
+
+    let(:controller) { controller_class.new }
+
+    before do
+      allow(controller).to receive(:request).and_return(request)
+    end
+
     context "when Authorization header contains a Bearer token" do
       let(:request) do
         instance_double(ActionDispatch::Request, headers: { "Authorization" => "Bearer abc123" })
@@ -24,6 +50,13 @@ RSpec.describe StandardId::BearerTokenExtraction do
 
       it "returns the token" do
         expect(controller.extract_bearer_token).to eq("abc123")
+      end
+
+      it "memoizes the result" do
+        controller.extract_bearer_token
+        expect(request).to have_received(:headers).once
+        controller.extract_bearer_token
+        expect(request).to have_received(:headers).once
       end
     end
 

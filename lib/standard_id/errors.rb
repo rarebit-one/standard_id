@@ -11,7 +11,7 @@ module StandardId
     def initialize(required:, actual:)
       @required = required
       @actual = actual
-      super("Token audience #{actual.inspect} does not match required audiences: #{required.join(', ')}")
+      super("Token audience [#{actual.join(', ')}] does not match required audiences: #{required.join(', ')}")
     end
   end
 

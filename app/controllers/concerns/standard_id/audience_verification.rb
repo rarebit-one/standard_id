@@ -57,7 +57,11 @@ module StandardId
     def verify_audience!
       return if _required_audiences.empty?
 
-      token_audiences = Array(current_session&.aud)
+      # If authentication hasn't run (or token is invalid), let the auth
+      # layer handle 401 — don't mask it with a 403.
+      return unless current_session
+
+      token_audiences = Array(current_session.aud)
       return if (token_audiences & _required_audiences).any?
 
       raise StandardId::InvalidAudienceError.new(
@@ -71,9 +75,10 @@ module StandardId
     # 401 handling in Api::BaseController#render_bearer_unauthorized!.
     # Override in your controller for custom error formatting.
     def handle_invalid_audience(error)
+      description = error.message.gsub(/[\r\n]/, " ")
       response.set_header(
         "WWW-Authenticate",
-        %Q(Bearer error="insufficient_scope", error_description="#{error.message}")
+        %Q(Bearer error="insufficient_scope", error_description="#{description}")
       )
       render json: { error: "insufficient_scope", error_description: error.message }, status: :forbidden
     end
