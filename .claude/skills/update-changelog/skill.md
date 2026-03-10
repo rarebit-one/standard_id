@@ -15,6 +15,8 @@ Add or update entries in CHANGELOG.md following [Keep a Changelog](https://keepa
 /update-changelog --backfill         # Backfill all missing versions from git history
 ```
 
+If both `<version>` and `--backfill` are passed, ignore the version and run a full backfill.
+
 ## Workflow
 
 ### 1. Determine Target Version
@@ -27,21 +29,28 @@ ruby -e "spec = Gem::Specification.load(Dir['*.gemspec'].first); puts spec.versi
 
 ### 2. Find Version Boundaries
 
-Identify the commits that belong to this version by finding when `version.rb` was last changed:
+Identify the commits that belong to this version by finding when `version.rb` was changed:
 
 ```bash
-# Find all commits that modified version.rb, with the version at each commit
-git log --diff-filter=M --format="%h %s" -- lib/*/version.rb
+# Find all commits that added or modified version.rb
+git log --diff-filter=AM --format="%h %s" -- lib/*/version.rb
 ```
 
-For each version-changing commit, extract the version string to map commits to version ranges.
+Use `--diff-filter=AM` (not just `M`) to include the initial commit that created `version.rb`.
+
+For each version-changing commit, extract the version string to map commits to version ranges:
+
+```bash
+# For each commit hash, extract the version
+git show <hash>:lib/<gem>/version.rb | sed -n 's/.*VERSION = "\(.*\)"/\1/p'
+```
 
 ### 3. Gather Changes
 
 Get the commits between the previous version bump and the current one:
 
 ```bash
-git log --oneline <previous_bump>..<current_bump> --format="%s"
+git log <previous_bump>..<current_bump> --format="%s"
 ```
 
 ### 4. Categorize Changes
@@ -69,11 +78,13 @@ Use judgement: a `chore:` that adds thread-safety or extracts providers into plu
 
 #### If CHANGELOG.md exists
 
-Insert the new version entry after the `# Changelog` header and any preamble, before the first existing version entry. Use the Edit tool to insert — do not rewrite the whole file.
+Insert the new version entry after the `# Changelog` header and any preamble. If an `[Unreleased]` section exists, insert the new version entry below it. Use the Edit tool to insert — do not rewrite the whole file.
+
+When writing a versioned entry for changes that were previously listed under `[Unreleased]`, move those items into the new version section and leave `[Unreleased]` empty (but keep the heading).
 
 #### If CHANGELOG.md does not exist
 
-Create the file with the standard header:
+Create the file with the standard header and an `[Unreleased]` section:
 
 ```markdown
 # Changelog
@@ -82,6 +93,8 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
 
 ## [<version>] - <date>
 
@@ -115,9 +128,10 @@ Rules:
 
 When `--backfill` is passed:
 
-1. Find all version-changing commits in history
+1. Find all version-changing commits in history (using `--diff-filter=AM` to include the initial version)
 2. For each version that has no CHANGELOG.md entry, generate one
 3. Write all entries in reverse chronological order (newest first)
+4. Include an empty `[Unreleased]` section at the top
 
 This is useful for projects that didn't maintain a changelog from the start.
 

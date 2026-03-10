@@ -66,14 +66,15 @@ test -f ~/.gem/credentials && echo "Credentials found" || echo "No credentials �
 
 # Check if CHANGELOG.md exists when gemspec references it
 ruby -e "spec = Gem::Specification.load(Dir['*.gemspec'].first); puts spec.metadata['changelog_uri']"
+test -f CHANGELOG.md && echo "CHANGELOG.md found" || echo "CHANGELOG.md missing"
 ```
 
 **Blockers:**
-- Version already published — ask the user what version to bump to (suggest next patch/minor/major), then proceed with the bump
+- Version already published — ask the user what version to bump to (suggest next patch/minor/major). If the user declines, abort the publish.
 - No credentials file — stop, user needs to run `gem signin` first
 
 **Warnings:**
-- Gemspec `changelog_uri` points to `CHANGELOG.md` but file does not exist — warn the user and suggest running `/update-changelog` or creating one before publishing
+- Gemspec `changelog_uri` is set but `CHANGELOG.md` does not exist locally — warn the user and suggest running `/update-changelog` or creating one before publishing. This will result in a broken link on RubyGems.org.
 
 ### 4. Version Bump (if needed)
 
@@ -81,7 +82,7 @@ When the current version is already published, or the user requests a bump:
 
 1. Update `lib/<gem_name>/version.rb` with the new version
 2. Run `bundle install` to sync `Gemfile.lock`
-3. Commit both files: `chore: Bump version to <version>`
+3. **Do not commit yet** — the version bump is committed only after `gem push` succeeds (see Step 8)
 
 **Critical:** Always run `bundle install` after changing the version to keep `Gemfile.lock` in sync. Skipping this causes CI failures.
 
@@ -119,20 +120,22 @@ gem push <name>-<version>.gem --otp <OTP>
 
 If the OTP was not provided as an argument, ask the user for it now.
 
+If `gem push` fails, revert the version bump and Gemfile.lock changes (`git checkout -- lib/<gem_name>/version.rb Gemfile.lock`), report the error, and stop. Do not proceed to tagging or releasing.
+
 ### 8. Post-Publish
 
-```bash
-# Remove the built .gem file
-rm <name>-<version>.gem
+Only proceed here after `gem push` has succeeded.
 
-# Create an annotated git tag for the release
-git tag -a v<version> -m "Release v<version>"
-git push origin v<version>
+#### 8a. Commit and push the version bump
+
+Commit the version bump and lockfile:
+
+```bash
+git add lib/<gem_name>/version.rb Gemfile.lock
+git commit -m "chore: Bump version to <version>"
 ```
 
-#### Push the version bump commit
-
-Try pushing the version bump commit to `main`:
+Try pushing to `main`:
 
 ```bash
 git push origin main
@@ -146,7 +149,20 @@ git push -u origin chore/bump-v<version>
 gh pr create --title "chore: Bump version to <version>" --body "..."
 ```
 
-#### Create a GitHub Release
+#### 8b. Tag and release
+
+After the version bump commit is on `main` (or the PR branch if protected):
+
+```bash
+# Remove the built .gem file
+rm <name>-<version>.gem
+
+# Create an annotated git tag for the release
+git tag -a v<version> -m "Release v<version>"
+git push origin v<version>
+```
+
+#### 8c. Create a GitHub Release
 
 Always create a GitHub Release from the tag. Use the CHANGELOG.md entry for the release body if available, otherwise summarize from the git log:
 
@@ -168,9 +184,11 @@ Report:
 |-------|----------|
 | `gem push` fails with 401 | Credentials expired — run `gem signin` |
 | `gem push` fails with 403 | No push permission — check gem ownership |
+| `gem push` fails (any reason) | Revert uncommitted version bump (`git checkout -- lib/*/version.rb Gemfile.lock`), report error, stop |
 | OTP rejected | Code expired — ask for a new OTP |
 | `gem build` fails | Fix gemspec errors and retry |
 | Tag already exists | Version was previously tagged — skip tagging |
 | Tag signing fails | If `git tag -s` is preferred, ensure GPG is configured; fall back to `git tag -a` |
 | Tag push fails | Likely a permissions issue — report and continue |
 | Push to main rejected | Branch is protected — create a PR instead |
+| User declines version bump | Abort the publish |
