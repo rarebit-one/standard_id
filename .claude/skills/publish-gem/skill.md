@@ -1,18 +1,11 @@
 ---
 name: publish-gem
-description: "Publish a Ruby gem to RubyGems.org. Use when the user says 'publish gem', 'push gem', 'release gem', or '/publish-gem'. Builds the gem, shows a summary, and pushes to RubyGems with OTP."
+description: "Publish a Ruby gem to RubyGems.org. Use when the user says 'publish gem', 'push gem', 'release gem', or '/publish-gem'. Handles version bump, changelog, build, push, tagging, and GitHub release."
 ---
 
 # Publish Gem Skill
 
 Build and publish a Ruby gem to RubyGems.org.
-
-## Scope
-
-This skill handles the gem publishing workflow. It does **NOT**:
-- Bump version numbers (the user decides the version)
-- Create PRs or merge branches
-- Manage GitHub releases (use `gh release create` separately if needed)
 
 ## Usage
 
@@ -70,13 +63,29 @@ gem info -r <gem_name> -v <version>
 
 # Verify gem credentials exist
 test -f ~/.gem/credentials && echo "Credentials found" || echo "No credentials — run: gem signin"
+
+# Check if CHANGELOG.md exists when gemspec references it
+ruby -e "spec = Gem::Specification.load(Dir['*.gemspec'].first); puts spec.metadata['changelog_uri']"
 ```
 
 **Blockers:**
-- Version already published — stop, cannot overwrite
+- Version already published — ask the user what version to bump to (suggest next patch/minor/major), then proceed with the bump
 - No credentials file — stop, user needs to run `gem signin` first
 
-### 4. Build the Gem
+**Warnings:**
+- Gemspec `changelog_uri` points to `CHANGELOG.md` but file does not exist — warn the user and suggest running `/update-changelog` or creating one before publishing
+
+### 4. Version Bump (if needed)
+
+When the current version is already published, or the user requests a bump:
+
+1. Update `lib/<gem_name>/version.rb` with the new version
+2. Run `bundle install` to sync `Gemfile.lock`
+3. Commit both files: `chore: Bump version to <version>`
+
+**Critical:** Always run `bundle install` after changing the version to keep `Gemfile.lock` in sync. Skipping this causes CI failures.
+
+### 5. Build the Gem
 
 ```bash
 gem build <name>.gemspec
@@ -84,7 +93,7 @@ gem build <name>.gemspec
 
 Verify the `.gem` file was created and show its size.
 
-### 5. Publish Summary
+### 6. Publish Summary
 
 Present a summary before pushing:
 
@@ -102,7 +111,7 @@ Changelog:
 
 If `--dry-run` was passed, stop here and clean up the `.gem` file.
 
-### 6. Push to RubyGems
+### 7. Push to RubyGems
 
 ```bash
 gem push <name>-<version>.gem --otp <OTP>
@@ -110,7 +119,7 @@ gem push <name>-<version>.gem --otp <OTP>
 
 If the OTP was not provided as an argument, ask the user for it now.
 
-### 7. Post-Publish Cleanup
+### 8. Post-Publish
 
 ```bash
 # Remove the built .gem file
@@ -121,12 +130,37 @@ git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
 ```
 
-### 8. Output
+#### Push the version bump commit
+
+Try pushing the version bump commit to `main`:
+
+```bash
+git push origin main
+```
+
+If the push is rejected due to branch protection rules, create a PR instead:
+
+```bash
+git checkout -b chore/bump-v<version>
+git push -u origin chore/bump-v<version>
+gh pr create --title "chore: Bump version to <version>" --body "..."
+```
+
+#### Create a GitHub Release
+
+Always create a GitHub Release from the tag. Use the CHANGELOG.md entry for the release body if available, otherwise summarize from the git log:
+
+```bash
+gh release create v<version> --title "v<version>" --notes "<release notes>"
+```
+
+### 9. Output
 
 Report:
 1. RubyGems URL: `https://rubygems.org/gems/<name>`
 2. Git tag created: `v<version>`
-3. Remind: allow a few minutes for the gem to appear on RubyGems
+3. GitHub Release: `https://github.com/<owner>/<repo>/releases/tag/v<version>`
+4. Remind: allow a few minutes for the gem to appear on RubyGems
 
 ## Error Handling
 
@@ -139,3 +173,4 @@ Report:
 | Tag already exists | Version was previously tagged — skip tagging |
 | Tag signing fails | If `git tag -s` is preferred, ensure GPG is configured; fall back to `git tag -a` |
 | Tag push fails | Likely a permissions issue — report and continue |
+| Push to main rejected | Branch is protected — create a PR instead |
