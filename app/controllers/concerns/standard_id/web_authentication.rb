@@ -66,7 +66,13 @@ module StandardId
       )
 
       StandardId::PasswordCredential.find_by(login:).tap do |password_credential|
-        unless password_credential&.authenticate(password)
+        authenticated = password_credential&.authenticate(password)
+
+        # Perform a dummy bcrypt comparison when the credential doesn't exist
+        # to prevent user enumeration via response timing differences.
+        BCrypt::Password.create("") unless password_credential
+
+        unless authenticated
           StandardId::Events.publish(
             StandardId::Events::AUTHENTICATION_FAILED,
             account_lookup: login,
