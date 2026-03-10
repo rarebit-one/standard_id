@@ -11,17 +11,14 @@ RSpec.describe StandardId::HttpClient do
     end
 
     it "configures timeouts on post_form requests" do
-      uri = URI("https://example.com/token")
-      http = instance_double(Net::HTTP, request: Net::HTTPSuccess.allocate)
-      allow(Net::HTTP).to receive(:new).with(uri.host, uri.port).and_return(http)
-      allow(http).to receive(:use_ssl=)
-      allow(http).to receive(:open_timeout=)
-      allow(http).to receive(:read_timeout=)
+      stub_request(:post, "https://example.com/token")
+        .to_return(status: 200, body: "{}")
+
+      expect(Net::HTTP).to receive(:start)
+        .with("example.com", 443, use_ssl: true, open_timeout: 5, read_timeout: 10)
+        .and_call_original
 
       described_class.post_form("https://example.com/token", { key: "value" })
-
-      expect(http).to have_received(:open_timeout=).with(5)
-      expect(http).to have_received(:read_timeout=).with(10)
     end
 
     it "configures timeouts on get_with_bearer requests" do

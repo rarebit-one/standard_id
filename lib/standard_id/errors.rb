@@ -10,8 +10,8 @@ module StandardId
   class AccountDeactivatedError < StandardError; end
 
   class AccountLockedError < StandardError
-    # These attributes are for internal/admin logging only.
-    # Do not surface them in HTTP responses or user-facing messages.
+    # lock_reason and locked_at are available for logging and admin use.
+    # Avoid surfacing lock_reason in user-facing responses.
     attr_reader :lock_reason, :locked_at
 
     def initialize(account)
