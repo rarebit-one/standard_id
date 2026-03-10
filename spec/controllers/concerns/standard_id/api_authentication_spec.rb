@@ -15,14 +15,18 @@ RSpec.describe StandardId::ApiAuthentication do
     end
 
     context "when alias_current_user is true" do
-      let(:controller_class) do
+      around do |example|
         original_value = StandardId.config.alias_current_user
         StandardId.config.alias_current_user = true
-        klass = Class.new(ActionController::API) do
+        example.run
+      ensure
+        StandardId.config.alias_current_user = original_value
+      end
+
+      let(:controller_class) do
+        Class.new(ActionController::API) do
           include StandardId::ApiAuthentication
         end
-        StandardId.config.alias_current_user = original_value
-        klass
       end
 
       it "defines current_user" do
