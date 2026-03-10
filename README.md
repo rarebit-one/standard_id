@@ -519,23 +519,88 @@ end
 #### Class-based (complex logic)
 
 ```ruby
-# app/subscribers/audit_subscriber.rb
-class AuditSubscriber < StandardId::Events::Subscribers::Base
+# app/subscribers/webhook_subscriber.rb
+class WebhookSubscriber < StandardId::Events::Subscribers::Base
   subscribe_to StandardId::Events::SECURITY_EVENTS
 
   def call(event)
-    AuditLog.create!(
+    WebhookDeliveryJob.perform_later(
       event_type: event.short_name,
       account_id: event[:account]&.id,
       ip_address: event[:ip_address],
-      metadata: event.payload
+      occurred_at: event.timestamp
     )
   end
 end
 
 # config/initializers/standard_id_events.rb
-AuditSubscriber.attach
+WebhookSubscriber.attach
 ```
+
+### Audit Logging
+
+For production audit trails, use the [standard_audit](https://github.com/rarebit-one/standard_audit) gem. StandardId and StandardAudit have zero direct references to each other — the host application wires them together.
+
+#### Setup
+
+Add both gems to your Gemfile:
+
+```ruby
+gem "standard_id"
+gem "standard_audit"
+```
+
+Run the StandardAudit install generator:
+
+```bash
+rails generate standard_audit:install
+rails db:migrate
+```
+
+#### Wiring StandardId events to StandardAudit
+
+Configure StandardAudit to subscribe to StandardId's event namespace and map its payload conventions:
+
+```ruby
+# config/initializers/standard_audit.rb
+StandardAudit.configure do |config|
+  config.subscribe_to /\Astandard_id\./
+
+  # StandardId uses :account and :current_account rather than :actor/:target.
+  # Map them so StandardAudit extracts the right records.
+  config.actor_extractor = ->(payload) {
+    payload[:current_account] || payload[:account]
+  }
+
+  config.target_extractor = ->(payload) {
+    # Only set a target when the actor (current_account) differs from the
+    # account being acted upon — e.g. an admin locking another user.
+    if payload[:current_account]
+      target = payload[:account] || payload[:client_application]
+      target unless target == payload[:current_account]
+    end
+  }
+end
+```
+
+That's it. Every StandardId authentication event will now be persisted as an audit log entry. No changes are needed inside StandardId itself.
+
+#### Querying audit logs
+
+```ruby
+# All auth events for a user
+StandardAudit::AuditLog.for_actor(user).reverse_chronological
+
+# Failed logins this week
+StandardAudit::AuditLog
+  .by_event_type("standard_id.authentication.attempt.failed")
+  .this_week
+
+# All activity from an IP address
+StandardAudit::AuditLog.from_ip("192.168.1.1")
+```
+
+See the [StandardAudit README](https://github.com/rarebit-one/standard_audit) for the full query interface, async processing, GDPR compliance, and multi-tenancy support.
 
 ## Account Status (Activation/Deactivation)
 
