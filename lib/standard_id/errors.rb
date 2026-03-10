@@ -6,6 +6,16 @@ module StandardId
   class RevokedSessionError < InvalidSessionError; end
   class AccountDeactivatedError < StandardError; end
 
+  class InvalidAudienceError < StandardError
+    attr_reader :required, :actual
+
+    def initialize(required:, actual:)
+      @required = required
+      @actual = actual
+      super("Token audience #{actual.inspect} does not match required audiences: #{required.join(', ')}")
+    end
+  end
+
   class AccountLockedError < StandardError
     attr_reader :account, :lock_reason, :locked_at
 

@@ -1,0 +1,110 @@
+require "rails_helper"
+
+RSpec.describe StandardId::AudienceVerification do
+  let(:account) { Account.create!(name: "Test User", email: "user@example.com") }
+
+  describe ".verify_audience" do
+    it "sets the required audiences on the controller class" do
+      controller_class = Class.new(ActionController::API) do
+        include StandardId::ApiAuthentication
+        include StandardId::AudienceVerification
+        verify_audience "admin", "mobile"
+      end
+
+      expect(controller_class._required_audiences).to eq(%w[admin mobile])
+    end
+
+    it "defaults to an empty array when not configured" do
+      controller_class = Class.new(ActionController::API) do
+        include StandardId::ApiAuthentication
+        include StandardId::AudienceVerification
+      end
+
+      expect(controller_class._required_audiences).to eq([])
+    end
+  end
+
+  describe "#verify_audience!" do
+    let(:session) do
+      StandardId::JwtService.session_class.new(
+        account_id: account.id,
+        scopes: [],
+        grant_type: "authorization_code",
+        aud: token_audience
+      )
+    end
+
+    let(:controller_class) do
+      Class.new(ActionController::API) do
+        include StandardId::ApiAuthentication
+        include StandardId::AudienceVerification
+        verify_audience "admin", "mobile"
+
+        # Expose for testing
+        public :verify_audience!
+      end
+    end
+
+    let(:controller) { controller_class.new }
+
+    before do
+      session_manager = instance_double(StandardId::Api::SessionManager,
+        current_session: session,
+        current_account: account)
+      allow(controller).to receive(:session_manager).and_return(session_manager)
+    end
+
+    context "when token audience matches a required audience" do
+      let(:token_audience) { "admin" }
+
+      it "does not raise" do
+        expect { controller.verify_audience! }.not_to raise_error
+      end
+    end
+
+    context "when token has an array audience with a match" do
+      let(:token_audience) { %w[admin other] }
+
+      it "does not raise" do
+        expect { controller.verify_audience! }.not_to raise_error
+      end
+    end
+
+    context "when token audience does not match" do
+      let(:token_audience) { "other_app" }
+
+      it "raises InvalidAudienceError" do
+        expect { controller.verify_audience! }.to raise_error(StandardId::InvalidAudienceError) do |error|
+          expect(error.required).to eq(%w[admin mobile])
+          expect(error.actual).to eq(%w[other_app])
+        end
+      end
+    end
+
+    context "when token has no audience" do
+      let(:token_audience) { nil }
+
+      it "raises InvalidAudienceError" do
+        expect { controller.verify_audience! }.to raise_error(StandardId::InvalidAudienceError)
+      end
+    end
+
+    context "when no required audiences are configured" do
+      let(:token_audience) { "anything" }
+
+      let(:controller_class) do
+        Class.new(ActionController::API) do
+          include StandardId::ApiAuthentication
+          include StandardId::AudienceVerification
+          # No verify_audience call
+
+          public :verify_audience!
+        end
+      end
+
+      it "does not raise (allows all audiences)" do
+        expect { controller.verify_audience! }.not_to raise_error
+      end
+    end
+  end
+end
