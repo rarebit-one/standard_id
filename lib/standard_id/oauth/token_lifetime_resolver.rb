@@ -1,17 +1,21 @@
 module StandardId
   module Oauth
     class TokenLifetimeResolver
-      class << self
-        DEFAULT_ACCESS_TOKEN_LIFETIME = 1.hour.to_i
-        DEFAULT_REFRESH_TOKEN_LIFETIME = 30.days.to_i
+      DEFAULT_ACCESS_TOKEN_LIFETIME = 1.hour.to_i
+      DEFAULT_REFRESH_TOKEN_LIFETIME = 30.days.to_i
+      MAX_ACCESS_TOKEN_LIFETIME = 24.hours.to_i
+      MAX_REFRESH_TOKEN_LIFETIME = 90.days.to_i
 
+      class << self
         def access_token_for(flow_key)
           configured = lookup_token_lifetime(flow_key)
-          positive_seconds(configured, default_access_token_lifetime)
+          lifetime = positive_seconds(configured, default_access_token_lifetime)
+          clamp_seconds(lifetime, MAX_ACCESS_TOKEN_LIFETIME)
         end
 
         def refresh_token_lifetime
-          positive_seconds(oauth_config.refresh_token_lifetime, DEFAULT_REFRESH_TOKEN_LIFETIME)
+          lifetime = positive_seconds(oauth_config.refresh_token_lifetime, DEFAULT_REFRESH_TOKEN_LIFETIME)
+          clamp_seconds(lifetime, MAX_REFRESH_TOKEN_LIFETIME)
         end
 
         private
@@ -39,6 +43,16 @@ module StandardId
           end
 
           (normalized_value.positive? ? normalized_value : fallback_value).seconds
+        end
+
+        def clamp_seconds(duration, max)
+          seconds = duration.to_i
+          if seconds > max
+            Rails.logger.warn { "[StandardId] Token lifetime #{seconds}s exceeds maximum #{max}s, clamping to #{max}s" }
+            max.seconds
+          else
+            duration
+          end
         end
 
         def oauth_config

@@ -66,7 +66,13 @@ module StandardId
       )
 
       StandardId::PasswordCredential.find_by(login:).tap do |password_credential|
-        unless password_credential&.authenticate(password)
+        authenticated = password_credential&.authenticate(password)
+
+        # Perform a dummy bcrypt comparison when the credential doesn't exist
+        # to prevent user enumeration via response timing differences.
+        BCrypt::Password.new(dummy_password_digest).is_password?(password) unless password_credential
+
+        unless authenticated
           StandardId::Events.publish(
             StandardId::Events::AUTHENTICATION_FAILED,
             account_lookup: login,
@@ -101,6 +107,10 @@ module StandardId
 
     def token_manager
       @token_manager ||= StandardId::Web::TokenManager.new(request)
+    end
+
+    def dummy_password_digest
+      @dummy_password_digest ||= BCrypt::Password.create("").freeze
     end
 
     def authentication_guard
