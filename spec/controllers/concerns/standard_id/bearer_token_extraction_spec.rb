@@ -56,5 +56,15 @@ RSpec.describe StandardId::BearerTokenExtraction do
         expect(controller.extract_bearer_token).to eq("eyJ.abc.xyz")
       end
     end
+
+    context "when Authorization header is 'Bearer ' with no token value" do
+      let(:request) do
+        instance_double(ActionDispatch::Request, headers: { "Authorization" => "Bearer " })
+      end
+
+      it "returns nil instead of an empty string" do
+        expect(controller.extract_bearer_token).to be_nil
+      end
+    end
   end
 end

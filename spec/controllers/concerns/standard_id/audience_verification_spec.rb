@@ -120,8 +120,13 @@ RSpec.describe StandardId::AudienceVerification do
 
     let(:controller) { controller_class.new }
 
-    it "renders a 403 Forbidden JSON response" do
+    it "renders a 403 Forbidden JSON response with WWW-Authenticate header" do
       error = StandardId::InvalidAudienceError.new(required: %w[admin], actual: %w[mobile])
+
+      response_headers = {}
+      response_double = instance_double(ActionDispatch::Response)
+      allow(response_double).to receive(:set_header) { |k, v| response_headers[k] = v }
+      allow(controller).to receive(:response).and_return(response_double)
 
       json_body = nil
       allow(controller).to receive(:render) do |options|
@@ -133,6 +138,7 @@ RSpec.describe StandardId::AudienceVerification do
 
       expect(json_body[:error]).to eq("insufficient_scope")
       expect(json_body[:error_description]).to include("admin")
+      expect(response_headers["WWW-Authenticate"]).to start_with('Bearer error="insufficient_scope"')
     end
   end
 end

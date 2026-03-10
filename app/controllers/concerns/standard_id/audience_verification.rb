@@ -10,9 +10,9 @@ module StandardId
   # Requires StandardId::ApiAuthentication to be included (provides
   # `verify_access_token!` and `current_session`).
   #
-  # This concern registers `before_action :verify_access_token!` automatically.
-  # Do not separately register that callback when including this concern, or
-  # authentication will run twice.
+  # The caller is responsible for registering `before_action :verify_access_token!`
+  # (typically via ApiAuthentication or a base controller). This concern only adds
+  # the `verify_audience!` callback, consistent with how `require_scopes!` works.
   #
   # @example Single audience
   #   class AdminController < Api::BaseController
@@ -29,7 +29,6 @@ module StandardId
     extend ActiveSupport::Concern
 
     included do
-      before_action :verify_access_token!
       before_action :verify_audience!
 
       rescue_from StandardId::InvalidAudienceError, with: :handle_invalid_audience
@@ -68,8 +67,14 @@ module StandardId
     end
 
     # Returns 403 Forbidden per RFC 6750 §3.1 (insufficient_scope).
+    # Includes WWW-Authenticate header per spec, consistent with the gem's
+    # 401 handling in Api::BaseController#render_bearer_unauthorized!.
     # Override in your controller for custom error formatting.
     def handle_invalid_audience(error)
+      response.set_header(
+        "WWW-Authenticate",
+        %Q(Bearer error="insufficient_scope", error_description="#{error.message}")
+      )
       render json: { error: "insufficient_scope", error_description: error.message }, status: :forbidden
     end
   end
