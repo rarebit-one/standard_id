@@ -516,27 +516,6 @@ StandardId::Events.subscribe(/social/) do |event|
 end
 ```
 
-#### Class-based (complex logic)
-
-```ruby
-# app/subscribers/webhook_subscriber.rb
-class WebhookSubscriber < StandardId::Events::Subscribers::Base
-  subscribe_to StandardId::Events::SECURITY_EVENTS
-
-  def call(event)
-    WebhookDeliveryJob.perform_later(
-      event_type: event.short_name,
-      account_id: event[:account]&.id,
-      ip_address: event[:ip_address],
-      occurred_at: event.timestamp
-    )
-  end
-end
-
-# config/initializers/standard_id_events.rb
-WebhookSubscriber.attach
-```
-
 ### Audit Logging
 
 For production audit trails, use the [standard_audit](https://github.com/rarebit-one/standard_audit) gem. StandardId and StandardAudit have zero direct references to each other — the host application wires them together.
