@@ -10,13 +10,14 @@ module StandardId
   class AccountDeactivatedError < StandardError; end
 
   class AccountLockedError < StandardError
-    attr_reader :account, :lock_reason, :locked_at
+    # lock_reason and locked_at are available for logging and admin use.
+    # Avoid surfacing lock_reason in user-facing responses.
+    attr_reader :lock_reason, :locked_at
 
     def initialize(account)
-      @account = account
       @lock_reason = account.lock_reason
       @locked_at = account.locked_at
-      super("Account has been locked#{lock_reason ? ": #{lock_reason}" : ""}")
+      super("Account has been locked")
     end
   end
 

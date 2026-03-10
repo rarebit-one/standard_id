@@ -37,8 +37,8 @@ module StandardId
       rescue ActiveRecord::RecordInvalid => e
         errors.add(:base, e.record.errors.full_messages.join(", "))
         false
-      rescue ActiveRecord::RecordNotUnique => e
-        errors.add(:base, e.message)
+      rescue ActiveRecord::RecordNotUnique
+        errors.add(:base, "Unable to complete registration. If you already have an account, please sign in.")
         false
       end
 

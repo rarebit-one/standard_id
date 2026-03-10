@@ -170,9 +170,8 @@ RSpec.describe StandardId::AccountLocking do
         expect {
           StandardId::Events.publish(StandardId::Events::OAUTH_TOKEN_ISSUING, account: account)
         }.to raise_error(StandardId::AccountLockedError) do |error|
-          expect(error.account).to eq(account)
           expect(error.lock_reason).to eq("Suspicious activity")
-          expect(error.message).to include("Account has been locked")
+          expect(error.message).to eq("Account has been locked")
         end
       end
 
@@ -221,15 +220,15 @@ RSpec.describe StandardId::AccountLocking do
   end
 
   describe "AccountLockedError" do
-    it "includes lock metadata" do
+    it "includes lock metadata but not the account object" do
       account.update!(locked: true, lock_reason: "Policy violation", locked_at: Time.current)
 
       error = StandardId::AccountLockedError.new(account)
 
-      expect(error.account).to eq(account)
+      expect(error).not_to respond_to(:account)
       expect(error.lock_reason).to eq("Policy violation")
       expect(error.locked_at).to eq(account.locked_at)
-      expect(error.message).to eq("Account has been locked: Policy violation")
+      expect(error.message).to eq("Account has been locked")
     end
 
     it "handles nil lock_reason" do

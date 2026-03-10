@@ -3,19 +3,30 @@ require "uri"
 
 module StandardId
   class HttpClient
+    OPEN_TIMEOUT = 5
+    READ_TIMEOUT = 10
+
     class << self
       def post_form(endpoint, params)
         uri = URI(endpoint)
-        Net::HTTP.post_form(uri, params)
+        request = Net::HTTP::Post.new(uri)
+        request.set_form_data(params)
+        start_connection(uri) { |http| http.request(request) }
       end
 
       def get_with_bearer(endpoint, access_token)
         uri = URI(endpoint)
         request = Net::HTTP::Get.new(uri)
         request["Authorization"] = "Bearer #{access_token}"
-        Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https") do |http|
-          http.request(request)
-        end
+        start_connection(uri) { |http| http.request(request) }
+      end
+
+      private
+
+      def start_connection(uri, &block)
+        Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
+                                             open_timeout: OPEN_TIMEOUT,
+                                             read_timeout: READ_TIMEOUT, &block)
       end
     end
   end

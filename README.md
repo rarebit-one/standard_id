@@ -787,8 +787,7 @@ class ApplicationController < ActionController::Base
   private
 
   def handle_account_locked(error)
-    # error.account     - The locked account
-    # error.lock_reason - Why the account was locked
+    # error.lock_reason - Why the account was locked (avoid exposing to end users)
     # error.locked_at   - When the account was locked
     redirect_to login_path, alert: "Your account has been locked. Please contact support."
   end

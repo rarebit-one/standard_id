@@ -1,6 +1,38 @@
 require "rails_helper"
 
 RSpec.describe StandardId::HttpClient do
+  describe "timeout configuration" do
+    it "defines OPEN_TIMEOUT at the class level" do
+      expect(described_class::OPEN_TIMEOUT).to eq(5)
+    end
+
+    it "defines READ_TIMEOUT at the class level" do
+      expect(described_class::READ_TIMEOUT).to eq(10)
+    end
+
+    it "configures timeouts on post_form requests" do
+      stub_request(:post, "https://example.com/token")
+        .to_return(status: 200, body: "{}")
+
+      expect(Net::HTTP).to receive(:start)
+        .with("example.com", 443, use_ssl: true, open_timeout: 5, read_timeout: 10)
+        .and_call_original
+
+      described_class.post_form("https://example.com/token", { key: "value" })
+    end
+
+    it "configures timeouts on get_with_bearer requests" do
+      stub_request(:get, "https://example.com/api")
+        .to_return(status: 200, body: "{}")
+
+      expect(Net::HTTP).to receive(:start)
+        .with("example.com", 443, use_ssl: true, open_timeout: 5, read_timeout: 10)
+        .and_call_original
+
+      described_class.get_with_bearer("https://example.com/api", "token")
+    end
+  end
+
   describe ".post_form" do
     let(:endpoint) { "https://example.com/token" }
     let(:params) { { client_id: "test_id", client_secret: "test_secret", grant_type: "authorization_code" } }
