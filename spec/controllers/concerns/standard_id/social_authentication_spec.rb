@@ -34,4 +34,71 @@ RSpec.describe StandardId::SocialAuthentication do
       expect(event_received[:tokens]).to match(provider_tokens)
     end
   end
+
+  describe "#find_or_create_account_from_social" do
+    let(:email) { "social-#{SecureRandom.hex(4)}@example.com" }
+    let(:provider) { double("Provider", provider_name: "google") }
+
+    before do
+      allow(instance).to receive(:provider).and_return(provider)
+      allow(instance).to receive(:resolve_account_attributes).and_return({ name: "Test", email: email })
+    end
+
+    context "when creating a new account" do
+      context "with email_verified: true (boolean)" do
+        it "verifies the email identifier" do
+          info = { email: email, email_verified: true }.with_indifferent_access
+
+          account = instance.send(:find_or_create_account_from_social, info)
+          identifier = StandardId::EmailIdentifier.find_by(value: email)
+
+          expect(identifier).to be_verified
+        end
+      end
+
+      context "with email_verified: 'true' (string)" do
+        it "verifies the email identifier" do
+          info = { email: email, email_verified: "true" }.with_indifferent_access
+
+          account = instance.send(:find_or_create_account_from_social, info)
+          identifier = StandardId::EmailIdentifier.find_by(value: email)
+
+          expect(identifier).to be_verified
+        end
+      end
+
+      context "with email_verified: false" do
+        it "does not verify the email identifier" do
+          info = { email: email, email_verified: false }.with_indifferent_access
+
+          account = instance.send(:find_or_create_account_from_social, info)
+          identifier = StandardId::EmailIdentifier.find_by(value: email)
+
+          expect(identifier).not_to be_verified
+        end
+      end
+
+      context "with email_verified: 'false' (string)" do
+        it "does not verify the email identifier" do
+          info = { email: email, email_verified: "false" }.with_indifferent_access
+
+          account = instance.send(:find_or_create_account_from_social, info)
+          identifier = StandardId::EmailIdentifier.find_by(value: email)
+
+          expect(identifier).not_to be_verified
+        end
+      end
+
+      context "with email_verified omitted" do
+        it "does not verify the email identifier" do
+          info = { email: email }.with_indifferent_access
+
+          account = instance.send(:find_or_create_account_from_social, info)
+          identifier = StandardId::EmailIdentifier.find_by(value: email)
+
+          expect(identifier).not_to be_verified
+        end
+      end
+    end
+  end
 end

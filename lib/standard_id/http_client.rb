@@ -3,9 +3,10 @@ require "uri"
 
 module StandardId
   class HttpClient
+    OPEN_TIMEOUT = 5
+    READ_TIMEOUT = 10
+
     class << self
-      OPEN_TIMEOUT = 5
-      READ_TIMEOUT = 10
 
       def post_form(endpoint, params)
         uri = URI(endpoint)
