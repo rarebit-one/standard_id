@@ -2,6 +2,7 @@ StandardId::WebEngine.routes.draw do
   scope module: :web do
     # Authentication flows
     resource :login, only: [:show, :create], controller: :login
+    resource :login_verify, only: [:show, :update], controller: :login_verify
     resource :logout, only: [:create], controller: :logout
     resource :signup, only: [:show, :create], controller: :signup
 

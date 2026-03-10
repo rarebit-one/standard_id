@@ -23,6 +23,8 @@ StandardConfig.schema.draw do
   end
 
   scope :passwordless do
+    field :enabled, type: :boolean, default: false
+    field :connection, type: :string, default: "email"
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
     field :max_attempts, type: :integer, default: 3
     field :retry_delay, type: :integer, default: 30 # 30 seconds

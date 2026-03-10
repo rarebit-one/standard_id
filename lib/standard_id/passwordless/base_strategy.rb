@@ -34,7 +34,7 @@ module StandardId
           channel: connection_type,
           target: username,
           code: code,
-          expires_at: 10.minutes.from_now,
+          expires_at: StandardId.config.passwordless.code_ttl.seconds.from_now,
           ip_address: request.remote_ip,
           user_agent: request.user_agent
         )

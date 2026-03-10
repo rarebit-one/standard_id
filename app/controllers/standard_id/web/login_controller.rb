@@ -3,7 +3,7 @@ module StandardId
     class LoginController < BaseController
       include StandardId::InertiaRendering
       include StandardId::Web::SocialLoginParams
-
+      include StandardId::PasswordlessStrategy
 
       layout "public"
 
@@ -16,19 +16,62 @@ module StandardId
         @redirect_uri = params[:redirect_uri] || after_authentication_url
         @connection = params[:connection]
 
-        render_with_inertia props: auth_page_props
+        render_with_inertia props: auth_page_props(passwordless_enabled: passwordless_enabled?)
       end
 
       def create
-        if sign_in_account(login_params)
-          redirect_to params[:redirect_uri] || after_authentication_url, status: :see_other, notice: "Successfully signed in"
+        if passwordless_enabled?
+          handle_passwordless_login
         else
-          flash.now[:alert] = "Invalid email or password"
-          render_with_inertia action: :show, props: auth_page_props, status: :unprocessable_content
+          handle_password_login
         end
       end
 
       private
+
+      def passwordless_enabled?
+        StandardId.config.passwordless.enabled
+      end
+
+      def handle_password_login
+        if sign_in_account(login_params)
+          redirect_to params[:redirect_uri] || after_authentication_url, status: :see_other, notice: "Successfully signed in"
+        else
+          flash.now[:alert] = "Invalid email or password"
+          render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content
+        end
+      end
+
+      def handle_passwordless_login
+        email = login_params[:email].to_s.strip.downcase
+        connection = StandardId.config.passwordless.connection
+
+        if email.blank?
+          flash.now[:alert] = "Please enter your email address"
+          render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content
+          return
+        end
+
+        strategy = strategy_for(connection)
+
+        begin
+          strategy.start!(username: email, connection: connection)
+        rescue StandardId::InvalidRequestError => e
+          flash.now[:alert] = e.message
+          render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content
+          return
+        end
+
+        code_ttl = StandardId.config.passwordless.code_ttl
+        signed_payload = Rails.application.message_verifier(:otp).generate(
+          { username: email, connection: connection },
+          expires_in: code_ttl.seconds
+        )
+        session[:standard_id_otp_payload] = signed_payload
+        session[:return_to_after_authenticating] = params[:redirect_uri] if params[:redirect_uri].present?
+
+        redirect_to login_verify_path, status: :see_other
+      end
 
       def redirect_if_authenticated
         redirect_to after_authentication_url, status: :see_other, notice: "You are already signed in" if authenticated?
