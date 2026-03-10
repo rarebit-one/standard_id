@@ -15,7 +15,7 @@ module StandardId
       end
 
       def current_account
-        Current.account ||= current_session&.account&.tap { |a| a.strict_loading!(false) }
+        Current.account ||= load_current_account
       end
 
       def sign_in_account(account)
@@ -49,6 +49,15 @@ module StandardId
       end
 
       private
+
+      def load_current_account
+        account_id = current_session&.account_id
+        return unless account_id
+
+        scope = StandardId.account_class
+        scope = StandardId.config.account_scope.call(scope) if StandardId.config.account_scope
+        scope.find_by(id: account_id)&.tap { |a| a.strict_loading!(false) }
+      end
 
       def load_current_session
         Current.session ||= load_session_from_session_token

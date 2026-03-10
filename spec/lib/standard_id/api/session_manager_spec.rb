@@ -90,6 +90,29 @@ RSpec.describe StandardId::Api::SessionManager, type: :model do
       end
     end
 
+    context "when account_scope is configured" do
+      let(:jwt_session) { OpenStruct.new(account_id: account.id, active?: true) }
+
+      before do
+        allow(api_token_manager).to receive(:bearer_token).and_return("jwt-token")
+        allow(api_token_manager).to receive(:verify_jwt_token).and_return(jwt_session)
+      end
+
+      it "applies the configured scope when loading the account" do
+        allow(StandardId.config).to receive(:account_scope).and_return(->(scope) { scope.where(name: "Test Service") })
+
+        result = session_manager.current_account
+        expect(result).to eq(account)
+      end
+
+      it "returns nil when the scope excludes the account" do
+        allow(StandardId.config).to receive(:account_scope).and_return(->(scope) { scope.where(name: "Other") })
+
+        result = session_manager.current_account
+        expect(result).to be_nil
+      end
+    end
+
     context "when no session exists" do
       it "returns nil" do
         allow(api_token_manager).to receive(:bearer_token).and_return(nil)
