@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-03-11
+
+### Added
+
+- Bearer token extraction concern for flexible JWT authentication (RAR-48)
+- JWT audience (`aud`) verification on token decode (RAR-48)
+- Expired session cleanup job with configurable grace period (RAR-62)
+- Boot-time warning when JWT issuer is not configured (RAR-54)
+
+### Fixed
+
+- Social login now checks provider `email_verified` field before marking emails as verified (RAR-47)
+- Prevent user enumeration via timing side-channel on password login with dummy bcrypt comparison (RAR-53)
+- Replace database error leak in signup with generic message to prevent account enumeration (RAR-61)
+- Remove `account` attribute from `AccountLockedError` to prevent sensitive data exposure (RAR-57)
+- Add HTTP client timeouts (5s open, 10s read) to prevent resource exhaustion from slow OAuth providers (RAR-52)
+- Cap token lifetimes at 24h (access) and 90d (refresh) with log warnings on clamping (RAR-55)
+
 ## [0.3.0] - 2026-03-10
 
 ### Added
