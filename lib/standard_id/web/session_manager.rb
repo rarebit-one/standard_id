@@ -15,7 +15,7 @@ module StandardId
       end
 
       def current_account
-        Current.account ||= current_session&.account
+        Current.account ||= current_session&.account&.tap { |a| a.strict_loading!(false) }
       end
 
       def sign_in_account(account)
