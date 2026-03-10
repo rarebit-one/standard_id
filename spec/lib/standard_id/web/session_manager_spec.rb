@@ -140,6 +140,40 @@ RSpec.describe StandardId::Web::SessionManager do
     end
   end
 
+  describe "#current_account" do
+    before do
+      allow(Current).to receive(:account).and_return(nil)
+      allow(Current).to receive(:account=) do |value|
+        allow(Current).to receive(:account).and_return(value)
+      end
+    end
+
+    context "when session exists with account" do
+      let(:account) { Account.create!(name: "Test User", email: "test@example.com") }
+      let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account) }
+
+      before do
+        allow(Current).to receive(:session).and_return(browser_session)
+      end
+
+      it "returns the account with strict loading disabled" do
+        result = session_manager.current_account
+        expect(result).to eq(account)
+        expect(result.strict_loading?).to be(false)
+      end
+    end
+
+    context "when no session exists" do
+      before do
+        allow(Current).to receive(:session).and_return(nil)
+      end
+
+      it "returns nil" do
+        expect(session_manager.current_account).to be_nil
+      end
+    end
+  end
+
   describe "#clear_session!" do
     before do
       encrypted_cookies[:session_token] = "token"

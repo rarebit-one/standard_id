@@ -78,7 +78,7 @@ RSpec.describe StandardId::Api::SessionManager, type: :model do
 
   describe "#current_account" do
     context "when session exists" do
-      it "returns the account from the jwt session" do
+      it "returns the account from the jwt session with strict loading disabled" do
         token = "jwt-token"
         jwt_session = OpenStruct.new(account_id: account.id, active?: true)
         allow(api_token_manager).to receive(:bearer_token).and_return(token)
@@ -86,6 +86,7 @@ RSpec.describe StandardId::Api::SessionManager, type: :model do
 
         result = session_manager.current_account
         expect(result).to eq(account)
+        expect(result.strict_loading?).to be(false)
       end
     end
 
