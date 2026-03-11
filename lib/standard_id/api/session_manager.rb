@@ -12,9 +12,7 @@ module StandardId
 
       def current_account
         return unless current_session
-        @current_account ||= StandardId.account_class
-          .find_by(id: current_session.account_id)
-          &.tap { |a| a.strict_loading!(false) }
+        @current_account ||= load_current_account
       end
 
       def revoke_current_session!
@@ -27,6 +25,12 @@ module StandardId
       end
 
       private
+
+      def load_current_account
+        scope = StandardId.account_class
+        scope = StandardId.config.account_scope.call(scope) if StandardId.config.account_scope
+        scope.find_by(id: current_session.account_id)&.tap { |a| a.strict_loading!(false) }
+      end
 
       def load_current_session
         return @current_session if @current_session.present?

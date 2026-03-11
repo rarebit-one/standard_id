@@ -150,16 +150,40 @@ RSpec.describe StandardId::Web::SessionManager do
 
     context "when session exists with account" do
       let(:account) { Account.create!(name: "Test User", email: "test@example.com") }
-      let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account) }
+      let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account, account_id: account.id) }
 
       before do
         allow(Current).to receive(:session).and_return(browser_session)
+        allow(StandardId).to receive(:account_class).and_return(Account)
       end
 
       it "returns the account with strict loading disabled" do
         result = session_manager.current_account
         expect(result).to eq(account)
         expect(result.strict_loading?).to be(false)
+      end
+    end
+
+    context "when account_scope is configured" do
+      let(:account) { Account.create!(name: "Scoped User", email: "scoped@example.com") }
+      let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account, account_id: account.id) }
+      let(:scope_lambda) { ->(scope) { scope.where(name: "Scoped User") } }
+
+      before do
+        allow(Current).to receive(:session).and_return(browser_session)
+        allow(StandardId).to receive(:account_class).and_return(Account)
+        allow(StandardId.config).to receive(:account_scope).and_return(scope_lambda)
+      end
+
+      it "applies the configured scope when loading the account" do
+        result = session_manager.current_account
+        expect(result).to eq(account)
+      end
+
+      it "returns nil when the scope excludes the account" do
+        allow(StandardId.config).to receive(:account_scope).and_return(->(scope) { scope.where(name: "Other") })
+        result = session_manager.current_account
+        expect(result).to be_nil
       end
     end
 
