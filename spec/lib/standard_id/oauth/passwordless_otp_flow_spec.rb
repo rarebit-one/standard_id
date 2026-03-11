@@ -171,6 +171,8 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
         request
       )
 
+      allow(flow).to receive(:persist_refresh_token!)
+
       result = flow.execute
       expect(result[:access_token]).to eq("jwt-token")
       expect(encoded_payloads.first[:channel_id]).to eq("#{client_application.object_id}-#{account.id}-#{request.object_id}")

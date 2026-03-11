@@ -7,6 +7,8 @@ module StandardId
     belongs_to :account, class_name: StandardId.config.account_class_name
     has_many :refresh_tokens, class_name: "StandardId::RefreshToken", dependent: :nullify
 
+    before_destroy :revoke_active_refresh_tokens, prepend: true
+
     scope :active, -> { where(revoked_at: nil).where("expires_at > ?", Time.current) }
     scope :expired, -> { where("expires_at <= ?", Time.current) }
     scope :revoked, -> { where.not(revoked_at: nil) }
@@ -54,6 +56,12 @@ module StandardId
 
     def generate_lookup_hash
       self.lookup_hash = Digest::SHA256.hexdigest("#{token}:#{Rails.configuration.secret_key_base}")
+    end
+
+    # Revoke any still-active refresh tokens before the session row is deleted,
+    # so tokens don't become orphaned but usable.
+    def revoke_active_refresh_tokens
+      refresh_tokens.active.update_all(revoked_at: Time.current)
     end
 
     def just_revoked?

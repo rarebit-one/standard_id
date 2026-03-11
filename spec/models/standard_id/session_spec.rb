@@ -105,6 +105,22 @@ RSpec.describe StandardId::Session, type: :model do
       end
     end
 
+    describe "before_destroy" do
+      it "revokes active refresh tokens before session is destroyed" do
+        active_rt = StandardId::RefreshToken.create!(
+          account: account,
+          session: session,
+          token_digest: Digest::SHA256.hexdigest("destroy-active-rt"),
+          expires_at: 30.days.from_now
+        )
+
+        session.destroy!
+
+        expect(active_rt.reload.revoked?).to be true
+        expect(active_rt.session_id).to be_nil
+      end
+    end
+
     describe "#revoke!" do
       it "sets revoked_at to current time" do
         travel_to Time.current do
