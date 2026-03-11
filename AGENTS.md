@@ -149,7 +149,7 @@ StandardId.config.session.browser_session_lifetime  # 24.hours
 
 ## Testing
 
-- **No FactoryBot** - uses inline model creation
+- **No FactoryBot in gem specs** — the gem's own specs use inline model creation. The published `StandardId::Testing` module ships FactoryBot factories for host-app convenience, but they are not used in the gem's test suite.
 - **Dummy app** at `spec/dummy/` - complete Rails app for integration tests
 - **Request helpers** in `spec/support/request_helpers.rb`
 

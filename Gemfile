@@ -16,6 +16,7 @@ group :development, :test do
   gem "shoulda-matchers", "~> 7.0"
   gem "webmock", "~> 3.26"
 
+  gem "factory_bot", "~> 6.5"
   gem "brakeman", require: false
   gem "bundler-audit", require: false
 end
