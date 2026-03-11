@@ -35,7 +35,7 @@ module StandardId
           target: username,
           code: code,
           expires_at: StandardId.config.passwordless.code_ttl.seconds.from_now,
-          ip_address: request.remote_ip,
+          ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
           user_agent: request.user_agent
         )
         cc

@@ -19,7 +19,7 @@ module StandardId
             target: phone,
             code: generate_otp_code,
             expires_at: 10.minutes.from_now,
-            ip_address: request.remote_ip,
+            ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
             user_agent: request.user_agent
           )
 

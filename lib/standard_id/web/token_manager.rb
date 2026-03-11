@@ -10,7 +10,7 @@ module StandardId
       def create_browser_session(account)
         StandardId::BrowserSession.create!(
           account: account,
-          ip_address: request.remote_ip,
+          ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
           user_agent: request.user_agent,
           expires_at: StandardId::BrowserSession.expiry
         )

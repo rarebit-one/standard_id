@@ -10,7 +10,7 @@ module StandardId
       def create_device_session(account, device_id: nil, device_agent: nil)
         StandardId::DeviceSession.create!(
           account:,
-          ip_address: @request.remote_ip,
+          ip_address: StandardId::Utils::IpNormalizer.normalize(@request.remote_ip),
           device_id: device_id || SecureRandom.uuid,
           device_agent: device_agent || @request.user_agent,
           expires_at: StandardId::DeviceSession.expiry
@@ -21,7 +21,7 @@ module StandardId
         StandardId::ServiceSession.create!(
           account:,
           owner:,
-          ip_address: @request.remote_ip,
+          ip_address: StandardId::Utils::IpNormalizer.normalize(@request.remote_ip),
           service_name:,
           service_version:,
           metadata: metadata || {},
