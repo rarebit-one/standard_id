@@ -25,7 +25,7 @@ The OTP code is required for MFA-enabled RubyGems accounts. If omitted, the skil
 Confirm we're in a gem project:
 
 ```bash
-# Must be on main branch
+# Check current branch
 git branch --show-current
 
 # Must have a .gemspec file
@@ -36,10 +36,17 @@ git status --porcelain
 ```
 
 **Blockers:**
-- Not on `main` branch — warn and ask confirmation before proceeding
 - No `.gemspec` found — stop, not a gem project
 - Multiple `.gemspec` files found — ask the user which one to build
 - Dirty working tree — warn, the build may include uncommitted changes
+
+**Branch handling:**
+- If not on `main`, offer to switch automatically: `git checkout main`
+- After switching (or if already on `main`), always sync with remote:
+  ```bash
+  git pull --rebase origin main
+  ```
+- If the user explicitly wants to publish from a non-main branch, warn and proceed with confirmation
 
 ### 2. Extract Gem Metadata
 
@@ -61,8 +68,9 @@ Also read and display:
 # Check if this version is already published on RubyGems.org
 gem info -r <gem_name> -v <version>
 
-# Verify gem credentials exist
-test -f ~/.gem/credentials && echo "Credentials found" || echo "No credentials — run: gem signin"
+# Verify gem credentials exist (location varies by Ruby version)
+# Ruby < 4.0 uses ~/.gem/credentials, Ruby >= 4.0 uses ~/.local/share/gem/credentials
+ruby -e "puts Gem.configuration.credentials_path" | xargs test -f && echo "Credentials found" || echo "No credentials — run: gem signin"
 
 # Check if CHANGELOG.md exists when gemspec references it
 ruby -e "spec = Gem::Specification.load(Dir['*.gemspec'].first); puts spec.metadata['changelog_uri']"
@@ -71,7 +79,7 @@ test -f CHANGELOG.md && echo "CHANGELOG.md found" || echo "CHANGELOG.md missing"
 
 **Blockers:**
 - Version already published — ask the user what version to bump to (suggest next patch/minor/major). If the user declines, abort the publish.
-- No credentials file — stop, user needs to run `gem signin` first
+- No credentials file found (checked via `Gem.configuration.credentials_path`) — stop, user needs to run `gem signin` first
 
 **Warnings:**
 - Gemspec `changelog_uri` is set but `CHANGELOG.md` does not exist locally — warn the user and suggest running `/update-changelog` or creating one before publishing. This will result in a broken link on RubyGems.org.
@@ -120,18 +128,26 @@ gem push <name>-<version>.gem --otp <OTP>
 
 If the OTP was not provided as an argument, ask the user for it now.
 
-If `gem push` fails, revert the version bump and Gemfile.lock changes (`git checkout -- lib/<gem_name>/version.rb Gemfile.lock`), report the error, and stop. Do not proceed to tagging or releasing.
+If `gem push` fails, revert the version bump and Gemfile.lock changes (`git checkout -- lib/<gem_name>/version.rb Gemfile.lock CHANGELOG.md`), report the error, and stop. Do not proceed to tagging or releasing.
 
 ### 8. Post-Publish
 
 Only proceed here after `gem push` has succeeded.
 
-#### 8a. Commit and push the version bump
+#### 8a. Clean up the built gem file
 
-Commit the version bump and lockfile:
+Remove the `.gem` file immediately after a successful push to avoid it showing up as an uncommitted change in later git operations:
 
 ```bash
-git add lib/<gem_name>/version.rb Gemfile.lock
+rm <name>-<version>.gem
+```
+
+#### 8b. Commit and push the version bump
+
+Commit the version bump, changelog, and lockfile:
+
+```bash
+git add lib/<gem_name>/version.rb Gemfile.lock CHANGELOG.md
 git commit -m "chore: Bump version to <version>"
 ```
 
@@ -149,20 +165,19 @@ git push -u origin chore/bump-v<version>
 gh pr create --title "chore: Bump version to <version>" --body "..."
 ```
 
-#### 8b. Tag and release
+#### 8c. Tag and release
 
-After the version bump commit is on `main` (or the PR branch if protected):
+**If pushed directly to `main`:** Tag the commit and push the tag immediately.
+
+**If a PR was required (branch protection):** Still create the tag on the current commit. The tag will point to the correct version bump commit regardless of which branch it's on. Once the PR is merged (fast-forward or squash), the tag remains valid.
 
 ```bash
-# Remove the built .gem file
-rm <name>-<version>.gem
-
 # Create an annotated git tag for the release
 git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
 ```
 
-#### 8c. Create a GitHub Release
+#### 8d. Create a GitHub Release
 
 Always create a GitHub Release from the tag. Use the CHANGELOG.md entry for the release body if available, otherwise summarize from the git log:
 
