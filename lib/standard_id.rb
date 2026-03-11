@@ -40,6 +40,7 @@ require "standard_id/passwordless/base_strategy"
 require "standard_id/passwordless/email_strategy"
 require "standard_id/passwordless/sms_strategy"
 require "standard_id/utils/callable_parameter_filter"
+require "standard_id/utils/ip_normalizer"
 
 require "concurrent/delay"
 

@@ -12,7 +12,7 @@ module StandardId
       return unless defined?(::Current)
 
       ::Current.request_id = request.request_id if ::Current.respond_to?(:request_id=)
-      ::Current.ip_address = request.remote_ip if ::Current.respond_to?(:ip_address=)
+      ::Current.ip_address = StandardId::Utils::IpNormalizer.normalize(request.remote_ip) if ::Current.respond_to?(:ip_address=)
       ::Current.user_agent = request.user_agent if ::Current.respond_to?(:user_agent=)
     end
   end
