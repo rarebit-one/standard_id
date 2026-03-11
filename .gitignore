@@ -13,5 +13,6 @@
 
 # Ignore all environment files.
 /.env*
+!/.env.example
 
 /.lefthook-local.yml
