@@ -1,6 +1,8 @@
 module StandardId
   module Api
     class UserinfoController < BaseController
+      authenticated_controller
+
       skip_before_action :validate_content_type!
 
       def show

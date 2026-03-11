@@ -1,6 +1,8 @@
 module StandardId
   module Web
     class SignupController < BaseController
+      public_controller
+
       include StandardId::InertiaRendering
 
       layout "public"

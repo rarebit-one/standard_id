@@ -2,6 +2,8 @@ module StandardId
   module Api
     module Oauth
       class TokensController < BaseController
+        public_controller
+
         skip_before_action :validate_content_type!
 
         FLOW_STRATEGIES = {

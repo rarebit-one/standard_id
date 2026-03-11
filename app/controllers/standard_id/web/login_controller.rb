@@ -1,6 +1,8 @@
 module StandardId
   module Web
     class LoginController < BaseController
+      public_controller
+
       include StandardId::InertiaRendering
       include StandardId::Web::SocialLoginParams
       include StandardId::PasswordlessStrategy

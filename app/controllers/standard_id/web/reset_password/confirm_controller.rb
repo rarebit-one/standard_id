@@ -2,6 +2,8 @@ module StandardId
   module Web
     module ResetPassword
       class ConfirmController < BaseController
+        public_controller
+
         layout "public"
 
         skip_before_action :require_browser_session!, only: [:show, :update]

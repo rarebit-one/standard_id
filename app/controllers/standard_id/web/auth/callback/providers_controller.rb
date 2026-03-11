@@ -3,6 +3,8 @@ module StandardId
     module Auth
       module Callback
         class ProvidersController < StandardId::Web::BaseController
+          public_controller
+
           include StandardId::WebAuthentication
           include StandardId::SocialAuthentication
           include StandardId::Web::SocialLoginParams
