@@ -17,6 +17,7 @@ StandardConfig.schema.draw do
     field :account_scope, type: :any, default: nil
     field :use_inertia, type: :boolean, default: false
     field :inertia_component_namespace, type: :string, default: "standard_id"
+    field :alias_current_user, type: :boolean, default: false
   end
 
   scope :events do
