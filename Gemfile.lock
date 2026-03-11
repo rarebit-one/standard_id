@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    standard_id (0.3.1)
+    standard_id (0.3.2)
       bcrypt (~> 3.1)
       jwt (~> 2.7)
       ostruct
