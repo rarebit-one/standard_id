@@ -6,6 +6,8 @@ module StandardId
       prepend_before_action :prepare_provider
     end
 
+    VALID_LINK_STRATEGIES = %i[strict trust_provider].freeze
+
     private
 
     attr_reader :provider
@@ -39,18 +41,47 @@ module StandardId
       identifier = StandardId::EmailIdentifier.find_by(value: email)
 
       if identifier.present?
+        validate_social_link!(identifier, provider)
+        identifier.update!(provider: provider.provider_name) if identifier.provider.nil?
         emit_social_account_linked(identifier.account, provider, identifier)
         identifier.account
       else
         account = build_account_from_social(social_info)
         identifier = StandardId::EmailIdentifier.create!(
           account: account,
-          value: email
+          value: email,
+          provider: provider.provider_name
         )
         identifier.verify! if identifier.respond_to?(:verify!) && [true, "true"].include?(social_info[:email_verified])
         emit_social_account_created(account, provider, social_info)
         account
       end
+    end
+
+    def validate_social_link!(identifier, provider)
+      strategy = StandardId.config.social.link_strategy
+
+      unless VALID_LINK_STRATEGIES.include?(strategy)
+        raise ArgumentError, "Invalid social.link_strategy: #{strategy.inspect}. " \
+          "Must be one of: #{VALID_LINK_STRATEGIES.map(&:inspect).join(', ')}"
+      end
+
+      return if strategy == :trust_provider
+      # nil provider means the identifier predates provider tracking — allow
+      # through since we can't retroactively determine its origin.
+      return if identifier.provider.nil?
+      return if identifier.provider == provider.provider_name
+      return if account_has_social_identifier_from?(identifier.account, provider)
+
+      emit_social_link_blocked(identifier, provider)
+      raise StandardId::SocialLinkError.new(
+        email: identifier.value,
+        provider_name: provider.provider_name
+      )
+    end
+
+    def account_has_social_identifier_from?(account, provider)
+      account.identifiers.where(type: "StandardId::EmailIdentifier", provider: provider.provider_name).exists?
     end
 
     def build_account_from_social(social_info)
@@ -120,6 +151,16 @@ module StandardId
         account: account,
         provider: provider,
         social_info: social_info
+      )
+    end
+
+    def emit_social_link_blocked(identifier, provider)
+      StandardId::Events.publish(
+        StandardId::Events::SOCIAL_LINK_BLOCKED,
+        email: identifier.value,
+        provider: provider,
+        identifier: identifier,
+        account: identifier.account
       )
     end
 

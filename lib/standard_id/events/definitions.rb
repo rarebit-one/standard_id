@@ -53,6 +53,7 @@ module StandardId
       SOCIAL_USER_INFO_FETCHED = "social.user_info.fetched"
       SOCIAL_ACCOUNT_CREATED = "social.account.created"
       SOCIAL_ACCOUNT_LINKED = "social.account.linked"
+      SOCIAL_LINK_BLOCKED = "social.link.blocked"
       SOCIAL_AUTH_COMPLETED = "social.auth.completed"
 
       CREDENTIAL_PASSWORD_CREATED = "credential.password.created"
@@ -128,6 +129,7 @@ module StandardId
         SOCIAL_USER_INFO_FETCHED,
         SOCIAL_ACCOUNT_CREATED,
         SOCIAL_ACCOUNT_LINKED,
+        SOCIAL_LINK_BLOCKED,
         SOCIAL_AUTH_COMPLETED
       ].freeze
 
@@ -180,7 +182,8 @@ module StandardId
         CREDENTIAL_CLIENT_SECRET_REVOKED,
         # Social
         SOCIAL_ACCOUNT_CREATED,
-        SOCIAL_ACCOUNT_LINKED
+        SOCIAL_ACCOUNT_LINKED,
+        SOCIAL_LINK_BLOCKED
       ].freeze
 
       ALL_EVENTS = (

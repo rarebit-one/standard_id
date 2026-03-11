@@ -73,6 +73,24 @@ module StandardId
   # Lifecycle hook errors
   class AuthenticationDenied < StandardError; end
 
+  # Social login errors
+  # NOTE: email and provider_name are exposed as reader attributes for host
+  # apps to build custom error responses. If you report exceptions to an
+  # error tracker (Sentry, etc.), be aware these attributes contain PII.
+  class SocialLinkError < OAuthError
+    attr_reader :email, :provider_name
+
+    def initialize(email:, provider_name:)
+      @email = email
+      @provider_name = provider_name
+      super("This email is already associated with an account. Please sign in first to link this provider.")
+    end
+
+    # Uses standard OAuth :access_denied code since account_link_required is non-standard
+    def oauth_error_code = :access_denied
+    def http_status = :forbidden
+  end
+
   # Audience verification errors
   class InvalidAudienceError < StandardError
     attr_reader :required, :actual
