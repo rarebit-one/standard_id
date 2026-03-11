@@ -30,15 +30,11 @@ git branch --show-current
 
 # Must have a .gemspec file
 ls *.gemspec
-
-# Must have a clean working tree
-git status --porcelain
 ```
 
 **Blockers:**
 - No `.gemspec` found — stop, not a gem project
 - Multiple `.gemspec` files found — ask the user which one to build
-- Dirty working tree — warn, the build may include uncommitted changes
 
 **Branch handling:**
 - If not on `main`, offer to switch automatically: `git checkout main`
@@ -46,6 +42,8 @@ git status --porcelain
   ```bash
   git pull --rebase origin main
   ```
+- If the rebase fails due to conflicts, stop and ask the user to resolve them before proceeding
+- After syncing, verify the working tree is clean (`git status --porcelain`). Warn if dirty — the build may include uncommitted changes.
 - If the user explicitly wants to publish from a non-main branch, warn and proceed with confirmation
 
 ### 2. Extract Gem Metadata
@@ -70,7 +68,7 @@ gem info -r <gem_name> -v <version>
 
 # Verify gem credentials exist (location varies by Ruby version)
 # Ruby < 4.0 uses ~/.gem/credentials, Ruby >= 4.0 uses ~/.local/share/gem/credentials
-ruby -e "puts Gem.configuration.credentials_path" | xargs test -f && echo "Credentials found" || echo "No credentials — run: gem signin"
+test -f "$(ruby -e "puts Gem.configuration.credentials_path")" && echo "Credentials found" || echo "No credentials — run: gem signin"
 
 # Check if CHANGELOG.md exists when gemspec references it
 ruby -e "spec = Gem::Specification.load(Dir['*.gemspec'].first); puts spec.metadata['changelog_uri']"
@@ -169,7 +167,17 @@ gh pr create --title "chore: Bump version to <version>" --body "..."
 
 **If pushed directly to `main`:** Tag the commit and push the tag immediately.
 
-**If a PR was required (branch protection):** Still create the tag on the current commit. The tag will point to the correct version bump commit regardless of which branch it's on. Once the PR is merged (fast-forward or squash), the tag remains valid.
+**If a PR was required (branch protection):** Do **not** tag yet. Inform the user that the tag should be created after the PR is merged, since a squash merge creates a new commit on `main` and a pre-merge tag would point to an orphaned commit not in `main`'s history. Provide the command to run after merge:
+
+```bash
+# Run after the version bump PR is merged:
+git checkout main && git pull origin main
+git tag -a v<version> -m "Release v<version>"
+git push origin v<version>
+gh release create v<version> --title "v<version>" --notes "<release notes>"
+```
+
+Skip steps 8c and 8d below, and include the above instructions in the final output (Step 9) instead.
 
 ```bash
 # Create an annotated git tag for the release
@@ -199,7 +207,7 @@ Report:
 |-------|----------|
 | `gem push` fails with 401 | Credentials expired — run `gem signin` |
 | `gem push` fails with 403 | No push permission — check gem ownership |
-| `gem push` fails (any reason) | Revert uncommitted version bump (`git checkout -- lib/*/version.rb Gemfile.lock`), report error, stop |
+| `gem push` fails (any reason) | Revert uncommitted version bump (`git checkout -- lib/*/version.rb Gemfile.lock CHANGELOG.md`), report error, stop |
 | OTP rejected | Code expired — ask for a new OTP |
 | `gem build` fails | Fix gemspec errors and retry |
 | Tag already exists | Version was previously tagged — skip tagging |
