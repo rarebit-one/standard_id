@@ -7,6 +7,7 @@ RSpec.describe StandardId::Session, type: :model do
 
   describe "associations" do
     it { should belong_to(:account) }
+    it { should have_many(:refresh_tokens) }
   end
 
   describe "scopes" do
@@ -110,6 +111,28 @@ RSpec.describe StandardId::Session, type: :model do
           session.revoke!
           expect(session.revoked_at).to eq(Time.current)
         end
+      end
+
+      it "revokes all associated active refresh tokens" do
+        active_rt = StandardId::RefreshToken.create!(
+          account: account,
+          session: session,
+          token_digest: Digest::SHA256.hexdigest("active-rt"),
+          expires_at: 30.days.from_now
+        )
+
+        already_revoked_rt = StandardId::RefreshToken.create!(
+          account: account,
+          session: session,
+          token_digest: Digest::SHA256.hexdigest("revoked-rt"),
+          expires_at: 30.days.from_now,
+          revoked_at: 1.day.ago
+        )
+
+        session.revoke!
+
+        expect(active_rt.reload.revoked?).to be true
+        expect(already_revoked_rt.reload.revoked_at).to be_within(1.second).of(1.day.ago)
       end
     end
   end

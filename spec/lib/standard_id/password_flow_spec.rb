@@ -74,6 +74,8 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
     before do
       allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
       allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(8.hours.to_i)
+      allow_any_instance_of(described_class)
+        .to receive(:persist_refresh_token!)
     end
 
     it "exposes subject_id, client_id, token_scope (default), grant_type, audience, expiry and refresh support" do
@@ -138,6 +140,8 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
     before do
       allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
       allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "read" => [:tenant_id] })
+      allow_any_instance_of(described_class)
+        .to receive(:persist_refresh_token!)
     end
 
     it "passes account and client context to the resolver" do
@@ -167,6 +171,8 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
     before do
       allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
       allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(8.hours.to_i)
+      allow_any_instance_of(described_class)
+        .to receive(:persist_refresh_token!)
     end
 
     it "includes audience in refresh token payload" do
@@ -220,6 +226,8 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
         .to receive(:authenticate_account)
         .with(username, password)
         .and_return(account_with_status)
+      allow_any_instance_of(described_class)
+        .to receive(:persist_refresh_token!)
     end
 
     it "allows any audience when allowed_audiences is empty" do

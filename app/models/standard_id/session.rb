@@ -5,6 +5,7 @@ module StandardId
     self.table_name = "standard_id_sessions"
 
     belongs_to :account, class_name: StandardId.config.account_class_name
+    has_many :refresh_tokens, class_name: "StandardId::RefreshToken", dependent: :nullify
 
     scope :active, -> { where(revoked_at: nil).where("expires_at > ?", Time.current) }
     scope :expired, -> { where("expires_at <= ?", Time.current) }
@@ -36,6 +37,9 @@ module StandardId
     def revoke!(reason: nil)
       @reason = reason
       update!(revoked_at: Time.current)
+      # Cascade revocation to refresh tokens. Uses update_all for efficiency;
+      # intentionally skips updated_at since revocation is tracked via revoked_at.
+      refresh_tokens.active.update_all(revoked_at: Time.current)
     end
 
     private

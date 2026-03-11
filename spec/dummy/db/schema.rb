@@ -139,6 +139,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_11_000000) do
     t.index ["account_id"], name: "index_standard_id_identifiers_on_account_id"
   end
 
+  create_table "standard_id_refresh_tokens", force: :cascade do |t|
+    t.integer "account_id", null: false
+    t.integer "session_id"
+    t.string "token_digest", null: false
+    t.datetime "expires_at", null: false
+    t.datetime "revoked_at"
+    t.integer "previous_token_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "revoked_at"], name: "idx_on_account_id_revoked_at_refresh_tokens"
+    t.index ["account_id"], name: "index_standard_id_refresh_tokens_on_account_id"
+    t.index ["expires_at", "revoked_at"], name: "idx_on_expires_at_revoked_at_refresh_tokens"
+    t.index ["previous_token_id"], name: "index_standard_id_refresh_tokens_on_previous_token_id"
+    t.index ["session_id", "revoked_at"], name: "idx_on_session_id_revoked_at_refresh_tokens"
+    t.index ["session_id"], name: "index_standard_id_refresh_tokens_on_session_id"
+    t.index ["token_digest"], name: "index_standard_id_refresh_tokens_on_token_digest", unique: true
+  end
+
   create_table "standard_id_password_credentials", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.string "login", null: false
@@ -175,6 +193,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_11_000000) do
     t.index ["type"], name: "index_standard_id_sessions_on_type"
   end
 
+  add_foreign_key "standard_id_refresh_tokens", "accounts"
+  add_foreign_key "standard_id_refresh_tokens", "standard_id_refresh_tokens", column: "previous_token_id"
+  add_foreign_key "standard_id_refresh_tokens", "standard_id_sessions", column: "session_id"
   add_foreign_key "standard_id_authorization_codes", "accounts"
   add_foreign_key "standard_id_client_secret_credentials", "standard_id_client_applications", column: "client_application_id"
   add_foreign_key "standard_id_credentials", "standard_id_identifiers", column: "identifier_id"
