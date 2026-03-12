@@ -111,6 +111,10 @@ module StandardId
       [{ kid: key_id, key: verification_key, algorithm: algorithm }] + previous_keys
     end
 
+    # NOTE: Individual resets are atomic but the group is not — a concurrent
+    # reader between two .set(nil) calls may see a mix of old and new values.
+    # This is acceptable: key rotation is an infrequent operator action and
+    # the worst case is one request using a stale (but still valid) key.
     def self.reset_cached_key!
       @key_id_ref.set(nil)
       @signing_key_ref.set(nil)
