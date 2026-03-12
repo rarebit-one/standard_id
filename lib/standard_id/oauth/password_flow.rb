@@ -1,8 +1,12 @@
+require "concurrent/delay"
+
 module StandardId
   module Oauth
     class PasswordFlow < TokenGrantFlow
       expect_params :username, :password, :client_id
       permit_params :client_secret, :audience, :scope, :realm
+
+      DUMMY_PASSWORD_DIGEST = Concurrent::Delay.new { BCrypt::Password.create("").freeze }
 
       def authenticate!
         validate_client_secret!(params[:client_id], params[:client_secret]) if params[:client_secret].present?
@@ -95,7 +99,7 @@ module StandardId
       end
 
       def dummy_password_digest
-        @dummy_password_digest ||= BCrypt::Password.create("").freeze
+        DUMMY_PASSWORD_DIGEST.value
       end
 
       def default_scope

@@ -1,5 +1,6 @@
 require "jwt"
 require "concurrent/delay"
+require "concurrent/atomic/atomic_reference"
 require "openssl"
 require "digest"
 
@@ -34,6 +35,11 @@ module StandardId
       end
     end
 
+    @signing_key_ref = Concurrent::AtomicReference.new
+    @key_id_ref = Concurrent::AtomicReference.new
+    @previous_keys_ref = Concurrent::AtomicReference.new
+    @jwks_ref = Concurrent::AtomicReference.new
+
     def self.session_class
       SESSION_CLASS.value
     end
@@ -52,7 +58,11 @@ module StandardId
 
     def self.signing_key
       if asymmetric?
-        @signing_key_cache ||= parse_private_key(StandardId.config.oauth.signing_key)
+        @signing_key_ref.get || begin
+          computed = parse_private_key(StandardId.config.oauth.signing_key)
+          @signing_key_ref.compare_and_set(nil, computed)
+          @signing_key_ref.get
+        end
       else
         Rails.application.secret_key_base
       end
@@ -74,16 +84,24 @@ module StandardId
 
       # Generate stable key ID from public key fingerprint
       # Use public_to_pem which works for both RSA and EC keys
-      @key_id ||= Digest::SHA256.hexdigest(signing_key.public_to_pem)[0..7]
+      @key_id_ref.get || begin
+        computed = Digest::SHA256.hexdigest(signing_key.public_to_pem)[0..7]
+        @key_id_ref.compare_and_set(nil, computed)
+        @key_id_ref.get
+      end
     end
 
     def self.previous_keys
       return [] unless asymmetric?
 
-      @previous_keys_cache ||= Array(StandardId.config.oauth.previous_signing_keys).filter_map do |entry|
-        parse_previous_key_entry(entry)
-      rescue StandardError
-        nil
+      @previous_keys_ref.get || begin
+        computed = Array(StandardId.config.oauth.previous_signing_keys).filter_map do |entry|
+          parse_previous_key_entry(entry)
+        rescue StandardError
+          nil
+        end
+        @previous_keys_ref.compare_and_set(nil, computed)
+        @previous_keys_ref.get
       end
     end
 
@@ -93,11 +111,15 @@ module StandardId
       [{ kid: key_id, key: verification_key, algorithm: algorithm }] + previous_keys
     end
 
+    # NOTE: Individual resets are atomic but the group is not — a concurrent
+    # reader between two .set(nil) calls may see a mix of old and new values.
+    # This is acceptable: key rotation is an infrequent operator action and
+    # the worst case is one request using a stale (but still valid) key.
     def self.reset_cached_key!
-      @key_id = nil
-      @signing_key_cache = nil
-      @previous_keys_cache = nil
-      @jwks = nil
+      @key_id_ref.set(nil)
+      @signing_key_ref.set(nil)
+      @previous_keys_ref.set(nil)
+      @jwks_ref.set(nil)
     end
 
     def self.encode(payload, expires_in: 1.hour)
@@ -168,12 +190,16 @@ module StandardId
     def self.jwks
       return nil unless asymmetric?
 
-      @jwks ||= begin
-        exported_keys = all_verification_keys.map do |entry|
-          jwk = JWT::JWK.new(entry[:key], kid: entry[:kid]).export
-          jwk.merge(alg: entry[:algorithm], use: "sig")
+      @jwks_ref.get || begin
+        computed = begin
+          exported_keys = all_verification_keys.map do |entry|
+            jwk = JWT::JWK.new(entry[:key], kid: entry[:kid]).export
+            jwk.merge(alg: entry[:algorithm], use: "sig")
+          end
+          { keys: exported_keys }
         end
-        { keys: exported_keys }
+        @jwks_ref.compare_and_set(nil, computed)
+        @jwks_ref.get
       end
     end
 
