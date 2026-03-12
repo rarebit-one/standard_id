@@ -71,8 +71,6 @@ module StandardId
         @authorization_code&.audience
       end
 
-      protected
-
       def nonce
         @authorization_code&.nonce
       end
