@@ -2,7 +2,7 @@ module StandardId
   module Oauth
     class AuthorizationCodeAuthorizationFlow < AuthorizationFlow
       expect_params :client_id, :audience
-      permit_params :scope, :redirect_uri, :state, :connection, :prompt, :organization, :invitation, :code_challenge, :code_challenge_method
+      permit_params :scope, :redirect_uri, :state, :connection, :prompt, :organization, :invitation, :code_challenge, :code_challenge_method, :nonce
 
       private
 
