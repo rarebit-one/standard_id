@@ -11,25 +11,26 @@ module StandardId
 
     class_methods do
       # Declares this controller as public (no host-app auth required).
-      #
-      # NOTE: The policy attribute (_standard_id_auth_policy) propagates to
-      # subclasses via Ruby's class_attribute inheritance, but registry
-      # membership does NOT. A subclass that omits the declaration will
-      # inherit the attribute value but will not appear in the registry and
-      # will not receive AuthorizationBypass skip_before_action calls.
-      # Subclasses that need bypass must call public_controller or
-      # authenticated_controller explicitly.
       def public_controller
         self._standard_id_auth_policy = :public
         ControllerPolicy.register(self, :public)
       end
 
       # Declares this controller as authenticated (requires host-app
-      # authentication but not authorization). See public_controller for
-      # the inheritance caveat.
+      # authentication but not authorization).
       def authenticated_controller
         self._standard_id_auth_policy = :authenticated
         ControllerPolicy.register(self, :authenticated)
+      end
+
+      # Auto-register subclasses that inherit a policy declaration.
+      # This ensures controllers like VerifyEmail::ConfirmController
+      # (which inherits from VerifyEmail::BaseController) appear in
+      # the registry and receive AuthorizationBypass skips.
+      def inherited(subclass)
+        super
+        policy = subclass._standard_id_auth_policy
+        ControllerPolicy.register(subclass, policy) if policy
       end
     end
 
