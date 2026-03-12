@@ -2,9 +2,6 @@ module StandardId
   module Web
     class LoginVerifyController < BaseController
       include StandardId::InertiaRendering
-      include StandardId::PasswordlessStrategy
-
-      class OtpVerificationFailed < StandardError; end
 
       layout "public"
 
@@ -27,42 +24,21 @@ module StandardId
           return
         end
 
-        # Record failed attempts outside the main transaction so they persist
-        challenge = find_active_challenge
-        attempts = record_attempt(challenge, code)
+        result = StandardId::Passwordless::VerificationService.verify(
+          connection: @otp_data[:connection],
+          username: @otp_data[:username],
+          code: code,
+          request: request
+        )
 
-        if challenge.blank? || !ActiveSupport::SecurityUtils.secure_compare(challenge.code, code)
-          emit_otp_validation_failed(attempts) if challenge.present?
-
-          flash.now[:alert] = "Invalid or expired verification code"
+        unless result.success?
+          flash.now[:alert] = result.error
           render_with_inertia action: :show, props: verify_page_props, status: :unprocessable_content
           return
         end
 
-        strategy = strategy_for(@otp_data[:connection])
-
-        begin
-          ActiveRecord::Base.transaction do
-            # Re-fetch with lock inside transaction to prevent concurrent use
-            locked_challenge = StandardId::CodeChallenge.lock.find(challenge.id)
-            raise OtpVerificationFailed unless locked_challenge.active?
-
-            account = strategy.find_or_create_account(@otp_data[:username])
-            locked_challenge.use!
-
-            emit_otp_validated(account, locked_challenge)
-            session_manager.sign_in_account(account)
-            emit_authentication_succeeded(account)
-          end
-        rescue OtpVerificationFailed
-          flash.now[:alert] = "Invalid or expired verification code"
-          render_with_inertia action: :show, props: verify_page_props, status: :unprocessable_content
-          return
-        rescue ActiveRecord::RecordInvalid => e
-          flash.now[:alert] = "Unable to complete sign in: #{e.record.errors.full_messages.to_sentence}"
-          render_with_inertia action: :show, props: verify_page_props, status: :unprocessable_content
-          return
-        end
+        session_manager.sign_in_account(result.account)
+        emit_authentication_succeeded(result.account)
 
         session.delete(:standard_id_otp_payload)
 
@@ -96,56 +72,6 @@ module StandardId
           session.delete(:standard_id_otp_payload)
           redirect_to login_path, alert: "Your verification session has expired. Please try again."
         end
-      end
-
-      def find_active_challenge
-        StandardId::CodeChallenge.active.find_by(
-          realm: "authentication",
-          channel: @otp_data[:connection],
-          target: @otp_data[:username]
-        )
-      end
-
-      def record_attempt(challenge, code)
-        return 0 if challenge.blank?
-        return 0 if ActiveSupport::SecurityUtils.secure_compare(challenge.code, code)
-
-        attempts = (challenge.metadata["attempts"] || 0) + 1
-        challenge.update!(metadata: challenge.metadata.merge("attempts" => attempts))
-
-        max_attempts = StandardId.config.passwordless.max_attempts
-        challenge.use! if attempts >= max_attempts
-
-        attempts
-      end
-
-      def emit_otp_validated(account, challenge)
-        StandardId::Events.publish(
-          StandardId::Events::OTP_VALIDATED,
-          account: account,
-          channel: @otp_data[:connection]
-        )
-        StandardId::Events.publish(
-          StandardId::Events::PASSWORDLESS_CODE_VERIFIED,
-          code_challenge: challenge,
-          account: account,
-          channel: @otp_data[:connection]
-        )
-      end
-
-      def emit_otp_validation_failed(attempts)
-        StandardId::Events.publish(
-          StandardId::Events::OTP_VALIDATION_FAILED,
-          identifier: @otp_data[:username],
-          channel: @otp_data[:connection],
-          attempts: attempts
-        )
-        StandardId::Events.publish(
-          StandardId::Events::PASSWORDLESS_CODE_FAILED,
-          identifier: @otp_data[:username],
-          channel: @otp_data[:connection],
-          attempts: attempts
-        )
       end
 
       def emit_authentication_succeeded(account)

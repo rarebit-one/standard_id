@@ -95,6 +95,19 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
       expect { flow.execute }.to raise_error(StandardId::InvalidGrantError, /Invalid or expired/)
     end
 
+    it "raises InvalidRequestError for unsupported connection type" do
+      params = {
+        grant_type: "passwordless_otp",
+        client_id: "test-client",
+        connection: "carrier_pigeon",
+        username: "user@example.com",
+        otp: "123456"
+      }
+
+      flow = described_class.new(params, request)
+      expect { flow.execute }.to raise_error(StandardId::InvalidRequestError, /Unsupported connection type/)
+    end
+
     it "validates scope tokens" do
       account = Account.create!(name: "User", email: "user@example.com")
       StandardId::EmailIdentifier.create!(account: account, value: "user@example.com", verified_at: Time.current)
@@ -125,9 +138,28 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
 
       account = instance_double("Account", id: 55)
       allow(account).to receive(:blank?).and_return(false)
-      code_challenge = instance_double("StandardId::CodeChallenge", use!: true)
-      allow(code_challenge).to receive(:blank?).and_return(false)
+      allow(account).to receive(:locked?).and_return(false)
+      allow(account).to receive(:inactive?).and_return(false)
+      challenge = instance_double("StandardId::CodeChallenge")
       client_application = instance_double("StandardId::ClientApplication")
+
+      verification_result = StandardId::Passwordless::VerificationService::Result.new(
+        "success?": true,
+        account: account,
+        challenge: challenge,
+        error: nil,
+        attempts: nil
+      )
+
+      allow(StandardId::Passwordless::VerificationService).to receive(:verify).and_return(verification_result)
+      allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
       flow = described_class.new(
         {
           grant_type: "passwordless_otp",
@@ -138,19 +170,6 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
         },
         request
       )
-
-      allow(flow).to receive(:code_challenge).and_return(code_challenge)
-      allow(flow).to receive(:account).and_return(account)
-      allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
-
-      encoded_payloads = []
-      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
-        encoded_payloads << payload
-        "jwt-token"
-      end
-
-      strategy = instance_double("StandardId::Passwordless::EmailStrategy", find_or_create_account: account)
-      allow(flow).to receive(:strategy_for).and_return(strategy)
 
       result = flow.execute
       expect(result[:access_token]).to eq("jwt-token")

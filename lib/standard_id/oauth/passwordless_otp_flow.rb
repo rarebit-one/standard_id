@@ -6,52 +6,21 @@ module StandardId
 
       def authenticate!
         validate_client_secret!(params[:client_id], params[:client_secret]) if params[:client_secret].present?
-
-        if code_challenge.blank?
-          emit_otp_validation_failed
-          raise StandardId::InvalidGrantError, "Invalid or expired verification code"
-        end
-
-        if account.blank?
-          raise StandardId::InvalidGrantError, "Unable to authenticate user"
-        end
-
         validate_requested_scope!
 
-        code_challenge.use!
-        emit_otp_validated
+        @verification_result = StandardId::Passwordless::VerificationService.verify(
+          connection: params[:connection],
+          username: params[:username],
+          code: params[:otp],
+          request: request
+        )
+
+        unless @verification_result.success?
+          raise StandardId::InvalidGrantError, @verification_result.error
+        end
       end
 
       private
-
-      def emit_otp_validated
-        StandardId::Events.publish(
-          StandardId::Events::OTP_VALIDATED,
-          account: account,
-          channel: params[:connection]
-        )
-        StandardId::Events.publish(
-          StandardId::Events::PASSWORDLESS_CODE_VERIFIED,
-          code_challenge: code_challenge,
-          account: account,
-          channel: params[:connection]
-        )
-      end
-
-      def emit_otp_validation_failed
-        StandardId::Events.publish(
-          StandardId::Events::OTP_VALIDATION_FAILED,
-          identifier: params[:username],
-          channel: params[:connection],
-          attempts: nil
-        )
-        StandardId::Events.publish(
-          StandardId::Events::PASSWORDLESS_CODE_FAILED,
-          identifier: params[:username],
-          channel: params[:connection],
-          attempts: nil
-        )
-      end
 
       def subject_id
         account.id
@@ -77,28 +46,8 @@ module StandardId
         true
       end
 
-      def code_challenge
-        @code_challenge ||= StandardId::CodeChallenge.active.find_by(
-          realm: "authentication",
-          channel: params[:connection],
-          target: params[:username],
-          code: params[:otp]
-        )
-      end
-
       def account
-        @account ||= strategy_for(params[:connection]).find_or_create_account(params[:username])
-      end
-
-      def strategy_for(connection)
-        case connection
-        when "email"
-          StandardId::Passwordless::EmailStrategy.new(request)
-        when "sms"
-          StandardId::Passwordless::SmsStrategy.new(request)
-        else
-          raise StandardId::InvalidRequestError, "Unsupported connection type: #{connection}"
-        end
+        @verification_result&.account
       end
 
       def validate_requested_scope!
