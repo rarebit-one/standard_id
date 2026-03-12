@@ -16,3 +16,4 @@
 !/.env.example
 
 /.lefthook-local.yml
+.claude/worktrees/

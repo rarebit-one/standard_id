@@ -3,7 +3,13 @@
 module StandardId
   module Api
     module WellKnown
+      # Inherits from ActionController::API (not Api::BaseController) to avoid
+      # content-type validation and no-store cache headers — JWKS is a public,
+      # cacheable endpoint. Includes ControllerPolicy directly as a result.
       class JwksController < ActionController::API
+        include StandardId::ControllerPolicy
+        public_controller
+
         def show
           jwks = StandardId::JwtService.jwks
 

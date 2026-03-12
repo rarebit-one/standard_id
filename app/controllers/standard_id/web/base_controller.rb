@@ -1,6 +1,7 @@
 module StandardId
   module Web
     class BaseController < ApplicationController
+      include StandardId::ControllerPolicy
       include StandardId::WebAuthentication
       include StandardId::SetCurrentRequestDetails
 

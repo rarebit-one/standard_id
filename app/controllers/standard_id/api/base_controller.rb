@@ -1,6 +1,7 @@
 module StandardId
   module Api
     class BaseController < ActionController::API
+      include StandardId::ControllerPolicy
       include StandardId::ApiAuthentication
       include StandardId::SetCurrentRequestDetails
 

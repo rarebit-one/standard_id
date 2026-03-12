@@ -1,6 +1,8 @@
 module StandardId
   module Web
     class SessionsController < BaseController
+      authenticated_controller
+
       def index
         @sessions = current_account.sessions.active.order(created_at: :desc)
         @current_session = current_session

@@ -1,6 +1,8 @@
 module StandardId
   module Web
     class LoginVerifyController < BaseController
+      public_controller
+
       include StandardId::InertiaRendering
 
       layout "public"

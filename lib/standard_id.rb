@@ -40,6 +40,7 @@ require "standard_id/passwordless/base_strategy"
 require "standard_id/passwordless/email_strategy"
 require "standard_id/passwordless/sms_strategy"
 require "standard_id/passwordless/verification_service"
+require "standard_id/authorization_bypass"
 require "standard_id/utils/callable_parameter_filter"
 require "standard_id/utils/ip_normalizer"
 
@@ -75,6 +76,10 @@ module StandardId
 
     def account_class
       config.account_class_name.constantize
+    end
+
+    def skip_host_authorization(framework: nil, callback: nil)
+      AuthorizationBypass.apply(framework: framework, callback: callback)
     end
   end
 end

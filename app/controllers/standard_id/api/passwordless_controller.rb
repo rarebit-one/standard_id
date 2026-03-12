@@ -1,6 +1,8 @@
 module StandardId
   module Api
     class PasswordlessController < BaseController
+      public_controller
+
       include StandardId::PasswordlessStrategy
 
       def start

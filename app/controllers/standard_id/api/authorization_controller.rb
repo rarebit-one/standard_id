@@ -1,6 +1,8 @@
 module StandardId
   module Api
     class AuthorizationController < BaseController
+      public_controller
+
       include ActionController::Cookies
 
       skip_before_action :validate_content_type!

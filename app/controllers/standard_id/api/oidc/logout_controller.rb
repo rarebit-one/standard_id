@@ -2,6 +2,8 @@ module StandardId
   module Api
     module Oidc
       class LogoutController < ::StandardId::Api::BaseController
+        public_controller
+
         include ActionController::Cookies
 
         skip_before_action :validate_content_type!

@@ -2,6 +2,8 @@ module StandardId
   module Api::Oauth
     module Callback
       class ProvidersController < BaseController
+        public_controller
+
         include StandardId::SocialAuthentication
 
         skip_before_action :validate_content_type!
