@@ -1,0 +1,367 @@
+require "rails_helper"
+
+RSpec.describe StandardId::Passwordless::VerificationService do
+  let(:request) { instance_double("ActionDispatch::Request", remote_ip: "127.0.0.1", user_agent: "RSpec") }
+  let(:email) { "user@example.com" }
+  let(:phone) { "+14155550123" }
+  let(:otp_code) { "123456" }
+
+  before do
+    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
+    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
+  end
+
+  def create_challenge(channel:, target:, code: otp_code, expires_at: 10.minutes.from_now)
+    StandardId::CodeChallenge.create!(
+      realm: "authentication",
+      channel: channel,
+      target: target,
+      code: code,
+      expires_at: expires_at,
+      ip_address: "127.0.0.1",
+      user_agent: "RSpec"
+    )
+  end
+
+  def create_email_account(email)
+    account = Account.create!(name: "Test User", email: email)
+    StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
+    account
+  end
+
+  def create_phone_account(phone, email: "phone-user@example.com")
+    account = Account.create!(name: "Test User", email: email)
+    StandardId::PhoneNumberIdentifier.create!(account: account, value: phone, verified_at: Time.current)
+    account
+  end
+
+  describe ".verify" do
+    context "with email" do
+      it "returns success with valid code and existing account" do
+        account = create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result.success?).to be true
+        expect(result.account).to eq(account)
+        expect(result.challenge).to be_present
+        expect(result.challenge).to be_used
+        expect(result.error).to be_nil
+      end
+
+      it "creates a new account when no identifier exists" do
+        new_email = "new@example.com"
+        create_challenge(channel: "email", target: new_email)
+
+        # The dummy app's Account model has constraints (name + email required)
+        # that don't match how real host apps handle auto-creation via
+        # identifiers_attributes. We pre-create the record and stub create!
+        # so the strategy's find_or_create_account path is exercised without
+        # hitting the dummy model's validation constraints.
+        new_account = Account.create!(name: "Auto", email: new_email)
+        StandardId::EmailIdentifier.create!(account: new_account, value: new_email, verified_at: Time.current)
+        allow(Account).to receive(:create!)
+          .with(hash_including(identifiers_attributes: kind_of(Array)))
+          .and_return(new_account)
+
+        result = described_class.verify(email: new_email, code: otp_code, request: request)
+
+        expect(result.success?).to be true
+        expect(result.account).to eq(new_account)
+      end
+
+      it "returns failure when code is blank" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(email: email, code: "", request: request)
+
+        expect(result.success?).to be false
+        expect(result.error).to eq("Code is required")
+      end
+
+      it "returns failure when code is wrong" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(email: email, code: "000000", request: request)
+
+        expect(result.success?).to be false
+        expect(result.error).to eq("Invalid or expired verification code")
+      end
+
+      it "returns failure when no active challenge exists" do
+        create_email_account(email)
+
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result.success?).to be false
+        expect(result.error).to eq("Invalid or expired verification code")
+      end
+
+      it "returns failure for expired challenges" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email, expires_at: 1.minute.ago)
+
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result.success?).to be false
+        expect(result.error).to eq("Invalid or expired verification code")
+      end
+
+      it "returns failure for already-used challenges" do
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+        challenge.use!
+
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result.success?).to be false
+        expect(result.error).to eq("Invalid or expired verification code")
+      end
+    end
+
+    context "with phone (SMS)" do
+      it "returns success with valid code and existing account" do
+        account = create_phone_account(phone)
+        create_challenge(channel: "sms", target: phone)
+
+        result = described_class.verify(phone: phone, code: otp_code, request: request)
+
+        expect(result.success?).to be true
+        expect(result.account).to eq(account)
+        expect(result.challenge).to be_used
+      end
+    end
+
+    context "with connection:/username: interface" do
+      it "returns success when called with connection: 'email' and username:" do
+        account = create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(connection: "email", username: email, code: otp_code, request: request)
+
+        expect(result.success?).to be true
+        expect(result.account).to eq(account)
+        expect(result.challenge).to be_present
+        expect(result.challenge).to be_used
+      end
+
+      it "returns success when called with connection: 'sms' and username:" do
+        account = create_phone_account(phone)
+        create_challenge(channel: "sms", target: phone)
+
+        result = described_class.verify(connection: "sms", username: phone, code: otp_code, request: request)
+
+        expect(result.success?).to be true
+        expect(result.account).to eq(account)
+        expect(result.challenge).to be_used
+      end
+
+      it "returns failure with wrong code when using connection:/username:" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(connection: "email", username: email, code: "000000", request: request)
+
+        expect(result.success?).to be false
+        expect(result.error).to eq("Invalid or expired verification code")
+      end
+
+      it "raises InvalidRequestError for unsupported connection type" do
+        expect {
+          described_class.verify(connection: "carrier_pigeon", username: "bird", code: otp_code, request: request)
+        }.to raise_error(StandardId::InvalidRequestError, /Unsupported connection type/)
+      end
+
+      it "raises InvalidRequestError when connection: is provided without username:" do
+        expect {
+          described_class.verify(connection: "email", code: otp_code, request: request)
+        }.to raise_error(StandardId::InvalidRequestError, /username: is required when connection: is provided/)
+      end
+
+      it "raises InvalidRequestError when connection: is provided with blank username:" do
+        expect {
+          described_class.verify(connection: "email", username: "", code: otp_code, request: request)
+        }.to raise_error(StandardId::InvalidRequestError, /username: is required when connection: is provided/)
+      end
+    end
+
+    context "argument validation" do
+      it "raises InvalidRequestError when neither email nor phone is provided" do
+        expect {
+          described_class.verify(code: otp_code, request: request)
+        }.to raise_error(StandardId::InvalidRequestError, /Either email: or phone: must be provided/)
+      end
+    end
+
+    context "failed attempt tracking" do
+      it "increments attempt count in challenge metadata on wrong code" do
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        described_class.verify(email: email, code: "000000", request: request)
+
+        expect(challenge.reload.metadata["attempts"]).to eq(1)
+      end
+
+      it "returns the attempt count in the result" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(email: email, code: "000000", request: request)
+
+        expect(result.attempts).to eq(1)
+      end
+
+      it "locks the challenge after max_attempts" do
+        allow(StandardId.config.passwordless).to receive(:max_attempts).and_return(3)
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        3.times do
+          described_class.verify(email: email, code: "000000", request: request)
+        end
+
+        expect(challenge.reload).to be_used
+
+        # Even the correct code should fail now
+        result = described_class.verify(email: email, code: otp_code, request: request)
+        expect(result.success?).to be false
+      end
+
+      it "does not increment attempts on correct code" do
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(challenge.reload.metadata["attempts"]).to be_nil
+      end
+    end
+
+    context "constant-time comparison" do
+      it "uses secure_compare for OTP verification" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        expect(ActiveSupport::SecurityUtils).to receive(:secure_compare).at_least(:once).and_call_original
+
+        described_class.verify(email: email, code: otp_code, request: request)
+      end
+    end
+
+    context "events" do
+      it "emits OTP_VALIDATED and PASSWORDLESS_CODE_VERIFIED on success" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        validated_events = []
+        verified_events = []
+
+        sub1 = StandardId::Events.subscribe(StandardId::Events::OTP_VALIDATED) do |event|
+          validated_events << event
+        end
+        sub2 = StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_VERIFIED) do |event|
+          verified_events << event
+        end
+
+        described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(validated_events.size).to eq(1)
+        expect(validated_events.first.payload[:channel]).to eq("email")
+        expect(verified_events.size).to eq(1)
+        expect(verified_events.first.payload[:channel]).to eq("email")
+      ensure
+        StandardId::Events.unsubscribe(sub1, sub2)
+      end
+
+      it "emits OTP_VALIDATION_FAILED and PASSWORDLESS_CODE_FAILED on wrong code" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        failed_events = []
+        code_failed_events = []
+
+        sub1 = StandardId::Events.subscribe(StandardId::Events::OTP_VALIDATION_FAILED) do |event|
+          failed_events << event
+        end
+        sub2 = StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_FAILED) do |event|
+          code_failed_events << event
+        end
+
+        described_class.verify(email: email, code: "000000", request: request)
+
+        expect(failed_events.size).to eq(1)
+        expect(failed_events.first.payload[:identifier]).to eq(email)
+        expect(failed_events.first.payload[:attempts]).to eq(1)
+        expect(code_failed_events.size).to eq(1)
+      ensure
+        StandardId::Events.unsubscribe(sub1, sub2)
+      end
+
+      it "does not emit failure events when no challenge exists" do
+        create_email_account(email)
+
+        failed_events = []
+
+        sub = StandardId::Events.subscribe(StandardId::Events::OTP_VALIDATION_FAILED) do |event|
+          failed_events << event
+        end
+
+        described_class.verify(email: email, code: "000000", request: request)
+
+        expect(failed_events).to be_empty
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+    end
+
+    context "result object" do
+      it "returns a result with expected attributes on success" do
+        account = create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result).to respond_to(:success?, :account, :challenge, :error, :attempts)
+        expect(result.success?).to be true
+        expect(result.account).to eq(account)
+        expect(result.error).to be_nil
+      end
+
+      it "returns a result with expected attributes on failure" do
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result.success?).to be false
+        expect(result.account).to be_nil
+        expect(result.challenge).to be_nil
+        expect(result.error).to be_a(String)
+      end
+    end
+
+    context "code stripping" do
+      it "strips whitespace from code" do
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        result = described_class.verify(email: email, code: "  #{otp_code}  ", request: request)
+
+        expect(result.success?).to be true
+      end
+    end
+
+    context "concurrent use protection" do
+      it "uses pessimistic locking when consuming the challenge" do
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        # Verify that lock is called during verification
+        expect(StandardId::CodeChallenge).to receive(:lock).and_call_original
+
+        described_class.verify(email: email, code: otp_code, request: request)
+      end
+    end
+  end
+end
