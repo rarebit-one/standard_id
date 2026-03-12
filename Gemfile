@@ -12,7 +12,7 @@ gem "sqlite3"
 gem "propshaft"
 
 group :development, :test do
-  gem "rspec-rails", "~> 8.0.3"
+  gem "rspec-rails", "~> 8.0.4"
   gem "shoulda-matchers", "~> 7.0"
   gem "webmock", "~> 3.26"
 
