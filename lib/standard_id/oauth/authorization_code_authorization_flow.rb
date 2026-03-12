@@ -39,7 +39,8 @@ module StandardId
           audience: audience,
           state: state,
           code_challenge: flow_params[:code_challenge],
-          code_challenge_method: flow_params[:code_challenge_method]
+          code_challenge_method: flow_params[:code_challenge_method],
+          nonce: flow_params[:nonce]
         }
       end
     end

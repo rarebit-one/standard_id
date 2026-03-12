@@ -28,6 +28,7 @@ RSpec.describe StandardId::Oauth::Subflows::TraditionalCodeGrant do
         account: account,
         code_challenge: "challenge123",
         code_challenge_method: "plain",
+        nonce: nil,
         metadata: { state: "random_state" }
       )
 
