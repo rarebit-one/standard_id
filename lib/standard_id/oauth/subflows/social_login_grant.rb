@@ -31,7 +31,8 @@ module StandardId
             audience: params[:audience],
             state: params[:state],
             code_challenge: params[:code_challenge],
-            code_challenge_method: params[:code_challenge_method]
+            code_challenge_method: params[:code_challenge_method],
+            nonce: params[:nonce]
           }.compact
 
           # Remove code_challenge_method if code_challenge is not present

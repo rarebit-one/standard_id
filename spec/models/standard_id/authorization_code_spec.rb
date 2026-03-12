@@ -31,6 +31,31 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
     end
   end
 
+  describe "nonce storage" do
+    it "stores nonce when provided" do
+      described_class.issue!(
+        plaintext_code: plaintext_code,
+        client_id: client_id,
+        redirect_uri: redirect_uri,
+        nonce: "abc123nonce"
+      )
+
+      rec = described_class.lookup(plaintext_code)
+      expect(rec.nonce).to eq("abc123nonce")
+    end
+
+    it "allows nil nonce" do
+      described_class.issue!(
+        plaintext_code: plaintext_code,
+        client_id: client_id,
+        redirect_uri: redirect_uri
+      )
+
+      rec = described_class.lookup(plaintext_code)
+      expect(rec.nonce).to be_nil
+    end
+  end
+
   describe "expiry and single-use" do
     it "expires after TTL and cannot be reused" do
       code = plaintext_code

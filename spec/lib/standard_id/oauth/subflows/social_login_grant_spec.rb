@@ -95,6 +95,18 @@ RSpec.describe StandardId::Oauth::Subflows::SocialLoginGrant do
       )
     end
 
+    it "preserves nonce in encoded state" do
+      params[:nonce] = "test-nonce-456"
+      subject = described_class.new(**params)
+
+      result = subject.call
+      state_param = URI.decode_www_form(URI.parse(result[:redirect_to]).query).find { |k, v| k == "state" }&.last
+
+      decoded_state = JSON.parse(Base64.urlsafe_decode64(state_param))
+
+      expect(decoded_state).to include("nonce" => "test-nonce-456")
+    end
+
     it "omits nil values from encoded state" do
       params.delete(:state)
       params.delete(:code_challenge)

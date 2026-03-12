@@ -31,6 +31,7 @@ module StandardId
             account: params[:current_account],
             code_challenge: params[:code_challenge],
             code_challenge_method: params[:code_challenge_method],
+            nonce: params[:nonce],
             metadata: { state: params[:state] }.compact
           )
         end

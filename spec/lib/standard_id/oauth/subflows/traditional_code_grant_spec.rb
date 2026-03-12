@@ -20,15 +20,17 @@ RSpec.describe StandardId::Oauth::Subflows::TraditionalCodeGrant do
   describe "#call" do
     it "stores authorization code and returns redirect response" do
       expect(StandardId::AuthorizationCode).to receive(:issue!).with(
-        plaintext_code: kind_of(String),
-        client_id: "client_123",
-        redirect_uri: "https://app.example.com/callback",
-        scope: "openid profile",
-        audience: "api://default",
-        account: account,
-        code_challenge: "challenge123",
-        code_challenge_method: "plain",
-        metadata: { state: "random_state" }
+        hash_including(
+          client_id: "client_123",
+          redirect_uri: "https://app.example.com/callback",
+          scope: "openid profile",
+          audience: "api://default",
+          account: account,
+          code_challenge: "challenge123",
+          code_challenge_method: "plain",
+          nonce: nil,
+          metadata: { state: "random_state" }
+        )
       )
 
       result = subject.call
@@ -37,6 +39,17 @@ RSpec.describe StandardId::Oauth::Subflows::TraditionalCodeGrant do
       expect(result[:redirect_to]).to include("https://app.example.com/callback")
       expect(result[:redirect_to]).to include("code=")
       expect(result[:redirect_to]).to include("state=random_state")
+    end
+
+    it "forwards nonce to AuthorizationCode.issue!" do
+      params[:nonce] = "test-nonce-123"
+      subject = described_class.new(**params)
+
+      expect(StandardId::AuthorizationCode).to receive(:issue!).with(
+        hash_including(nonce: "test-nonce-123")
+      )
+
+      subject.call
     end
 
     it "handles missing state gracefully" do

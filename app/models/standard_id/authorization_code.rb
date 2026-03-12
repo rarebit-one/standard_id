@@ -16,7 +16,7 @@ module StandardId
 
     before_validation :set_issued_and_expiry, on: :create
 
-    def self.issue!(plaintext_code:, client_id:, redirect_uri:, scope: nil, audience: nil, account: nil, code_challenge: nil, code_challenge_method: nil, metadata: {})
+    def self.issue!(plaintext_code:, client_id:, redirect_uri:, scope: nil, audience: nil, account: nil, code_challenge: nil, code_challenge_method: nil, nonce: nil, metadata: {})
       create!(
         account: account,
         code_hash: hash_for(plaintext_code),
@@ -26,6 +26,7 @@ module StandardId
         audience: audience,
         code_challenge: code_challenge,
         code_challenge_method: code_challenge_method,
+        nonce: nonce,
         issued_at: Time.current,
         expires_at: Time.current + default_ttl,
         metadata: metadata || {}
