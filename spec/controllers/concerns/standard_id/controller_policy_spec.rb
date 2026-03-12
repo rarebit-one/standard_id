@@ -89,13 +89,14 @@ RSpec.describe StandardId::ControllerPolicy do
           def self.name = "SamePolicyController"
         end
 
-        saved = StandardId::ControllerPolicy.registry.transform_values(&:dup)
+        saved = StandardId::ControllerPolicy.registry_snapshot
         begin
           StandardId::ControllerPolicy.register(controller, :public)
           StandardId::ControllerPolicy.register(controller, :public)
           matches = StandardId::ControllerPolicy.public_controllers.select { |c| c == controller }
           expect(matches.size).to eq(1)
         ensure
+          StandardId::AuthorizationBypass.reset!
           StandardId::ControllerPolicy.reset_registry!
           saved.each { |policy, set| set.each { |c| StandardId::ControllerPolicy.register(c, policy) } }
         end
@@ -107,13 +108,34 @@ RSpec.describe StandardId::ControllerPolicy do
           def self.name = "DualPolicyController"
         end
 
-        saved = StandardId::ControllerPolicy.registry.transform_values(&:dup)
+        saved = StandardId::ControllerPolicy.registry_snapshot
         begin
           StandardId::ControllerPolicy.register(controller, :public)
           expect {
             StandardId::ControllerPolicy.register(controller, :authenticated)
           }.to raise_error(ArgumentError, /already registered as public/)
         ensure
+          StandardId::AuthorizationBypass.reset!
+          StandardId::ControllerPolicy.reset_registry!
+          saved.each { |policy, set| set.each { |c| StandardId::ControllerPolicy.register(c, policy) } }
+        end
+      end
+    end
+
+    describe ".inherited" do
+      it "auto-registers subclasses that inherit a policy" do
+        parent = Class.new(ActionController::Base) do
+          include StandardId::ControllerPolicy
+          public_controller
+          def self.name = "InheritedParentController"
+        end
+
+        saved = StandardId::ControllerPolicy.registry_snapshot
+        begin
+          child = Class.new(parent) { def self.name = "InheritedChildController" }
+          expect(StandardId::ControllerPolicy.public_controllers).to include(child)
+        ensure
+          StandardId::AuthorizationBypass.reset!
           StandardId::ControllerPolicy.reset_registry!
           saved.each { |policy, set| set.each { |c| StandardId::ControllerPolicy.register(c, policy) } }
         end

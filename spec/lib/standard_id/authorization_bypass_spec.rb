@@ -27,7 +27,7 @@ RSpec.describe StandardId::AuthorizationBypass do
   # Save/restore the global registry so we don't lose real controller
   # registrations that happen at class-load time.
   around do |example|
-    saved = StandardId::ControllerPolicy.registry.transform_values(&:dup)
+    saved = StandardId::ControllerPolicy.registry_snapshot
     StandardId::ControllerPolicy.reset_registry!
     public_controller
     authenticated_controller

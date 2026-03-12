@@ -71,10 +71,6 @@ module StandardId
         AuthorizationBypass.apply_to_controller(controller, policy) if AuthorizationBypass.applied?
       end
 
-      def registry
-        LOCK.synchronize { @registry ||= { public: Set.new, authenticated: Set.new } }
-      end
-
       # Returns a point-in-time copy of the registry, safe to iterate
       # without holding the lock.
       def registry_snapshot
@@ -83,6 +79,14 @@ module StandardId
             .transform_values(&:dup)
         end
       end
+
+      private
+
+      def registry
+        LOCK.synchronize { @registry ||= { public: Set.new, authenticated: Set.new } }
+      end
+
+      public
 
       # @api private — intended for test isolation only.
       def reset_registry!
