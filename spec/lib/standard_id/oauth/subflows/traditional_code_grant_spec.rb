@@ -40,6 +40,17 @@ RSpec.describe StandardId::Oauth::Subflows::TraditionalCodeGrant do
       expect(result[:redirect_to]).to include("state=random_state")
     end
 
+    it "forwards nonce to AuthorizationCode.issue!" do
+      params[:nonce] = "test-nonce-123"
+      subject = described_class.new(**params)
+
+      expect(StandardId::AuthorizationCode).to receive(:issue!).with(
+        hash_including(nonce: "test-nonce-123")
+      )
+
+      subject.call
+    end
+
     it "handles missing state gracefully" do
       params.delete(:state)
       subject = described_class.new(**params)

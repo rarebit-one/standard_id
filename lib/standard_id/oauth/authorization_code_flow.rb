@@ -70,6 +70,12 @@ module StandardId
       def audience
         @authorization_code&.audience
       end
+
+      protected
+
+      def nonce
+        @authorization_code&.nonce
+      end
     end
   end
 end
