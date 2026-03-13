@@ -102,7 +102,7 @@ git worktree add .worktrees/<name> -b <branch-name> origin/$DEFAULT_BRANCH
 If no name is provided, generate one from context:
 - If starting a Linear issue: use the issue identifier (e.g., `swe-123`)
 - If the user described the task: use a short slug (e.g., `fix-auth-timeout`)
-- Fallback: use the date (e.g., `2026-03-13`)
+- Fallback: use today's date in `YYYY-MM-DD` format
 
 **Ensure `.worktrees/` is gitignored:**
 
@@ -111,13 +111,6 @@ If no name is provided, generate one from context:
 if ! grep -q '\.worktrees' .gitignore 2>/dev/null; then
   echo '.worktrees/' >> .gitignore
 fi
-```
-
-**Create the worktree:**
-
-```bash
-git fetch origin $DEFAULT_BRANCH
-git worktree add .worktrees/<name> -b <branch-name> origin/$DEFAULT_BRANCH
 ```
 
 ### Phase 5: Report

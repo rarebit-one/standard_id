@@ -7,6 +7,10 @@ description: "Start working on Linear issues. Use when the user says 'start work
 
 Begin working on Linear issues with proper setup: update status, create branches, gather context, and track progress.
 
+## Prerequisites
+
+This skill requires the Linear MCP server to be configured. If Linear tools (`mcp__linear__*`) are not available, the skill will warn and offer to proceed with git-only setup (branch creation without status updates).
+
 ## Scope
 
 This skill sets up local development for Linear issues. It does **NOT**:
@@ -112,7 +116,7 @@ git status --porcelain
 
 ```
 On main, clean       → fetch latest, create branch (simple path)
-On main, dirty       → ask: stash, commit, or worktree
+On main, dirty       → ask: stash or worktree
 On feature, clean    → ask: switch or worktree
 On feature, dirty    → recommend worktree (preserves current work)
 ```
@@ -120,6 +124,14 @@ On feature, dirty    → recommend worktree (preserves current work)
 **Simple path (on main, clean):**
 
 ```bash
+git fetch origin main
+git checkout -b <branch-name> origin/main
+```
+
+**Stash path (dirty state, user chooses stash):**
+
+```bash
+git stash push -m "WIP before starting RAR-123"
 git fetch origin main
 git checkout -b <branch-name> origin/main
 ```
@@ -168,7 +180,6 @@ Based on the issue description, create a todo list to track progress.
 | `--backlog` | List team backlog issues |
 | `--worktree` | Always create a worktree (skip decision tree) |
 | `--no-status` | Skip status update (just create branch) |
-| `--no-comment` | Skip posting start comment |
 | `--team <name>` | Filter by team (default: Rarebit) |
 | `--project <name>` | Filter by project |
 
@@ -186,5 +197,5 @@ Based on the issue description, create a todo list to track progress.
 
 ## Integration with Other Skills
 
-- After completing work, create a PR with `gh pr create` or use `/publish-gem` when ready to release
+- After completing work, create a PR with `gh pr create`, or use `/publish-gem` when ready to release
 - The branch naming convention ensures the Linear issue can be auto-detected from the branch
