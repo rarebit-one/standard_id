@@ -129,6 +129,7 @@ module StandardId
           enriched[:ip_address] ||= ::Current.ip_address if ::Current.respond_to?(:ip_address) && ::Current.ip_address.present?
           enriched[:user_agent] ||= ::Current.user_agent if ::Current.respond_to?(:user_agent) && ::Current.user_agent.present?
           enriched[:current_account] ||= ::Current.account if ::Current.respond_to?(:account) && ::Current.account.present?
+          enriched[:scope] ||= ::Current.scope if ::Current.respond_to?(:scope) && ::Current.scope.present?
         end
 
         enriched.merge(payload)
