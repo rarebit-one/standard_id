@@ -10,6 +10,7 @@ module StandardId
 
       layout -> { StandardId.config.web_layout.presence || "application" }
 
+      before_action -> { Current.scope = :web if defined?(::Current) }
       before_action :require_browser_session!
     end
   end

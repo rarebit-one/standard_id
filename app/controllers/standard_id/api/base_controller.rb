@@ -5,6 +5,7 @@ module StandardId
       include StandardId::ApiAuthentication
       include StandardId::SetCurrentRequestDetails
 
+      before_action -> { Current.scope = :api if defined?(::Current) }
       before_action :validate_content_type!
 
       after_action :set_no_store_headers
