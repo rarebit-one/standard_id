@@ -163,7 +163,7 @@ git push -u origin chore/bump-v<version>
 gh pr create --title "chore: Bump version to <version>" --body "..."
 ```
 
-#### 8c. Tag and release
+#### 8c. Tag the release
 
 **If pushed directly to `main`:** Tag the commit and push the tag immediately.
 
@@ -174,10 +174,9 @@ gh pr create --title "chore: Bump version to <version>" --body "..."
 git checkout main && git pull origin main
 git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
-gh release create v<version> --title "v<version>" --notes "<release notes>"
 ```
 
-Skip steps 8c and 8d below, and include the above instructions in the final output (Step 9) instead.
+Skip the tagging step below, and include the above instructions in the final output (Step 9) instead.
 
 ```bash
 # Create an annotated git tag for the release
@@ -185,21 +184,15 @@ git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
 ```
 
-#### 8d. Create a GitHub Release
-
-Always create a GitHub Release from the tag. Use the CHANGELOG.md entry for the release body if available, otherwise summarize from the git log:
-
-```bash
-gh release create v<version> --title "v<version>" --notes "<release notes>"
-```
+> **Note:** The `release.yml` GitHub Actions workflow automatically creates a GitHub Release with notes extracted from CHANGELOG.md when the tag is pushed. No manual `gh release create` is needed.
 
 ### 9. Output
 
 Report:
 1. RubyGems URL: `https://rubygems.org/gems/<name>`
 2. Git tag created: `v<version>`
-3. GitHub Release: `https://github.com/<owner>/<repo>/releases/tag/v<version>`
-4. Remind: allow a few minutes for the gem to appear on RubyGems
+3. GitHub Release: created automatically by the `release.yml` workflow from CHANGELOG.md — link: `https://github.com/<owner>/<repo>/releases/tag/v<version>`
+4. Remind: allow a few minutes for the gem to appear on RubyGems and for the GitHub Release to be created
 
 ## Error Handling
 
