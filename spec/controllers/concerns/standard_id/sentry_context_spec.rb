@@ -72,6 +72,26 @@ RSpec.describe StandardId::SentryContext do
       end
     end
 
+    context "when current_session does not respond to id (e.g. JWT struct)" do
+      let(:jwt_session) { Struct.new(:account_id, :scopes, keyword_init: true).new(account_id: account.id, scopes: []) }
+
+      before do
+        stub_const("Sentry", Class.new { def self.set_user(context); end })
+        controller.current_account = account
+        controller.current_session = jwt_session
+      end
+
+      it "calls Sentry.set_user without session_id" do
+        expect(Sentry).to receive(:set_user).with({ id: account.id })
+
+        controller.send(:set_standard_id_sentry_context)
+      end
+
+      it "does not raise an error" do
+        expect { controller.send(:set_standard_id_sentry_context) }.not_to raise_error
+      end
+    end
+
     context "when Sentry is not defined" do
       before do
         controller.current_account = account

@@ -28,7 +28,9 @@ module StandardId
       return unless respond_to?(:current_account, true) && current_account.present?
 
       context = { id: current_account.id }
-      context[:session_id] = current_session.id if respond_to?(:current_session, true) && current_session.present?
+      if respond_to?(:current_session, true) && current_session.present? && current_session.respond_to?(:id)
+        context[:session_id] = current_session.id
+      end
 
       Sentry.set_user(context)
     end
