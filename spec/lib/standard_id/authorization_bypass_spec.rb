@@ -1,7 +1,10 @@
 require "rails_helper"
 
 RSpec.describe StandardId::AuthorizationBypass do
-  # Create test controllers that mimic the real setup
+  # Create test controllers that mimic the real setup.
+  # Define skip_verify_authorized as a no-op class method so that
+  # ActionPolicy's class-method-based skip can be tested without
+  # requiring the ActionPolicy gem itself.
   let(:public_controller) do
     Class.new(ActionController::Base) do
       include StandardId::ControllerPolicy
@@ -10,6 +13,8 @@ RSpec.describe StandardId::AuthorizationBypass do
       def self.name
         "TestPublicController"
       end
+
+      def self.skip_verify_authorized; end
     end
   end
 
@@ -21,6 +26,8 @@ RSpec.describe StandardId::AuthorizationBypass do
       def self.name
         "TestAuthenticatedController"
       end
+
+      def self.skip_verify_authorized; end
     end
   end
 
@@ -40,29 +47,30 @@ RSpec.describe StandardId::AuthorizationBypass do
 
   describe ".apply" do
     context "with framework: :action_policy" do
-      it "skips verify_authorized on all controllers" do
-        expect(public_controller).to receive(:skip_before_action).with(:verify_authorized, raise: false).once
-        expect(authenticated_controller).to receive(:skip_before_action).with(:verify_authorized, raise: false).once
+      it "calls skip_verify_authorized on all controllers" do
+        expect(public_controller).to receive(:skip_verify_authorized).once
+        expect(authenticated_controller).to receive(:skip_verify_authorized).once
         expect(public_controller).to receive(:skip_before_action).with(:authenticate_account!, raise: false).once
 
         described_class.apply(framework: :action_policy)
       end
 
       it "skips authenticate_account! only on public controllers" do
+        allow(public_controller).to receive(:skip_verify_authorized)
+        allow(authenticated_controller).to receive(:skip_verify_authorized)
         allow(public_controller).to receive(:skip_before_action)
-        allow(authenticated_controller).to receive(:skip_before_action)
 
         described_class.apply(framework: :action_policy)
 
         expect(public_controller).to have_received(:skip_before_action).with(:authenticate_account!, raise: false)
-        expect(authenticated_controller).not_to have_received(:skip_before_action).with(:authenticate_account!, raise: false)
+        expect(authenticated_controller).not_to receive(:skip_before_action)
       end
     end
 
     context "with framework: :pundit" do
-      it "skips verify_authorized on all controllers" do
-        expect(public_controller).to receive(:skip_before_action).with(:verify_authorized, raise: false)
-        expect(authenticated_controller).to receive(:skip_before_action).with(:verify_authorized, raise: false)
+      it "skips verify_authorized via skip_after_action on all controllers" do
+        expect(public_controller).to receive(:skip_after_action).with(:verify_authorized, raise: false)
+        expect(authenticated_controller).to receive(:skip_after_action).with(:verify_authorized, raise: false)
         expect(public_controller).to receive(:skip_before_action).with(:authenticate_account!, raise: false)
 
         described_class.apply(framework: :pundit)
@@ -70,7 +78,7 @@ RSpec.describe StandardId::AuthorizationBypass do
     end
 
     context "with framework: :cancancan" do
-      it "skips check_authorization on all controllers" do
+      it "skips check_authorization via skip_before_action on all controllers" do
         expect(public_controller).to receive(:skip_before_action).with(:check_authorization, raise: false)
         expect(authenticated_controller).to receive(:skip_before_action).with(:check_authorization, raise: false)
         expect(public_controller).to receive(:skip_before_action).with(:authenticate_account!, raise: false)
@@ -80,7 +88,7 @@ RSpec.describe StandardId::AuthorizationBypass do
     end
 
     context "with custom callback" do
-      it "skips the specified callback on all controllers" do
+      it "skips the specified callback via skip_before_action on all controllers" do
         expect(public_controller).to receive(:skip_before_action).with(:my_custom_auth, raise: false)
         expect(authenticated_controller).to receive(:skip_before_action).with(:my_custom_auth, raise: false)
         expect(public_controller).to receive(:skip_before_action).with(:authenticate_account!, raise: false)
@@ -111,51 +119,94 @@ RSpec.describe StandardId::AuthorizationBypass do
 
     context "when called twice (idempotency)" do
       it "does not error and only applies once" do
+        allow(public_controller).to receive(:skip_verify_authorized)
+        allow(authenticated_controller).to receive(:skip_verify_authorized)
         allow(public_controller).to receive(:skip_before_action)
-        allow(authenticated_controller).to receive(:skip_before_action)
 
         described_class.apply(framework: :action_policy)
         described_class.apply(framework: :action_policy)
 
-        expect(public_controller).to have_received(:skip_before_action).with(:verify_authorized, raise: false).once
-        expect(authenticated_controller).to have_received(:skip_before_action).with(:verify_authorized, raise: false).once
+        expect(public_controller).to have_received(:skip_verify_authorized).once
+        expect(authenticated_controller).to have_received(:skip_verify_authorized).once
       end
     end
   end
 
   describe ".apply_to_controller" do
-    it "skips the authorization callback and authenticate_account! for public controllers" do
+    it "calls skip_verify_authorized and skip_before_action :authenticate_account! for public controllers (action_policy)" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
+      allow(public_controller).to receive(:skip_before_action)
       described_class.apply(framework: :action_policy)
 
       new_public = Class.new(ActionController::Base) do
         def self.name = "NewPublicController"
+        def self.skip_verify_authorized; end
       end
 
-      expect(new_public).to receive(:skip_before_action).with(:verify_authorized, raise: false)
+      expect(new_public).to receive(:skip_verify_authorized)
       expect(new_public).to receive(:skip_before_action).with(:authenticate_account!, raise: false)
 
       described_class.apply_to_controller(new_public, :public)
     end
 
-    it "skips only the authorization callback for authenticated controllers" do
+    it "calls skip_verify_authorized only for authenticated controllers (action_policy)" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
+      allow(public_controller).to receive(:skip_before_action)
       described_class.apply(framework: :action_policy)
 
       new_auth = Class.new(ActionController::Base) do
         def self.name = "NewAuthController"
+        def self.skip_verify_authorized; end
       end
 
-      expect(new_auth).to receive(:skip_before_action).with(:verify_authorized, raise: false)
+      expect(new_auth).to receive(:skip_verify_authorized)
       expect(new_auth).not_to receive(:skip_before_action).with(:authenticate_account!, raise: false)
 
       described_class.apply_to_controller(new_auth, :authenticated)
     end
 
+    it "uses skip_after_action for pundit framework" do
+      allow(public_controller).to receive(:skip_after_action)
+      allow(authenticated_controller).to receive(:skip_after_action)
+      allow(public_controller).to receive(:skip_before_action)
+      described_class.apply(framework: :pundit)
+
+      new_public = Class.new(ActionController::Base) do
+        def self.name = "NewPunditController"
+      end
+
+      expect(new_public).to receive(:skip_after_action).with(:verify_authorized, raise: false)
+      expect(new_public).to receive(:skip_before_action).with(:authenticate_account!, raise: false)
+
+      described_class.apply_to_controller(new_public, :public)
+    end
+
+    it "uses skip_before_action for cancancan framework" do
+      allow(public_controller).to receive(:skip_before_action)
+      allow(authenticated_controller).to receive(:skip_before_action)
+      described_class.apply(framework: :cancancan)
+
+      new_public = Class.new(ActionController::Base) do
+        def self.name = "NewCanCanController"
+      end
+
+      expect(new_public).to receive(:skip_before_action).with(:check_authorization, raise: false)
+      expect(new_public).to receive(:skip_before_action).with(:authenticate_account!, raise: false)
+
+      described_class.apply_to_controller(new_public, :public)
+    end
+
     it "is a no-op when apply has not been called" do
       new_controller = Class.new(ActionController::Base) do
         def self.name = "UnappliedController"
+        def self.skip_verify_authorized; end
       end
 
       expect(new_controller).not_to receive(:skip_before_action)
+      expect(new_controller).not_to receive(:skip_after_action)
+      expect(new_controller).not_to receive(:skip_verify_authorized)
 
       described_class.apply_to_controller(new_controller, :public)
     end
@@ -167,8 +218,9 @@ RSpec.describe StandardId::AuthorizationBypass do
     end
 
     it "returns true after apply is called" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
       allow(public_controller).to receive(:skip_before_action)
-      allow(authenticated_controller).to receive(:skip_before_action)
 
       described_class.apply(framework: :action_policy)
 
@@ -176,8 +228,9 @@ RSpec.describe StandardId::AuthorizationBypass do
     end
 
     it "returns false after reset!" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
       allow(public_controller).to receive(:skip_before_action)
-      allow(authenticated_controller).to receive(:skip_before_action)
 
       described_class.apply(framework: :action_policy)
       described_class.reset!
@@ -188,8 +241,9 @@ RSpec.describe StandardId::AuthorizationBypass do
 
   describe "to_prepare registration" do
     it "does not register another to_prepare block after reset! + apply" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
       allow(public_controller).to receive(:skip_before_action)
-      allow(authenticated_controller).to receive(:skip_before_action)
 
       described_class.apply(framework: :action_policy)
       described_class.reset!
@@ -197,6 +251,9 @@ RSpec.describe StandardId::AuthorizationBypass do
       # After reset!, apply should re-apply skips but NOT register another
       # to_prepare block. The @prepared flag survives reset!.
       expect(Rails.application.config).not_to receive(:to_prepare)
+
+      allow(public_controller).to receive(:skip_after_action)
+      allow(authenticated_controller).to receive(:skip_after_action)
 
       described_class.apply(framework: :pundit)
     end
