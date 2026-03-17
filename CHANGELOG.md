@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-03-17
+
+### Fixed
+
+- Use `skip_verify_authorized` for ActionPolicy framework in `skip_host_authorization`, with `respond_to?` guard for API controllers that don't include ActionPolicy (#96)
+- Guard `SentryContext` against sessions without `id` method (#95)
+
+### Changed
+
+- Bump production dependencies (#94)
+
 ## [0.5.0] - 2026-03-13
 
 ### Added
