@@ -103,44 +103,20 @@ mcp__linear__save_issue(
 
 The workflow should not block on Linear failures — local development can proceed.
 
-### 4. Set Up Git Branch
+### 4. Set Up Worktree
 
-First, assess the current git state:
+**Always create a worktree** to isolate this work from any other state in the repo. This prevents changes from different sessions bleeding into unrelated PRs.
 
 ```bash
-CURRENT_BRANCH=$(git branch --show-current)
-git status --porcelain
+git fetch origin main
+git worktree add .worktrees/<identifier> -b <branch-name> origin/main
 ```
 
-**Decision tree:**
-
-```
-On main, clean       → fetch latest, create branch (simple path)
-On main, dirty       → ask: stash or worktree
-On feature, clean    → ask: switch or worktree
-On feature, dirty    → recommend worktree (preserves current work)
-```
-
-**Simple path (on main, clean):**
+If the user explicitly passes `--no-worktree` AND the repo is on main with a clean working tree, fall back to a simple branch:
 
 ```bash
 git fetch origin main
 git checkout -b <branch-name> origin/main
-```
-
-**Stash path (dirty state, user chooses stash):**
-
-```bash
-git stash push -m "WIP before starting RAR-123"
-git fetch origin main
-git checkout -b <branch-name> origin/main
-```
-
-**Worktree path (dirty state or --worktree flag):**
-
-```bash
-git fetch origin main
-git worktree add .worktrees/rar-123 -b <branch-name> origin/main
 ```
 
 See `/worktree` skill for full worktree conventions.
@@ -178,7 +154,7 @@ Based on the issue description, create a todo list to track progress.
 |------|-------------|
 | `--mine` | List my assigned issues in Todo state |
 | `--backlog` | List team backlog issues |
-| `--worktree` | Always create a worktree (skip decision tree) |
+| `--no-worktree` | Skip worktree, create branch in current checkout (only if on main + clean) |
 | `--no-status` | Skip status update (just create branch) |
 | `--team <name>` | Filter by team (default: Rarebit) |
 | `--project <name>` | Filter by project |
