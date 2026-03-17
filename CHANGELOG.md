@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-03-17
+
+### Added
+
+- Configurable `sentry_context` lambda for host apps to supply extra Sentry user context fields (email, username, etc.) without overriding the concern method (#98)
+
+### Fixed
+
+- Rescue `ArgumentError` in `skip_host_authorization` when controllers inherit ActionPolicy but haven't called `verify_authorized` (#98)
+- Guard `sentry_context` lambda against nil returns, non-Hash returns, and non-callable config values (#98)
+- Base Sentry context keys (`id`, `session_id`) cannot be overridden by the lambda (#98)
+
 ## [0.5.1] - 2026-03-17
 
 ### Fixed
