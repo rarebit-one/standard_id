@@ -18,6 +18,9 @@ StandardConfig.schema.draw do
     field :use_inertia, type: :boolean, default: false
     field :inertia_component_namespace, type: :string, default: "standard_id"
     field :alias_current_user, type: :boolean, default: false
+    # Callable (lambda/proc) that returns a Hash of extra Sentry user context fields.
+    # Receives (account, session) where session may be nil. Non-callable values are ignored.
+    field :sentry_context, type: :any, default: nil
   end
 
   scope :events do
