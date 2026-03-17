@@ -6,6 +6,19 @@ module StandardId
       cancancan: :check_authorization
     }.freeze
 
+    # Frameworks where the skip falls through to skip_after_action.
+    # ActionPolicy is NOT listed here because it is handled first via
+    # CLASS_METHOD_SKIP. Only :pundit reaches this branch.
+    AFTER_ACTION_FRAMEWORKS = %i[pundit].freeze
+
+    # ActionPolicy provides a dedicated class method to undo
+    # verify_authorized. Using skip_before_action or skip_after_action
+    # would silently do nothing for ActionPolicy because it manages the
+    # callback through its own DSL.
+    CLASS_METHOD_SKIP = {
+      action_policy: :skip_verify_authorized
+    }.freeze
+
     MUTEX = Mutex.new
     private_constant :MUTEX
 
@@ -30,11 +43,12 @@ module StandardId
 
         MUTEX.synchronize do
           # Guard against duplicate to_prepare registrations if called more than
-          # once (e.g. in tests or misconfigured initializers). skip_before_action
-          # is idempotent so duplicates are harmless, but this keeps things tidy.
+          # once (e.g. in tests or misconfigured initializers). The skip methods
+          # are idempotent so duplicates are harmless, but this keeps things tidy.
           return if @callback_name
 
           @callback_name = resolve_callback(framework, callback)
+          @framework = framework&.to_sym
           # @prepared is intentionally NOT cleared by reset!. This ensures
           # at most one to_prepare block is registered per process lifetime.
           # Trade-off: after reset! + apply (e.g. in tests switching
@@ -64,7 +78,7 @@ module StandardId
       end
 
       # Whether apply has been called. Used by ControllerPolicy.register to
-      # decide if newly loaded controllers need immediate skip_before_action.
+      # decide if newly loaded controllers need an immediate authorization skip.
       def applied?
         MUTEX.synchronize { !@callback_name.nil? }
       end
@@ -72,10 +86,11 @@ module StandardId
       # Apply skips to a single controller. Called by ControllerPolicy.register
       # when a controller is lazily loaded after apply has already been called.
       def apply_to_controller(controller, policy)
-        callback = MUTEX.synchronize { @callback_name }
+        callback, framework = MUTEX.synchronize { [@callback_name, @framework] }
         return unless callback
 
-        controller.skip_before_action callback, raise: false
+        skip_authorization_callback(controller, callback, framework)
+
         if policy == :public
           # authenticate_account! is defined in WebAuthentication, not on API
           # controllers. raise: false ensures this is a safe no-op for API
@@ -94,11 +109,15 @@ module StandardId
       end
 
       # @api private — intended for test isolation only.
-      # NOTE: This clears @callback_name (so applied? returns false and apply
-      # can be called again with a different framework) but intentionally does
-      # NOT clear @prepared, so no additional to_prepare block is registered.
+      # NOTE: This clears @callback_name and @framework (so applied? returns
+      # false and apply can be called again with a different framework) but
+      # intentionally does NOT clear @prepared, so no additional to_prepare
+      # block is registered.
       def reset!
-        MUTEX.synchronize { @callback_name = nil }
+        MUTEX.synchronize do
+          @callback_name = nil
+          @framework = nil
+        end
       end
 
       private
@@ -114,6 +133,29 @@ module StandardId
           end
         else
           raise ArgumentError, "Provide either framework: or callback:"
+        end
+      end
+
+      # Picks the right skip mechanism based on how the framework registers
+      # its authorization check:
+      #
+      # - ActionPolicy: provides `skip_verify_authorized` class method
+      # - Pundit: uses after_action, so `skip_after_action` is needed
+      # - CanCanCan: uses before_action, so `skip_before_action` works
+      # - Custom callback: assumed to be a before_action (caller can use
+      #   framework: for known frameworks)
+      def skip_authorization_callback(controller, callback, framework)
+        if (class_method = CLASS_METHOD_SKIP[framework])
+          # Engine API controllers inherit from ActionController::API, not the
+          # host app's ApplicationController, so they won't include ActionPolicy.
+          # A controller without ActionPolicy can never have verify_authorized in
+          # its callback chain, so skipping the call is safe — not a silent failure.
+          # This mirrors the `raise: false` intent of the other branches.
+          controller.public_send(class_method) if controller.respond_to?(class_method)
+        elsif AFTER_ACTION_FRAMEWORKS.include?(framework)
+          controller.skip_after_action callback, raise: false
+        else
+          controller.skip_before_action callback, raise: false
         end
       end
     end
