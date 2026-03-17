@@ -6,16 +6,10 @@ module StandardId
       cancancan: :check_authorization
     }.freeze
 
-    # Frameworks where the authorization check is an after_action (not a
-    # before_action). ActionPolicy uses `verify_authorized` which registers
-    # an after_action callback via its own class method. Pundit's
-    # `verify_authorized` is also an after_action. CanCanCan's
-    # `check_authorization` is a before_action.
-    #
-    # ActionPolicy provides `skip_verify_authorized` as a dedicated class
-    # method; Pundit uses a plain `after_action`, so `skip_after_action`
-    # is the correct removal mechanism.
-    AFTER_ACTION_FRAMEWORKS = %i[action_policy pundit].freeze
+    # Frameworks where the skip falls through to skip_after_action.
+    # ActionPolicy is NOT listed here because it is handled first via
+    # CLASS_METHOD_SKIP. Only :pundit reaches this branch.
+    AFTER_ACTION_FRAMEWORKS = %i[pundit].freeze
 
     # ActionPolicy provides a dedicated class method to undo
     # verify_authorized. Using skip_before_action or skip_after_action
@@ -84,7 +78,7 @@ module StandardId
       end
 
       # Whether apply has been called. Used by ControllerPolicy.register to
-      # decide if newly loaded controllers need immediate skip_before_action.
+      # decide if newly loaded controllers need an immediate authorization skip.
       def applied?
         MUTEX.synchronize { !@callback_name.nil? }
       end
@@ -153,9 +147,10 @@ module StandardId
       def skip_authorization_callback(controller, callback, framework)
         if (class_method = CLASS_METHOD_SKIP[framework])
           # Engine API controllers inherit from ActionController::API, not the
-          # host app's ApplicationController, so they may not include ActionPolicy.
-          # Guard with respond_to? to mirror the `raise: false` safety of the
-          # skip_before_action / skip_after_action paths.
+          # host app's ApplicationController, so they won't include ActionPolicy.
+          # A controller without ActionPolicy can never have verify_authorized in
+          # its callback chain, so skipping the call is safe — not a silent failure.
+          # This mirrors the `raise: false` intent of the other branches.
           controller.public_send(class_method) if controller.respond_to?(class_method)
         elsif AFTER_ACTION_FRAMEWORKS.include?(framework)
           controller.skip_after_action callback, raise: false

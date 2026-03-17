@@ -59,11 +59,12 @@ RSpec.describe StandardId::AuthorizationBypass do
         allow(public_controller).to receive(:skip_verify_authorized)
         allow(authenticated_controller).to receive(:skip_verify_authorized)
         allow(public_controller).to receive(:skip_before_action)
+        allow(authenticated_controller).to receive(:skip_before_action)
 
         described_class.apply(framework: :action_policy)
 
         expect(public_controller).to have_received(:skip_before_action).with(:authenticate_account!, raise: false)
-        expect(authenticated_controller).not_to receive(:skip_before_action)
+        expect(authenticated_controller).not_to have_received(:skip_before_action)
       end
     end
 
