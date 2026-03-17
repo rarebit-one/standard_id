@@ -198,6 +198,21 @@ RSpec.describe StandardId::AuthorizationBypass do
       described_class.apply_to_controller(new_public, :public)
     end
 
+    it "skips gracefully when controller does not respond to skip_verify_authorized (action_policy)" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
+      allow(public_controller).to receive(:skip_before_action)
+      described_class.apply(framework: :action_policy)
+
+      # Simulates an API controller that inherits from ActionController::API
+      # and does not include ActionPolicy.
+      api_controller = Class.new(ActionController::API) do
+        def self.name = "ApiControllerWithoutActionPolicy"
+      end
+
+      expect { described_class.apply_to_controller(api_controller, :public) }.not_to raise_error
+    end
+
     it "is a no-op when apply has not been called" do
       new_controller = Class.new(ActionController::Base) do
         def self.name = "UnappliedController"

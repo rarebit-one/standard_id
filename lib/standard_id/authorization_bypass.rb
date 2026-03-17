@@ -92,7 +92,7 @@ module StandardId
       # Apply skips to a single controller. Called by ControllerPolicy.register
       # when a controller is lazily loaded after apply has already been called.
       def apply_to_controller(controller, policy)
-        callback, framework = MUTEX.synchronize { [ @callback_name, @framework ] }
+        callback, framework = MUTEX.synchronize { [@callback_name, @framework] }
         return unless callback
 
         skip_authorization_callback(controller, callback, framework)
@@ -152,7 +152,11 @@ module StandardId
       #   framework: for known frameworks)
       def skip_authorization_callback(controller, callback, framework)
         if (class_method = CLASS_METHOD_SKIP[framework])
-          controller.public_send(class_method)
+          # Engine API controllers inherit from ActionController::API, not the
+          # host app's ApplicationController, so they may not include ActionPolicy.
+          # Guard with respond_to? to mirror the `raise: false` safety of the
+          # skip_before_action / skip_after_action paths.
+          controller.public_send(class_method) if controller.respond_to?(class_method)
         elsif AFTER_ACTION_FRAMEWORKS.include?(framework)
           controller.skip_after_action callback, raise: false
         else
