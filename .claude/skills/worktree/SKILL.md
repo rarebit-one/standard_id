@@ -11,6 +11,8 @@ Creates an isolated worktree for new work. **Always creates a worktree by defaul
 
 Every new piece of work gets its own worktree. This eliminates the most common source of cross-contamination: starting new work in a repo that has leftover state from a previous session (uncommitted changes, wrong branch, etc.). The only exception is when the user explicitly opts out.
 
+> **Note:** The previous version of this skill offered a stash-based workflow. That path has been removed in favor of always using worktrees. If you prefer to stash instead, run `git stash push -m "WIP"` manually before invoking `/start` or `/worktree`.
+
 ## Why `.worktrees/`
 
 Worktrees are created inside the repo at `.worktrees/<name>` (not under `.claude/worktrees/`). This ensures:
@@ -49,7 +51,7 @@ git stash list
 
 ### Phase 2: Decision
 
-**Default behavior:** Always create a worktree. Skip the decision tree and go straight to Phase 3 → Phase 4.
+**Default behavior:** Always create a worktree. Go straight to Phase 3 → Phase 4. Any uncommitted changes on the current branch are left untouched — the worktree is a separate checkout, so existing work is preserved exactly as-is.
 
 **`--stay` flag:** Skip worktree creation. Stay in the current checkout. This is for when the user explicitly wants to continue work on the current branch (e.g., resuming a previous session). If dirty state is detected, inform the user what's there.
 

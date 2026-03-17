@@ -112,12 +112,13 @@ git fetch origin main
 git worktree add .worktrees/<identifier> -b <branch-name> origin/main
 ```
 
-If the user explicitly passes `--no-worktree` AND the repo is on main with a clean working tree, fall back to a simple branch:
-
-```bash
-git fetch origin main
-git checkout -b <branch-name> origin/main
-```
+**`--no-worktree` flag:** If the user explicitly passes `--no-worktree`, check the current state:
+- On main with a clean working tree → fall back to a simple branch:
+  ```bash
+  git fetch origin main
+  git checkout -b <branch-name> origin/main
+  ```
+- Otherwise (dirty state or on a feature branch) → ignore the flag, create a worktree anyway, and explain why: _"Worktree created because the working tree has uncommitted changes (or is on a feature branch). To work without a worktree, stash or commit your changes first, switch to main, then re-run with `--no-worktree`."_
 
 See `/worktree` skill for full worktree conventions.
 
@@ -154,7 +155,7 @@ Based on the issue description, create a todo list to track progress.
 |------|-------------|
 | `--mine` | List my assigned issues in Todo state |
 | `--backlog` | List team backlog issues |
-| `--no-worktree` | Skip worktree, create branch in current checkout (only if on main + clean) |
+| `--no-worktree` | Skip worktree if on main + clean; ignored with explanation otherwise |
 | `--no-status` | Skip status update (just create branch) |
 | `--team <name>` | Filter by team (default: Rarebit) |
 | `--project <name>` | Filter by project |
