@@ -214,6 +214,45 @@ RSpec.describe StandardId::AuthorizationBypass do
       expect { described_class.apply_to_controller(api_controller, :public) }.not_to raise_error
     end
 
+    it "rescues ArgumentError when skip_verify_authorized raises (controller inherits method but has no callback)" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
+      allow(public_controller).to receive(:skip_before_action)
+      described_class.apply(framework: :action_policy)
+
+      # Simulates a controller that inherits ActionPolicy::Controller (and thus
+      # responds to skip_verify_authorized) but has NOT called verify_authorized
+      # itself, so there is no callback to skip.
+      controller_with_inherited_method = Class.new(ActionController::Base) do
+        def self.name = "InheritedActionPolicyController"
+
+        def self.skip_verify_authorized
+          raise ArgumentError, "After process_action callback :verify_authorized has not been defined"
+        end
+      end
+
+      expect { described_class.apply_to_controller(controller_with_inherited_method, :authenticated) }.not_to raise_error
+    end
+
+    it "re-raises ArgumentError with a different message (not callback-related)" do
+      allow(public_controller).to receive(:skip_verify_authorized)
+      allow(authenticated_controller).to receive(:skip_verify_authorized)
+      allow(public_controller).to receive(:skip_before_action)
+      described_class.apply(framework: :action_policy)
+
+      controller_with_bug = Class.new(ActionController::Base) do
+        def self.name = "BuggyController"
+
+        def self.skip_verify_authorized
+          raise ArgumentError, "wrong number of arguments (given 2, expected 1)"
+        end
+      end
+
+      expect { described_class.apply_to_controller(controller_with_bug, :authenticated) }.to raise_error(
+        ArgumentError, "wrong number of arguments (given 2, expected 1)"
+      )
+    end
+
     it "is a no-op when apply has not been called" do
       new_controller = Class.new(ActionController::Base) do
         def self.name = "UnappliedController"

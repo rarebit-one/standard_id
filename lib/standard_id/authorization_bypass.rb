@@ -146,12 +146,19 @@ module StandardId
       #   framework: for known frameworks)
       def skip_authorization_callback(controller, callback, framework)
         if (class_method = CLASS_METHOD_SKIP[framework])
-          # Engine API controllers inherit from ActionController::API, not the
-          # host app's ApplicationController, so they won't include ActionPolicy.
-          # A controller without ActionPolicy can never have verify_authorized in
-          # its callback chain, so skipping the call is safe — not a silent failure.
-          # This mirrors the `raise: false` intent of the other branches.
-          controller.public_send(class_method) if controller.respond_to?(class_method)
+          # Engine controllers may inherit the skip class method (e.g.
+          # skip_verify_authorized from ActionPolicy) via the host app's
+          # ApplicationController without having called verify_authorized
+          # themselves. Rails raises ArgumentError when trying to skip a
+          # callback that was never registered. We match on the message to
+          # avoid masking unrelated ArgumentErrors.
+          begin
+            controller.public_send(class_method) if controller.respond_to?(class_method)
+          rescue ArgumentError => e
+            raise unless e.message.include?(":#{callback} has not been defined")
+
+            Rails.logger.debug { "[StandardId] Skipped #{class_method} on #{controller.name}: #{e.message}" }
+          end
         elsif AFTER_ACTION_FRAMEWORKS.include?(framework)
           controller.skip_after_action callback, raise: false
         else
