@@ -103,45 +103,25 @@ mcp__linear__save_issue(
 
 The workflow should not block on Linear failures — local development can proceed.
 
-### 4. Set Up Git Branch
+### 4. Set Up Worktree
 
-First, assess the current git state:
-
-```bash
-CURRENT_BRANCH=$(git branch --show-current)
-git status --porcelain
-```
-
-**Decision tree:**
-
-```
-On main, clean       → fetch latest, create branch (simple path)
-On main, dirty       → ask: stash or worktree
-On feature, clean    → ask: switch or worktree
-On feature, dirty    → recommend worktree (preserves current work)
-```
-
-**Simple path (on main, clean):**
+**Always create a worktree** to isolate this work from any other state in the repo. This prevents changes from different sessions bleeding into unrelated PRs.
 
 ```bash
 git fetch origin main
-git checkout -b <branch-name> origin/main
+git worktree add .worktrees/<identifier> -b <branch-name> origin/main
 ```
 
-**Stash path (dirty state, user chooses stash):**
+**`--no-worktree` flag:** If the user explicitly passes `--no-worktree`, check the current state:
+- On main with a clean working tree → fall back to a simple branch:
+  ```bash
+  git fetch origin main
+  git checkout -b <branch-name> origin/main
+  ```
+- Otherwise → **stop and report why**:
+  _"Cannot skip worktree: working tree has uncommitted changes (or is on a feature branch). Stash or commit your changes first, switch to main, then re-run with `--no-worktree`."_
 
-```bash
-git stash push -m "WIP before starting RAR-123"
-git fetch origin main
-git checkout -b <branch-name> origin/main
-```
-
-**Worktree path (dirty state or --worktree flag):**
-
-```bash
-git fetch origin main
-git worktree add .worktrees/rar-123 -b <branch-name> origin/main
-```
+> **Note:** The previous version of this skill offered stash and branch-switch workflows. Those paths have been removed in favor of always using worktrees. If you prefer to stash instead, run `git stash push -m "WIP"` manually before `/start`.
 
 See `/worktree` skill for full worktree conventions.
 
@@ -178,7 +158,7 @@ Based on the issue description, create a todo list to track progress.
 |------|-------------|
 | `--mine` | List my assigned issues in Todo state |
 | `--backlog` | List team backlog issues |
-| `--worktree` | Always create a worktree (skip decision tree) |
+| `--no-worktree` | Skip worktree if on main + clean; stops with error otherwise |
 | `--no-status` | Skip status update (just create branch) |
 | `--team <name>` | Filter by team (default: Rarebit) |
 | `--project <name>` | Filter by project |

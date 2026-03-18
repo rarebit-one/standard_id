@@ -1,11 +1,17 @@
 ---
 name: worktree
-description: "Ensure clean working state before starting work. Detects uncommitted changes on the current branch and automatically moves to a worktree if needed, so new work is isolated. Use at the start of any session, or when the user says 'worktree', 'isolate', 'fresh start', or 'new worktree'."
+description: "Create an isolated worktree for new work. Always creates a worktree by default to prevent cross-contamination between sessions. Use at the start of any session, or when the user says 'worktree', 'isolate', 'fresh start', or 'new worktree'."
 ---
 
 # Worktree Skill
 
-Ensures the working tree is clean before starting new work. If the main branch (or any current branch) has uncommitted changes from a previous session, this skill isolates new work in a `.worktrees/` directory within the repo.
+Creates an isolated worktree for new work. **Always creates a worktree by default** — this prevents changes from different work sessions bleeding into unrelated PRs.
+
+## Why Worktree-by-Default
+
+Every new piece of work gets its own worktree. This eliminates the most common source of cross-contamination: starting new work in a repo that has leftover state from a previous session (uncommitted changes, wrong branch, etc.). The only exception is when the user explicitly opts out.
+
+> **Note:** The previous version of this skill offered a stash-based workflow. That path has been removed in favor of always using worktrees. If you prefer to stash instead, run `git stash push -m "WIP"` manually before invoking `/start` or `/worktree`.
 
 ## Why `.worktrees/`
 
@@ -17,16 +23,16 @@ Worktrees are created inside the repo at `.worktrees/<name>` (not under `.claude
 ## Usage
 
 ```
-/worktree                          # Assess current repo and set up if needed
+/worktree                          # Create a worktree (always, regardless of state)
 /worktree <name>                   # Create a named worktree directly
-/worktree --force                  # Always create a worktree, even if clean
+/worktree --stay            # Skip worktree creation, work in current checkout
 ```
 
 ## Workflow
 
 ### Phase 1: Detect Current State
 
-Gather the repo state:
+Gather the repo state (for reporting, not for deciding whether to create a worktree):
 
 ```bash
 # Current branch
@@ -38,47 +44,13 @@ DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
 
 # Uncommitted changes (staged + unstaged + untracked)
 git status --porcelain
-
-# Stash list (previous sessions may have stashed work)
-git stash list
 ```
 
-### Phase 2: Decision Tree
+### Phase 2: Decision
 
-**If `--force` flag is set:** skip the decision tree entirely and go straight to Phase 3 (Fetch Latest) → Phase 4 (Create Worktree). This is useful when the working tree is clean but you still want to work in an isolated worktree.
+**Default behavior:** Always create a worktree. Go straight to Phase 3 → Phase 4. Any uncommitted changes on the current branch are left untouched — the worktree is a separate checkout, so existing work is preserved exactly as-is.
 
-**Otherwise**, assess the current state:
-
-```
-┌─────────────────────────────┐
-│ Working tree clean?         │
-└─────────────────────────────┘
-       │              │
-      YES             NO
-       │              │
-       ▼              ▼
-  ┌──────────┐   ┌──────────────────────────────────┐
-  │ On       │   │ Changes detected.                 │
-  │ default  │   │ These are likely from a previous  │
-  │ branch?  │   │ session. Move to a worktree to    │
-  │          │   │ isolate new work.                  │
-  └──────────┘   └──────────────────────────────────┘
-    │       │                    │
-   YES     NO                   │
-    │       │                   ▼
-    ▼       ▼          Create worktree
-  Stay    Stay         (go to Phase 3)
-  here    here
-```
-
-**Clean working tree:**
-- If on default branch: fetch latest and stay. Ready for a new branch.
-- If on a feature branch: inform the user which branch they're on. They may want to continue or start fresh.
-
-**Dirty working tree (changes from previous session):**
-- Automatically create a worktree for new work.
-- The existing changes stay untouched on the current branch.
-- Inform the user what was detected and where the worktree was created.
+**`--stay` flag:** Skip worktree creation and stay in the current checkout. This is for when the user explicitly wants to continue work on the current branch (e.g., resuming a previous session). If dirty state is detected, inform the user what's there but **do not stop** — the user is consciously choosing to stay. This differs from `/start --no-worktree`, which hard-stops on dirty state because starting new work on an unclean tree risks cross-contamination.
 
 ### Phase 3: Fetch Latest
 
@@ -124,27 +96,32 @@ Based on: origin/main (fetched latest)
 
 Previous state preserved:
   Branch: <original-branch>
-  Changes: <summary of uncommitted changes left behind>
+  Changes: <summary of uncommitted changes left behind, if any>
 
 Working directory: .worktrees/<name>
 ```
 
-If the working tree was already clean (and `--force` was not used):
+If `--stay` was used:
 
 ```
-Working tree is clean on: <branch>
+Staying in current checkout: <branch>
   (fetched latest origin/main)
+  <summary of uncommitted changes, if any>
 
-Ready to start. Create a branch with:
+To create a new branch:
   git checkout -b <branch-name> origin/main
 ```
 
 ## Integration with /start
 
-The `/start` skill handles git state assessment as part of its workflow. When `/start` detects a dirty working tree, it should follow the same conventions documented here:
+The `/start` skill always creates a worktree as part of its workflow. Both skills follow the same conventions:
 - Worktrees go in `.worktrees/`
 - Always fetch latest before creating
 - Naming follows the `<identifier>` convention (e.g., `.worktrees/swe-123`)
+
+**Opt-out flags differ by context:**
+- `/worktree --stay` — "stay in current checkout" (you invoked the worktree tool, you're opting out of its action; dirty state is allowed)
+- `/start --no-worktree` — "don't create a worktree" (you're starting new work, skipping one aspect; dirty state causes a hard stop)
 
 This `/worktree` skill can also be invoked independently when you want to isolate work without picking up a Linear issue.
 
