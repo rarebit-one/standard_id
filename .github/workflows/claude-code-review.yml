@@ -10,5 +10,10 @@ concurrency:
 
 jobs:
   review:
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
     uses: rarebit-one/.github/.github/workflows/claude-code-review.yml@main
     secrets: inherit
