@@ -25,7 +25,7 @@ Worktrees are created inside the repo at `.worktrees/<name>` (not under `.claude
 ```
 /worktree                          # Create a worktree (always, regardless of state)
 /worktree <name>                   # Create a named worktree directly
-/worktree --no-worktree            # Skip worktree creation, work in current checkout
+/worktree --stay            # Skip worktree creation, work in current checkout
 ```
 
 ## Workflow
@@ -50,7 +50,7 @@ git status --porcelain
 
 **Default behavior:** Always create a worktree. Go straight to Phase 3 → Phase 4. Any uncommitted changes on the current branch are left untouched — the worktree is a separate checkout, so existing work is preserved exactly as-is.
 
-**`--no-worktree` flag:** Skip worktree creation and stay in the current checkout. This is for when the user explicitly wants to continue work on the current branch (e.g., resuming a previous session). If dirty state is detected, inform the user what's there.
+**`--stay` flag:** Skip worktree creation and stay in the current checkout. This is for when the user explicitly wants to continue work on the current branch (e.g., resuming a previous session). If dirty state is detected, inform the user what's there but **do not stop** — the user is consciously choosing to stay. This differs from `/start --no-worktree`, which hard-stops on dirty state because starting new work on an unclean tree risks cross-contamination.
 
 ### Phase 3: Fetch Latest
 
@@ -101,7 +101,7 @@ Previous state preserved:
 Working directory: .worktrees/<name>
 ```
 
-If `--no-worktree` was used:
+If `--stay` was used:
 
 ```
 Staying in current checkout: <branch>
@@ -118,6 +118,10 @@ The `/start` skill always creates a worktree as part of its workflow. Both skill
 - Worktrees go in `.worktrees/`
 - Always fetch latest before creating
 - Naming follows the `<identifier>` convention (e.g., `.worktrees/swe-123`)
+
+**Opt-out flags differ by context:**
+- `/worktree --stay` — "stay in current checkout" (you invoked the worktree tool, you're opting out of its action; dirty state is allowed)
+- `/start --no-worktree` — "don't create a worktree" (you're starting new work, skipping one aspect; dirty state causes a hard stop)
 
 This `/worktree` skill can also be invoked independently when you want to isolate work without picking up a Linear issue.
 
