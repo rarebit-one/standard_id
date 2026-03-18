@@ -54,13 +54,13 @@ git status --porcelain
 
 ### Phase 3: Fetch Latest
 
-Before creating a worktree, always fetch the latest default branch:
+Always fetch the latest default branch, regardless of whether a worktree will be created:
 
 ```bash
-git fetch origin $DEFAULT_BRANCH
+git fetch origin "$DEFAULT_BRANCH"
 ```
 
-This ensures the worktree starts from the latest codebase.
+This ensures any new branch or worktree starts from the latest codebase.
 
 ### Phase 4: Create Worktree
 
@@ -68,7 +68,7 @@ This ensures the worktree starts from the latest codebase.
 
 If a name is provided (e.g., from a Linear issue identifier):
 ```bash
-git worktree add .worktrees/<name> -b <branch-name> origin/$DEFAULT_BRANCH
+git worktree add .worktrees/<name> -b <branch-name> "origin/$DEFAULT_BRANCH"
 ```
 
 If no name is provided, generate one from context:
@@ -92,7 +92,7 @@ After setup, display:
 ```
 Worktree created at: .worktrees/<name>
 Branch: <branch-name>
-Based on: origin/main (fetched latest)
+Based on: origin/$DEFAULT_BRANCH (fetched latest)
 
 Previous state preserved:
   Branch: <original-branch>
@@ -105,11 +105,11 @@ If `--stay` was used:
 
 ```
 Staying in current checkout: <branch>
-  (fetched latest origin/main)
+  (fetched latest origin/$DEFAULT_BRANCH)
   <summary of uncommitted changes, if any>
 
 To create a new branch:
-  git checkout -b <branch-name> origin/main
+  git checkout -b <branch-name> "origin/$DEFAULT_BRANCH"
 ```
 
 ## Integration with /start

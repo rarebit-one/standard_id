@@ -108,18 +108,22 @@ The workflow should not block on Linear failures — local development can proce
 **Always create a worktree** to isolate this work from any other state in the repo. This prevents changes from different sessions bleeding into unrelated PRs.
 
 ```bash
-git fetch origin main
-git worktree add .worktrees/<identifier> -b <branch-name> origin/main
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/origin/@@')
+DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+git fetch origin "$DEFAULT_BRANCH"
+git worktree add .worktrees/<identifier> -b <branch-name> "origin/$DEFAULT_BRANCH"
 ```
 
 **`--no-worktree` flag:** If the user explicitly passes `--no-worktree`, check the current state:
-- On main with a clean working tree → fall back to a simple branch:
+- On the default branch with a clean working tree → fall back to a simple branch:
   ```bash
-  git fetch origin main
-  git checkout -b <branch-name> origin/main
+  DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/origin/@@')
+  DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+  git fetch origin "$DEFAULT_BRANCH"
+  git checkout -b <branch-name> "origin/$DEFAULT_BRANCH"
   ```
 - Otherwise → **stop and report why**:
-  _"Cannot skip worktree: working tree has uncommitted changes (or is on a feature branch). Stash or commit your changes first, switch to main, then re-run with `--no-worktree`."_
+  _"Cannot skip worktree: working tree has uncommitted changes (or is on a feature branch). Stash or commit your changes first, switch to the default branch, then re-run with `--no-worktree`."_
 
 > **Note:** The previous version of this skill offered stash and branch-switch workflows. Those paths have been removed in favor of always using worktrees. If you prefer to stash instead, run `git stash push -m "WIP"` manually before `/start`.
 
@@ -158,7 +162,7 @@ Based on the issue description, create a todo list to track progress.
 |------|-------------|
 | `--mine` | List my assigned issues in Todo state |
 | `--backlog` | List team backlog issues |
-| `--no-worktree` | Skip worktree if on main + clean; stops with error otherwise |
+| `--no-worktree` | Skip worktree if on the default branch + clean; stops with error otherwise |
 | `--no-status` | Skip status update (just create branch) |
 | `--team <name>` | Filter by team (default: Rarebit) |
 | `--project <name>` | Filter by project |
