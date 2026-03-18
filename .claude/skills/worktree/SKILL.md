@@ -25,7 +25,7 @@ Worktrees are created inside the repo at `.worktrees/<name>` (not under `.claude
 ```
 /worktree                          # Create a worktree (always, regardless of state)
 /worktree <name>                   # Create a named worktree directly
-/worktree --stay                   # Skip worktree creation, work in current checkout
+/worktree --no-worktree            # Skip worktree creation, work in current checkout
 ```
 
 ## Workflow
@@ -44,16 +44,13 @@ DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
 
 # Uncommitted changes (staged + unstaged + untracked)
 git status --porcelain
-
-# Stash list (previous sessions may have stashed work)
-git stash list
 ```
 
 ### Phase 2: Decision
 
 **Default behavior:** Always create a worktree. Go straight to Phase 3 → Phase 4. Any uncommitted changes on the current branch are left untouched — the worktree is a separate checkout, so existing work is preserved exactly as-is.
 
-**`--stay` flag:** Skip worktree creation. Stay in the current checkout. This is for when the user explicitly wants to continue work on the current branch (e.g., resuming a previous session). If dirty state is detected, inform the user what's there.
+**`--no-worktree` flag:** Skip worktree creation and stay in the current checkout. This is for when the user explicitly wants to continue work on the current branch (e.g., resuming a previous session). If dirty state is detected, inform the user what's there.
 
 ### Phase 3: Fetch Latest
 
@@ -104,12 +101,15 @@ Previous state preserved:
 Working directory: .worktrees/<name>
 ```
 
-If `--stay` was used:
+If `--no-worktree` was used:
 
 ```
 Staying in current checkout: <branch>
   (fetched latest origin/main)
   <summary of uncommitted changes, if any>
+
+To create a new branch:
+  git checkout -b <branch-name> origin/main
 ```
 
 ## Integration with /start

@@ -118,7 +118,10 @@ git worktree add .worktrees/<identifier> -b <branch-name> origin/main
   git fetch origin main
   git checkout -b <branch-name> origin/main
   ```
-- Otherwise (dirty state or on a feature branch) → ignore the flag, create a worktree anyway, and explain why: _"Worktree created because the working tree has uncommitted changes (or is on a feature branch). To work without a worktree, stash or commit your changes first, switch to main, then re-run with `--no-worktree`."_
+- Otherwise → **stop and report why**:
+  _"Cannot skip worktree: working tree has uncommitted changes (or is on a feature branch). Stash or commit your changes first, switch to main, then re-run with `--no-worktree`."_
+
+> **Note:** The previous version of this skill offered stash and branch-switch workflows. Those paths have been removed in favor of always using worktrees. If you prefer to stash instead, run `git stash push -m "WIP"` manually before `/start`.
 
 See `/worktree` skill for full worktree conventions.
 
@@ -155,7 +158,7 @@ Based on the issue description, create a todo list to track progress.
 |------|-------------|
 | `--mine` | List my assigned issues in Todo state |
 | `--backlog` | List team backlog issues |
-| `--no-worktree` | Skip worktree if on main + clean; ignored with explanation otherwise |
+| `--no-worktree` | Skip worktree if on main + clean; stops with error otherwise |
 | `--no-status` | Skip status update (just create branch) |
 | `--team <name>` | Filter by team (default: Rarebit) |
 | `--project <name>` | Filter by project |
