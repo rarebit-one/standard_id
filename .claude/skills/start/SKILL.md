@@ -110,8 +110,8 @@ The workflow should not block on Linear failures — local development can proce
 ```bash
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/origin/@@')
 DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
-git fetch origin $DEFAULT_BRANCH
-git worktree add .worktrees/<identifier> -b <branch-name> origin/$DEFAULT_BRANCH
+git fetch origin "$DEFAULT_BRANCH"
+git worktree add .worktrees/<identifier> -b <branch-name> "origin/$DEFAULT_BRANCH"
 ```
 
 **`--no-worktree` flag:** If the user explicitly passes `--no-worktree`, check the current state:
@@ -119,8 +119,8 @@ git worktree add .worktrees/<identifier> -b <branch-name> origin/$DEFAULT_BRANCH
   ```bash
   DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/origin/@@')
   DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
-  git fetch origin $DEFAULT_BRANCH
-  git checkout -b <branch-name> origin/$DEFAULT_BRANCH
+  git fetch origin "$DEFAULT_BRANCH"
+  git checkout -b <branch-name> "origin/$DEFAULT_BRANCH"
   ```
 - Otherwise → **stop and report why**:
   _"Cannot skip worktree: working tree has uncommitted changes (or is on a feature branch). Stash or commit your changes first, switch to the default branch, then re-run with `--no-worktree`."_
@@ -162,7 +162,7 @@ Based on the issue description, create a todo list to track progress.
 |------|-------------|
 | `--mine` | List my assigned issues in Todo state |
 | `--backlog` | List team backlog issues |
-| `--no-worktree` | Skip worktree if on main + clean; stops with error otherwise |
+| `--no-worktree` | Skip worktree if on the default branch + clean; stops with error otherwise |
 | `--no-status` | Skip status update (just create branch) |
 | `--team <name>` | Filter by team (default: Rarebit) |
 | `--project <name>` | Filter by project |
