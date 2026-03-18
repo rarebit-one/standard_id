@@ -54,13 +54,13 @@ git status --porcelain
 
 ### Phase 3: Fetch Latest
 
-Before creating a worktree, always fetch the latest default branch:
+Always fetch the latest default branch, regardless of whether a worktree will be created:
 
 ```bash
 git fetch origin $DEFAULT_BRANCH
 ```
 
-This ensures the worktree starts from the latest codebase.
+This ensures any new branch or worktree starts from the latest codebase.
 
 ### Phase 4: Create Worktree
 
