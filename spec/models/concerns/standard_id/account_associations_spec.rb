@@ -9,4 +9,60 @@ RSpec.describe StandardId::AccountAssociations, type: :model do
     it { expect(account).to have_many(:sessions) }
     it { expect(account).to have_many(:client_applications) }
   end
+
+  describe ".find_or_create_by_verified_email!" do
+    let(:email) { "test@example.com" }
+
+    context "when an account with a verified email identifier already exists" do
+      let!(:existing_account) do
+        Account.create!(name: "Test", email: email,
+          identifiers_attributes: [{ type: "StandardId::EmailIdentifier", value: email, verified_at: Time.current }])
+      end
+
+      it "returns the existing account" do
+        expect(Account.find_or_create_by_verified_email!(email, name: "Other")).to eq(existing_account)
+      end
+
+      it "does not create a new account" do
+        expect { Account.find_or_create_by_verified_email!(email, name: "Other") }.not_to change(Account, :count)
+      end
+    end
+
+    context "when no account exists for the email" do
+      it "creates a new account with verified email identifier" do
+        account = Account.find_or_create_by_verified_email!(email, name: "New User")
+        expect(account).to be_persisted
+        identifier = account.identifiers.find_by(type: "StandardId::EmailIdentifier")
+        expect(identifier.value).to eq(email)
+        expect(identifier.verified_at).to be_present
+      end
+
+      it "passes additional attributes to the account" do
+        account = Account.find_or_create_by_verified_email!(email, name: "Custom Name")
+        expect(account.name).to eq("Custom Name")
+      end
+
+      it "publishes ACCOUNT_CREATING and ACCOUNT_CREATED events" do
+        events = []
+        sub1 = StandardId::Events.subscribe(StandardId::Events::ACCOUNT_CREATING) { |e| events << e }
+        sub2 = StandardId::Events.subscribe(StandardId::Events::ACCOUNT_CREATED) { |e| events << e }
+        Account.find_or_create_by_verified_email!(email, name: "Test")
+        expect(events.size).to eq(2)
+      ensure
+        StandardId::Events.unsubscribe(sub1, sub2)
+      end
+    end
+
+    context "email normalization" do
+      it "strips and downcases" do
+        account = Account.find_or_create_by_verified_email!("  Test@Example.COM  ", name: "Test")
+        expect(account.identifiers.first.value).to eq("test@example.com")
+      end
+
+      it "finds existing accounts regardless of case" do
+        Account.find_or_create_by_verified_email!("test@example.com", name: "Test")
+        expect { Account.find_or_create_by_verified_email!("TEST@EXAMPLE.COM", name: "X") }.not_to change(Account, :count)
+      end
+    end
+  end
 end

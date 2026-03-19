@@ -12,11 +12,7 @@ module StandardId
       end
 
       def find_or_create_account!(email)
-        identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: email)
-        return identifier.account if identifier.present?
-
-        identifiers_attributes = [{ type: "StandardId::EmailIdentifier", value: email, verified_at: Time.current }]
-        Account.create!(identifiers_attributes:)
+        Account.find_or_create_by_verified_email!(email)
       end
 
       def sender_callback
