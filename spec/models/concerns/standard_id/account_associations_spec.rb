@@ -64,9 +64,11 @@ RSpec.describe StandardId::AccountAssociations, type: :model do
 
       it "returns the existing account when create! hits a unique constraint" do
         call_count = 0
-        allow(StandardId::EmailIdentifier).to receive(:find_by).and_wrap_original do |method, **args|
+        allow(Account).to receive(:create!).and_wrap_original do |method, *args, **kwargs|
           call_count += 1
-          call_count == 1 ? nil : method.call(**args)
+          raise ActiveRecord::RecordNotUnique if call_count == 1
+
+          method.call(*args, **kwargs)
         end
 
         result = Account.find_or_create_by_verified_email!(email, name: "Racer")
