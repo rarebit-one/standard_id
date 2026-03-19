@@ -2,12 +2,10 @@ require "rails_helper"
 
 RSpec.describe "StandardId::Api::SessionsController", type: :request do
   let(:account) { Account.create!(name: "Test User", email: "sessions-#{SecureRandom.hex(4)}@example.com") }
-  let(:access_token) { StandardId::JwtService.encode(sub: account.id, client_id: "test-client", scope: "read") }
+  let(:access_token) { StandardId::JwtService.encode({ sub: account.id, client_id: "test-client", scope: "read" }) }
   let(:auth_headers) { { "Authorization" => "Bearer #{access_token}" } }
 
   describe "GET /api/sessions" do
-    let(:path) { api_standard_id_api.sessions_path }
-
     context "with a valid token" do
       let!(:device_session) do
         StandardId::DeviceSession.create!(
@@ -19,7 +17,7 @@ RSpec.describe "StandardId::Api::SessionsController", type: :request do
       end
 
       it "returns the account's active sessions" do
-        get path, headers: auth_headers
+        get "/api/sessions", headers: auth_headers
 
         expect(response).to have_http_status(:ok)
         body = response.parsed_body
@@ -32,7 +30,7 @@ RSpec.describe "StandardId::Api::SessionsController", type: :request do
       it "does not include revoked sessions" do
         device_session.revoke!
 
-        get path, headers: auth_headers
+        get "/api/sessions", headers: auth_headers
 
         body = response.parsed_body
         expect(body).to be_empty
@@ -41,7 +39,7 @@ RSpec.describe "StandardId::Api::SessionsController", type: :request do
 
     context "without a token" do
       it "returns 401" do
-        get path
+        get "/api/sessions"
 
         expect(response).to have_http_status(:unauthorized)
       end
@@ -58,11 +56,9 @@ RSpec.describe "StandardId::Api::SessionsController", type: :request do
       )
     end
 
-    let(:path) { api_standard_id_api.session_path(device_session.id) }
-
     context "with a valid token" do
       it "revokes the session and returns 204" do
-        delete path, headers: auth_headers
+        delete "/api/sessions/#{device_session.id}", headers: auth_headers
 
         expect(response).to have_http_status(:no_content)
         expect(device_session.reload).to be_revoked
@@ -70,18 +66,35 @@ RSpec.describe "StandardId::Api::SessionsController", type: :request do
     end
 
     context "with a non-existent session" do
-      let(:path) { api_standard_id_api.session_path("00000000-0000-0000-0000-000000000000") }
-
       it "returns 404" do
-        delete path, headers: auth_headers
+        delete "/api/sessions/00000000-0000-0000-0000-000000000000", headers: auth_headers
 
         expect(response).to have_http_status(:not_found)
       end
     end
 
+    context "when session belongs to another account" do
+      let(:other_account) { Account.create!(name: "Other User", email: "other-#{SecureRandom.hex(4)}@example.com") }
+      let!(:other_session) do
+        StandardId::DeviceSession.create!(
+          account: other_account,
+          device_id: "device-#{SecureRandom.hex(4)}",
+          device_agent: "MyApp/1.0",
+          expires_at: 2.weeks.from_now
+        )
+      end
+
+      it "returns 404 and does not revoke the session" do
+        delete "/api/sessions/#{other_session.id}", headers: auth_headers
+
+        expect(response).to have_http_status(:not_found)
+        expect(other_session.reload).not_to be_revoked
+      end
+    end
+
     context "without a token" do
       it "returns 401" do
-        delete path
+        delete "/api/sessions/#{device_session.id}"
 
         expect(response).to have_http_status(:unauthorized)
       end
