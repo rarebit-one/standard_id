@@ -26,8 +26,11 @@ module StandardId
           source: "find_or_create_by_verified_email"
         )
 
+        merged_attributes = account_attributes.dup
+        merged_attributes[:email] = normalized_email if column_names.include?("email") && !merged_attributes.key?(:email)
+
         account = create!(
-          **account_attributes,
+          **merged_attributes,
           identifiers_attributes: [
             { type: "StandardId::EmailIdentifier", value: normalized_email, verified_at: Time.current }
           ]
