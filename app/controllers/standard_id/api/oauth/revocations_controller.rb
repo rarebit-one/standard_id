@@ -13,9 +13,6 @@ module StandardId
         # Always responds with 200 OK regardless of whether the token
         # was valid or revocation was successful (per RFC 7009 Section 2.1).
         def create
-          response.headers["Cache-Control"] = "no-store"
-          response.headers["Pragma"] = "no-cache"
-
           token = params[:token]
           head :ok and return if token.blank?
 

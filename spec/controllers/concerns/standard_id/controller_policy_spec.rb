@@ -22,7 +22,8 @@ RSpec.describe StandardId::ControllerPolicy do
           StandardId::Api::Oauth::Callback::ProvidersController,
           StandardId::Api::Oidc::LogoutController,
           StandardId::Api::WellKnown::JwksController,
-          StandardId::Api::PasswordlessController
+          StandardId::Api::PasswordlessController,
+          StandardId::Api::Oauth::RevocationsController
         ]
       end
 
