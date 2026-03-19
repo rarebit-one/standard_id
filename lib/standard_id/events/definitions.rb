@@ -39,6 +39,7 @@ module StandardId
       OAUTH_TOKEN_ISSUED = "oauth.token.issued"
       OAUTH_TOKEN_REFRESHED = "oauth.token.refreshed"
       OAUTH_CODE_CONSUMED = "oauth.code.consumed"
+      OAUTH_TOKEN_REVOKED = "oauth.token.revoked"
 
       PASSWORDLESS_CODE_REQUESTED = "passwordless.code.requested"
       PASSWORDLESS_CODE_GENERATED = "passwordless.code.generated"
@@ -108,7 +109,8 @@ module StandardId
         OAUTH_TOKEN_ISSUING,
         OAUTH_TOKEN_ISSUED,
         OAUTH_TOKEN_REFRESHED,
-        OAUTH_CODE_CONSUMED
+        OAUTH_CODE_CONSUMED,
+        OAUTH_TOKEN_REVOKED
       ].freeze
 
       PASSWORDLESS_EVENTS = [
@@ -164,6 +166,7 @@ module StandardId
         OAUTH_AUTHORIZATION_DENIED,
         OAUTH_TOKEN_ISSUED,
         OAUTH_TOKEN_REFRESHED,
+        OAUTH_TOKEN_REVOKED,
         # Passwordless
         PASSWORDLESS_CODE_FAILED,
         PASSWORDLESS_ACCOUNT_CREATED,
