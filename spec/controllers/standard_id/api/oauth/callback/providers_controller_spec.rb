@@ -59,7 +59,7 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
         expect(response).to have_http_status(:ok)
       end
 
-      it "accepts scopes parameter as alternative" do
+      it "ignores deprecated scopes parameter" do
         allow_any_instance_of(described_class).to receive(:get_user_info_from_provider)
           .and_return(user_info:, tokens: {})
 
@@ -69,30 +69,11 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
           hash_including(
             account: account,
             connection: "apple",
-            scopes: "profile email"
+            scopes: nil
           )
         ).and_return(social_flow)
 
         post :callback, params: { provider: "apple", code: "abc123", scopes: "profile email" }
-
-        expect(response).to have_http_status(:ok)
-      end
-
-      it "prioritizes scope over scopes parameter" do
-        allow_any_instance_of(described_class).to receive(:get_user_info_from_provider)
-          .and_return(user_info:, tokens: {})
-
-        expect(StandardId::Oauth::SocialFlow).to receive(:new).with(
-          anything,
-          anything,
-          hash_including(
-            account: account,
-            connection: "apple",
-            scopes: "profile"
-          )
-        ).and_return(social_flow)
-
-        post :callback, params: { provider: "apple", code: "abc123", scope: "profile", scopes: "email" }
 
         expect(response).to have_http_status(:ok)
       end
