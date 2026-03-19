@@ -389,6 +389,25 @@ RSpec.describe StandardId::Passwordless::VerificationService do
           expect(result.success?).to be true
           expect(result.account).to eq(account)
         end
+
+        it "emits OTP_VALIDATED event with bypass: true" do
+          create_email_account(email)
+
+          expect(StandardId::Events).to receive(:publish).with(
+            StandardId::Events::OTP_VALIDATED,
+            hash_including(bypass: true)
+          )
+
+          described_class.verify(email: email, code: bypass_code, request: request)
+        end
+
+        it "raises in production environment" do
+          allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+
+          expect {
+            described_class.verify(email: email, code: bypass_code, request: request)
+          }.to raise_error(RuntimeError, /must not be set in production/)
+        end
       end
 
       context "when bypass_code is configured but submitted code does not match" do
