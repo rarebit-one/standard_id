@@ -14,6 +14,7 @@ StandardId::ApiEngine.routes.draw do
 
     namespace :oauth do
       resource :token, only: [:create]
+      resource :revoke, only: [:create], controller: :revocations
 
       namespace :callback do
         post ":provider", to: "providers#callback", as: :provider
