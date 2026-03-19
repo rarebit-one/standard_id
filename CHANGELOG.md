@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-03-19
+
+### Added
+
+- `Account.find_or_create_by_verified_email!` class method for race-safe account creation with verified email identifiers (#107)
+- Publishes `ACCOUNT_CREATING` and `ACCOUNT_CREATED` lifecycle events during account creation
+- Auto-sets `email` column on Account if it exists and isn't already provided
+
+### Changed
+
+- Social OAuth callback now only accepts `scope` (singular) parameter per OAuth 2.0 spec; the `scopes` (plural) fallback has been removed (#106)
+
 ## [0.5.2] - 2026-03-17
 
 ### Added
