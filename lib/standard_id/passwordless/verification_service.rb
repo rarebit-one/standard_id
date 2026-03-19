@@ -83,6 +83,9 @@ module StandardId
           return failure("Code is required")
         end
 
+        bypass_result = try_bypass
+        return bypass_result if bypass_result
+
         challenge = find_active_challenge
         code_matches = challenge.present? && secure_compare(challenge.code, @code)
         attempts = record_failed_attempt(challenge, code_matches)
@@ -126,6 +129,20 @@ module StandardId
       end
 
       private
+
+      # When a bypass_code is configured and the submitted code matches,
+      # skip the CodeChallenge lookup entirely. This allows E2E testing
+      # tools (e.g. Playwright) to verify OTPs without a real challenge.
+      def try_bypass
+        bypass_code = StandardId.config.passwordless.bypass_code
+        return unless bypass_code.present?
+        return unless secure_compare(bypass_code, @code)
+
+        strategy = strategy_for(@channel)
+        account = strategy.find_or_create_account(@target)
+
+        success(account: account, challenge: nil)
+      end
 
       def resolve_target_and_channel!(email, phone)
         if email.present?
