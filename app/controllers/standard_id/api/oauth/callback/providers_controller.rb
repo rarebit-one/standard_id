@@ -19,7 +19,7 @@ module StandardId
             request,
             account:,
             connection: provider.provider_name,
-            scopes: params[:scope] || params[:scopes]
+            scopes: params[:scope]
           )
 
           token_response = flow.execute
