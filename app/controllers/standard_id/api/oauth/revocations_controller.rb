@@ -25,9 +25,13 @@ module StandardId
             .where(account_id: account_id)
             .active
 
+          # token_type_hint is accepted but ignored — we always attempt
+          # revocation via sub claim regardless of token type (RFC 7009 §2.1)
           revoked_sessions = sessions.to_a
           if revoked_sessions.any?
-            revoked_sessions.each { |session| session.revoke!(reason: "token_revocation") }
+            ActiveRecord::Base.transaction do
+              revoked_sessions.each { |session| session.revoke!(reason: "token_revocation") }
+            end
 
             StandardId::Events.publish(
               StandardId::Events::OAUTH_TOKEN_REVOKED,

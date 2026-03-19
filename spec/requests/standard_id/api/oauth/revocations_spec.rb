@@ -16,7 +16,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       let(:token) do
-        StandardId::JwtService.encode(sub: account.id, client_id: "test-client")
+        StandardId::JwtService.encode({ sub: account.id, client_id: "test-client" })
       end
 
       it "responds with 200 OK" do
@@ -94,7 +94,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
 
     context "with a token lacking a sub claim" do
       let(:token) do
-        StandardId::JwtService.encode(client_id: "test-client")
+        StandardId::JwtService.encode({ client_id: "test-client" })
       end
 
       it "responds with 200 OK without revoking anything" do
@@ -106,7 +106,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
 
     context "when no active device sessions exist" do
       let(:token) do
-        StandardId::JwtService.encode(sub: account.id, client_id: "test-client")
+        StandardId::JwtService.encode({ sub: account.id, client_id: "test-client" })
       end
 
       it "responds with 200 OK" do
@@ -144,7 +144,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       let(:token) do
-        StandardId::JwtService.encode(sub: account.id, client_id: "test-client")
+        StandardId::JwtService.encode({ sub: account.id, client_id: "test-client" })
       end
 
       it "revokes all active device sessions" do
@@ -170,7 +170,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       let(:token) do
-        StandardId::JwtService.encode(sub: account.id, client_id: "test-client")
+        StandardId::JwtService.encode({ sub: account.id, client_id: "test-client" })
       end
 
       it "responds with 200 OK and does not re-revoke" do
