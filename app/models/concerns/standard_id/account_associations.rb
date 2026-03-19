@@ -20,6 +20,8 @@ module StandardId
         identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized_email)
         return identifier.account if identifier.present?
 
+        # Best-effort intent signal — fires before create! so subscribers may see
+        # ACCOUNT_CREATING without a matching ACCOUNT_CREATED if create! raises.
         StandardId::Events.publish(
           StandardId::Events::ACCOUNT_CREATING,
           email: normalized_email,

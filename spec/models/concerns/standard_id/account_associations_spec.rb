@@ -47,9 +47,40 @@ RSpec.describe StandardId::AccountAssociations, type: :model do
         sub1 = StandardId::Events.subscribe(StandardId::Events::ACCOUNT_CREATING) { |e| events << e }
         sub2 = StandardId::Events.subscribe(StandardId::Events::ACCOUNT_CREATED) { |e| events << e }
         Account.find_or_create_by_verified_email!(email, name: "Test")
-        expect(events.size).to eq(2)
+        expect(events.map(&:name)).to contain_exactly(
+          "standard_id.#{StandardId::Events::ACCOUNT_CREATING}",
+          "standard_id.#{StandardId::Events::ACCOUNT_CREATED}"
+        )
       ensure
         StandardId::Events.unsubscribe(sub1, sub2)
+      end
+    end
+
+    context "race condition (RecordNotUnique)" do
+      let!(:existing_account) do
+        Account.create!(name: "Existing", email: email,
+          identifiers_attributes: [{ type: "StandardId::EmailIdentifier", value: email, verified_at: Time.current }])
+      end
+
+      it "returns the existing account when create! hits a unique constraint" do
+        call_count = 0
+        allow(StandardId::EmailIdentifier).to receive(:find_by).and_wrap_original do |method, **args|
+          call_count += 1
+          call_count == 1 ? nil : method.call(**args)
+        end
+
+        result = Account.find_or_create_by_verified_email!(email, name: "Racer")
+        expect(result).to eq(existing_account)
+      end
+    end
+
+    context "nil/blank email" do
+      it "raises ArgumentError for nil" do
+        expect { Account.find_or_create_by_verified_email!(nil, name: "T") }.to raise_error(ArgumentError)
+      end
+
+      it "raises ArgumentError for blank string" do
+        expect { Account.find_or_create_by_verified_email!("  ", name: "T") }.to raise_error(ArgumentError)
       end
     end
 
