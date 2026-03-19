@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-03-19
+
+### Added
+
+- `POST /oauth/revoke` endpoint for RFC 7009-compliant token revocation (#108)
+- `GET /.well-known/openid-configuration` endpoint for OIDC discovery (#109)
+- `GET /api/sessions` and `DELETE /api/sessions/:id` endpoints for mobile session management (#110)
+- `OAUTH_TOKEN_REVOKED` event published on successful token revocation
+
 ## [0.6.0] - 2026-03-19
 
 ### Added
