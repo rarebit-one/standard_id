@@ -30,11 +30,11 @@ module StandardId
             userinfo_endpoint: "#{base}/userinfo",
             jwks_uri: "#{base}/.well-known/jwks.json",
             response_types_supported: %w[code],
-            grant_types_supported: %w[authorization_code refresh_token client_credentials password],
+            grant_types_supported: %w[authorization_code refresh_token client_credentials],
             subject_types_supported: %w[public],
             id_token_signing_alg_values_supported: [StandardId.config.oauth.signing_algorithm.to_s.upcase],
             token_endpoint_auth_methods_supported: %w[client_secret_basic client_secret_post]
-          }.compact
+          }
         end
       end
     end
