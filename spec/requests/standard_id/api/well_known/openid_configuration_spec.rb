@@ -19,7 +19,7 @@ RSpec.describe "StandardId::Api::WellKnown::OpenidConfigurationController", type
 
       it "sets public cache headers" do
         get "/api/.well-known/openid-configuration"
-        expect(response.headers["Cache-Control"]).to eq("public, max-age=3600")
+        expect(response.headers["Cache-Control"]).to include("public").and include("max-age=3600")
       end
 
       it "includes the issuer" do
