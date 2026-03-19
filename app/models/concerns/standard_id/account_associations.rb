@@ -47,7 +47,9 @@ module StandardId
 
         account
       rescue ActiveRecord::RecordNotUnique
-        identifier = StandardId::EmailIdentifier.includes(:account).find_by!(value: normalized_email)
+        identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized_email)
+        raise unless identifier
+
         identifier.account
       end
     end
