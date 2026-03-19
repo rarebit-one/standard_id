@@ -13,6 +13,8 @@ module StandardId
 
     class_methods do
       def find_or_create_by_verified_email!(email, **account_attributes)
+        raise ArgumentError, "email is required" if email.blank?
+
         normalized_email = email.to_s.strip.downcase
 
         identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized_email)
