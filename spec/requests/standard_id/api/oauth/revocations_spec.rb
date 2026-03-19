@@ -1,7 +1,6 @@
 require "rails_helper"
 
 RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request do
-  let(:path) { api_standard_id_api.oauth_revoke_path }
   let(:account) { Account.create!(name: "Test User", email: "revoke-#{SecureRandom.hex(4)}@example.com") }
 
   describe "POST /api/oauth/revoke" do
@@ -20,13 +19,13 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       it "responds with 200 OK" do
-        post path, params: { token: token }
+        post "/api/oauth/revoke", params: { token: token }
 
         expect(response).to have_http_status(:ok)
       end
 
       it "revokes active device sessions for the account" do
-        post path, params: { token: token }
+        post "/api/oauth/revoke", params: { token: token }
 
         device_session.reload
         expect(device_session).to be_revoked
@@ -39,7 +38,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
         end
 
         begin
-          post path, params: { token: token }
+          post "/api/oauth/revoke", params: { token: token }
 
           expect(events.size).to eq(1)
           expect(events.first.payload[:account_id]).to eq(account.id)
@@ -50,7 +49,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       it "accepts optional token_type_hint parameter" do
-        post path, params: { token: token, token_type_hint: "access_token" }
+        post "/api/oauth/revoke", params: { token: token, token_type_hint: "access_token" }
 
         expect(response).to have_http_status(:ok)
         device_session.reload
@@ -60,13 +59,13 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
 
     context "with an invalid token" do
       it "responds with 200 OK per RFC 7009" do
-        post path, params: { token: "invalid.jwt.token" }
+        post "/api/oauth/revoke", params: { token: "invalid.jwt.token" }
 
         expect(response).to have_http_status(:ok)
       end
 
       it "returns an empty body" do
-        post path, params: { token: "invalid.jwt.token" }
+        post "/api/oauth/revoke", params: { token: "invalid.jwt.token" }
 
         expect(response.body).to be_empty
       end
@@ -74,7 +73,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
 
     context "with a missing token parameter" do
       it "responds with 200 OK per RFC 7009" do
-        post path, params: {}
+        post "/api/oauth/revoke", params: {}
 
         expect(response).to have_http_status(:ok)
       end
@@ -86,7 +85,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       it "responds with 200 OK per RFC 7009" do
-        post path, params: { token: token }
+        post "/api/oauth/revoke", params: { token: token }
 
         expect(response).to have_http_status(:ok)
       end
@@ -98,7 +97,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       it "responds with 200 OK without revoking anything" do
-        post path, params: { token: token }
+        post "/api/oauth/revoke", params: { token: token }
 
         expect(response).to have_http_status(:ok)
       end
@@ -110,7 +109,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       it "responds with 200 OK" do
-        post path, params: { token: token }
+        post "/api/oauth/revoke", params: { token: token }
 
         expect(response).to have_http_status(:ok)
       end
@@ -122,7 +121,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
         end
 
         begin
-          post path, params: { token: token }
+          post "/api/oauth/revoke", params: { token: token }
 
           expect(events).to be_empty
         ensure
@@ -148,7 +147,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
 
       it "revokes all active device sessions" do
-        post path, params: { token: token }
+        post "/api/oauth/revoke", params: { token: token }
 
         device_sessions.each do |session|
           session.reload
@@ -176,7 +175,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       it "responds with 200 OK and does not re-revoke" do
         original_revoked_at = revoked_session.reload.revoked_at
 
-        post path, params: { token: token }
+        post "/api/oauth/revoke", params: { token: token }
 
         expect(response).to have_http_status(:ok)
         expect(revoked_session.reload.revoked_at).to eq(original_revoked_at)
@@ -184,7 +183,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
     end
 
     it "sets no-store cache headers" do
-      post path, params: { token: "some-token" }
+      post "/api/oauth/revoke", params: { token: "some-token" }
 
       expect(response.headers["Cache-Control"]).to eq("no-store")
       expect(response.headers["Pragma"]).to eq("no-cache")
