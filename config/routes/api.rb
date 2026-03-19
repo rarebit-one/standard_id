@@ -23,6 +23,7 @@ StandardId::ApiEngine.routes.draw do
 
     scope ".well-known", module: :well_known do
       get "jwks.json", to: "jwks#show", as: :jwks
+      get "openid-configuration", to: "openid_configuration#show", as: :openid_configuration
     end
   end
 end
