@@ -33,6 +33,7 @@ StandardConfig.schema.draw do
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
     field :max_attempts, type: :integer, default: 3
     field :retry_delay, type: :integer, default: 30 # 30 seconds
+    field :bypass_code, type: :string, default: nil
   end
 
   scope :password do

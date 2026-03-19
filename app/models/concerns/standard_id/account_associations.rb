@@ -20,8 +20,8 @@ module StandardId
         identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized_email)
         return identifier.account if identifier.present?
 
-        # Best-effort intent signal — fires before create! so subscribers may see
-        # ACCOUNT_CREATING without a matching ACCOUNT_CREATED if create! raises.
+        # Best-effort intent signal: fires before create! so there will be no
+        # matching ACCOUNT_CREATED event if create! raises (e.g. validation error).
         StandardId::Events.publish(
           StandardId::Events::ACCOUNT_CREATING,
           email: normalized_email,
@@ -47,9 +47,7 @@ module StandardId
 
         account
       rescue ActiveRecord::RecordNotUnique
-        identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized_email)
-        raise unless identifier
-
+        identifier = StandardId::EmailIdentifier.includes(:account).find_by!(value: normalized_email)
         identifier.account
       end
     end

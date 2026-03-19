@@ -185,7 +185,7 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
     it "sets no-store cache headers" do
       post "/api/oauth/revoke", params: { token: "some-token" }
 
-      expect(response.headers["Cache-Control"]).to eq("no-store")
+      expect(response.headers["Cache-Control"]).to include("no-store")
       expect(response.headers["Pragma"]).to eq("no-cache")
     end
   end

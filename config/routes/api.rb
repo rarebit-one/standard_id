@@ -14,6 +14,7 @@ StandardId::ApiEngine.routes.draw do
 
     namespace :oauth do
       resource :token, only: [:create]
+      resource :revoke, only: [:create], controller: :revocations
 
       namespace :callback do
         post ":provider", to: "providers#callback", as: :provider
@@ -22,7 +23,6 @@ StandardId::ApiEngine.routes.draw do
 
     scope ".well-known", module: :well_known do
       get "jwks.json", to: "jwks#show", as: :jwks
-      get "openid-configuration", to: "openid_configuration#show", as: :openid_configuration
     end
   end
 end
