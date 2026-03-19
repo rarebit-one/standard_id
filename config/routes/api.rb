@@ -4,6 +4,8 @@ StandardId::ApiEngine.routes.draw do
 
     resource :userinfo, only: [:show], controller: :userinfo
 
+    resources :sessions, only: [:index, :destroy]
+
     resource :passwordless, only: [], controller: :passwordless do
       post :start
     end
