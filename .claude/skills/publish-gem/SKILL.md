@@ -37,14 +37,17 @@ ls *.gemspec
 - Multiple `.gemspec` files found — ask the user which one to build
 
 **Branch handling:**
-- If not on `main`, offer to switch automatically: `git checkout main`
+- If not on `main`, switch automatically without asking: `git checkout main` (publishing from non-main is almost never intentional)
 - After switching (or if already on `main`), always sync with remote:
   ```bash
   git pull --rebase origin main
   ```
 - If the rebase fails due to conflicts, stop and ask the user to resolve them before proceeding
 - After syncing, verify the working tree is clean (`git status --porcelain`). Warn if dirty — the build may include uncommitted changes.
-- If the user explicitly wants to publish from a non-main branch, warn and proceed with confirmation
+- Clean up any stale `.gem` files in the working directory before proceeding:
+  ```bash
+  rm -f *.gem
+  ```
 
 ### 2. Extract Gem Metadata
 
@@ -149,13 +152,7 @@ git add lib/<gem_name>/version.rb Gemfile.lock CHANGELOG.md
 git commit -m "chore: Bump version to <version>"
 ```
 
-Try pushing to `main`:
-
-```bash
-git push origin main
-```
-
-If the push is rejected due to branch protection rules, create a PR instead:
+The `main` branch is protected and requires PRs. Create a PR directly (do not attempt `git push origin main`):
 
 ```bash
 git checkout -b chore/bump-v<version>
@@ -167,22 +164,26 @@ gh pr create --title "chore: Bump version to <version>" --body "..."
 
 **If pushed directly to `main`:** Tag the commit and push the tag immediately.
 
-**If a PR was required (branch protection):** Do **not** tag yet. Inform the user that the tag should be created after the PR is merged, since a squash merge creates a new commit on `main` and a pre-merge tag would point to an orphaned commit not in `main`'s history. Provide the command to run after merge:
+**If a PR was required (branch protection):** Do **not** tag yet. Inform the user that the tag should be created after the PR is merged, since a squash merge creates a new commit on `main` and a pre-merge tag would point to an orphaned commit not in `main`'s history.
+
+When the user confirms the PR is merged, perform these steps automatically:
 
 ```bash
-# Run after the version bump PR is merged:
-git checkout main && git pull origin main
+# Sync main — use reset to avoid divergent branch issues from squash merge
+git checkout main
+git fetch origin main
+git reset --hard origin/main
+
+# Tag the merged commit
 git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
+
+# Clean up the bump branch locally and remotely
+git branch -D chore/bump-v<version>
+git push origin --delete chore/bump-v<version>
 ```
 
-Skip the tagging step below, and include the above instructions in the final output (Step 9) instead.
-
-```bash
-# Create an annotated git tag for the release
-git tag -a v<version> -m "Release v<version>"
-git push origin v<version>
-```
+Skip the tagging step below, and include instructions to notify when the PR is merged in the final output (Step 9) instead.
 
 > **Note:** The `release.yml` GitHub Actions workflow automatically creates a GitHub Release with notes extracted from CHANGELOG.md when the tag is pushed. No manual `gh release create` is needed.
 
@@ -206,5 +207,4 @@ Report:
 | Tag already exists | Version was previously tagged — skip tagging |
 | Tag signing fails | If `git tag -s` is preferred, ensure GPG is configured; fall back to `git tag -a` |
 | Tag push fails | Likely a permissions issue — report and continue |
-| Push to main rejected | Branch is protected — create a PR instead |
 | User declines version bump | Abort the publish |
