@@ -352,6 +352,106 @@ RSpec.describe StandardId::Passwordless::VerificationService do
       end
     end
 
+    context "bypass_code" do
+      let(:bypass_code) { "BYPASS-E2E-999" }
+
+      context "when bypass_code is configured and submitted code matches" do
+        before do
+          allow(StandardId.config.passwordless).to receive(:bypass_code).and_return(bypass_code)
+        end
+
+        it "returns success without requiring a CodeChallenge" do
+          account = create_email_account(email)
+
+          result = described_class.verify(email: email, code: bypass_code, request: request)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(account)
+          expect(result.challenge).to be_nil
+          expect(result.error).to be_nil
+        end
+
+        it "uses secure_compare for the bypass code comparison" do
+          create_email_account(email)
+
+          expect(ActiveSupport::SecurityUtils).to receive(:secure_compare)
+            .with(bypass_code, bypass_code)
+            .and_call_original
+
+          described_class.verify(email: email, code: bypass_code, request: request)
+        end
+
+        it "works with phone/SMS channel" do
+          account = create_phone_account(phone)
+
+          result = described_class.verify(phone: phone, code: bypass_code, request: request)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(account)
+        end
+
+        it "emits OTP_VALIDATED event with bypass: true" do
+          create_email_account(email)
+
+          expect(StandardId::Events).to receive(:publish).with(
+            StandardId::Events::OTP_VALIDATED,
+            hash_including(bypass: true)
+          )
+
+          described_class.verify(email: email, code: bypass_code, request: request)
+        end
+
+        it "raises in production environment" do
+          allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+
+          expect {
+            described_class.verify(email: email, code: bypass_code, request: request)
+          }.to raise_error(RuntimeError, /must not be set in production/)
+        end
+      end
+
+      context "when bypass_code is configured but submitted code does not match" do
+        before do
+          allow(StandardId.config.passwordless).to receive(:bypass_code).and_return(bypass_code)
+        end
+
+        it "falls through to normal verification flow" do
+          create_email_account(email)
+
+          result = described_class.verify(email: email, code: "wrong-code", request: request)
+
+          expect(result.success?).to be false
+          expect(result.error).to eq("Invalid or expired verification code")
+        end
+
+        it "succeeds with correct OTP code and active challenge" do
+          account = create_email_account(email)
+          create_challenge(channel: "email", target: email)
+
+          result = described_class.verify(email: email, code: otp_code, request: request)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(account)
+        end
+      end
+
+      context "when bypass_code is nil (default)" do
+        before do
+          allow(StandardId.config.passwordless).to receive(:bypass_code).and_return(nil)
+        end
+
+        it "does not enter the bypass branch" do
+          create_email_account(email)
+          create_challenge(channel: "email", target: email)
+
+          result = described_class.verify(email: email, code: otp_code, request: request)
+
+          expect(result.success?).to be true
+          expect(result.challenge).to be_present
+        end
+      end
+    end
+
     context "concurrent use protection" do
       it "uses pessimistic locking when consuming the challenge" do
         create_email_account(email)
