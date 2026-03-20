@@ -37,7 +37,7 @@ ls *.gemspec
 - Multiple `.gemspec` files found — ask the user which one to build
 
 **Branch handling:**
-- If not on `main`, switch automatically without asking: `git checkout main` (publishing from non-main is almost never intentional)
+- If not on `main`, switch automatically: `git checkout main` (publishing from non-main is almost never intentional). If the user explicitly requested publishing from a non-main branch, warn and ask for confirmation before switching.
 - After switching (or if already on `main`), always sync with remote:
   ```bash
   git pull --rebase origin main
@@ -178,9 +178,10 @@ git reset --hard origin/main
 git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
 
-# Clean up the bump branch locally and remotely
-git branch -D chore/bump-v<version>
-git push origin --delete chore/bump-v<version>
+# Clean up the bump branch locally (-d is safe here since we just merged)
+git branch -d chore/bump-v<version>
+# Remote branch may already be deleted by GitHub's auto-delete setting — ignore errors
+git push origin --delete chore/bump-v<version> 2>/dev/null || true
 ```
 
 Skip the tagging step below, and include instructions to notify when the PR is merged in the final output (Step 9) instead.
@@ -207,4 +208,5 @@ Report:
 | Tag already exists | Version was previously tagged — skip tagging |
 | Tag signing fails | If `git tag -s` is preferred, ensure GPG is configured; fall back to `git tag -a` |
 | Tag push fails | Likely a permissions issue — report and continue |
+| Remote branch already deleted | GitHub auto-deleted it — ignore the error, branch cleanup is done |
 | User declines version bump | Abort the publish |
