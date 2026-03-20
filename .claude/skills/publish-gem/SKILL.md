@@ -162,11 +162,9 @@ gh pr create --title "chore: Bump version to <version>" --body "..."
 
 #### 8c. Tag the release
 
-**If pushed directly to `main`:** Tag the commit and push the tag immediately.
+Do **not** tag yet. Since `main` is protected, the version bump goes through a PR. A squash merge creates a new commit on `main`, so a pre-merge tag would point to an orphaned commit not in `main`'s history.
 
-**If a PR was required (branch protection):** Do **not** tag yet. Inform the user that the tag should be created after the PR is merged, since a squash merge creates a new commit on `main` and a pre-merge tag would point to an orphaned commit not in `main`'s history.
-
-When the user confirms the PR is merged, perform these steps automatically:
+Tell the user to let you know when the PR is merged. When confirmed, perform these steps automatically:
 
 ```bash
 # Sync main — use reset to avoid divergent branch issues from squash merge
@@ -178,13 +176,12 @@ git reset --hard origin/main
 git tag -a v<version> -m "Release v<version>"
 git push origin v<version>
 
-# Clean up the bump branch locally (-d is safe here since we just merged)
-git branch -d chore/bump-v<version>
+# Clean up the bump branch locally
+# -D needed because squash merge doesn't preserve individual commits in main's history
+git branch -D chore/bump-v<version>
 # Remote branch may already be deleted by GitHub's auto-delete setting — ignore errors
 git push origin --delete chore/bump-v<version> 2>/dev/null || true
 ```
-
-Skip the tagging step below, and include instructions to notify when the PR is merged in the final output (Step 9) instead.
 
 > **Note:** The `release.yml` GitHub Actions workflow automatically creates a GitHub Release with notes extracted from CHANGELOG.md when the tag is pushed. No manual `gh release create` is needed.
 
