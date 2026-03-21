@@ -1,10 +1,6 @@
 {
   "ignored_warnings": [
     {
-      "fingerprint": "24fc02735a2ad863d6bf1171a4a329b208e9e7c41841fa0149d8e6878d4ce299",
-      "note": "Auth engine intentionally redirects to params[:redirect_uri] after signup for OAuth/post-auth flow"
-    },
-    {
       "fingerprint": "6b35e9906d62a9b9cd0dff9cf53924d40e74bc4f96cfccf27e67e93551113243",
       "note": "Auth engine intentionally redirects to params[:redirect_uri] after logout for OAuth/post-auth flow"
     },
@@ -17,14 +13,18 @@
       "note": "HEAD vs GET distinction is inconsequential here; storing return URL on GET-only is safe"
     },
     {
-      "fingerprint": "16bd6ec7c3fa130eb80c15fc90c87f9859d89b37258807bfaffe4101366611a6",
-      "note": "Auth engine intentionally redirects to params[:redirect_uri] after login for OAuth/post-auth flow"
-    },
-    {
       "fingerprint": "e4f96cb212c73c3165c3db6eaa6368c29d362b61264f034e80c9fa6705d72e5b",
       "note": "Auth engine intentionally redirects to params[:redirect_uri] when user is not authenticated"
+    },
+    {
+      "fingerprint": "68be03a57d3ef2cfb68582fc78ac2eb6b96aaa0a9897a9a975c24b889fdbb2aa",
+      "note": "after_sign_in hook redirect is controlled by the host app configuration, not user input"
+    },
+    {
+      "fingerprint": "277cf277d1c94f46d0abaeba9c51312d1d17e6f62c2e8d457dda47a6aad422aa",
+      "note": "after_sign_in hook redirect is controlled by the host app configuration, not user input"
     }
   ],
-  "updated": "2026-02-27",
-  "brakeman_version": "8.0.2"
+  "updated": "2026-03-21",
+  "brakeman_version": "8.0.4"
 }

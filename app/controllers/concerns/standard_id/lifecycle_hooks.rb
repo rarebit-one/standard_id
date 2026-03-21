@@ -38,7 +38,7 @@ module StandardId
     # Determine if this is the account's first browser session.
     # A count of 1 means the session just created is the only one.
     def first_sign_in?(account)
-      account.sessions.where(type: "StandardId::BrowserSession").count <= 1
+      account.sessions.where(type: "StandardId::BrowserSession").active.count <= 1
     end
 
     # Handle AuthenticationDenied by revoking the session and redirecting to login.

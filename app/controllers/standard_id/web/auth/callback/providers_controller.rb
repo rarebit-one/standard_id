@@ -4,7 +4,6 @@ module StandardId
       module Callback
         class ProvidersController < StandardId::Web::BaseController
           public_controller
-          requires_web_mechanism :social_login
 
           include StandardId::WebAuthentication
           include StandardId::SocialAuthentication
@@ -30,8 +29,13 @@ module StandardId
               provider_response = get_user_info_from_provider(redirect_uri:, nonce:)
               social_info = provider_response[:user_info]
               provider_tokens = provider_response[:tokens]
-              newly_created = !StandardId::EmailIdentifier.exists?(value: social_info[:email]&.to_s || social_info["email"]&.to_s)
-              account = find_or_create_account_from_social(social_info)
+              begin
+                account = find_or_create_account_from_social(social_info)
+              rescue ActiveRecord::RecordNotUnique
+                # Race condition: concurrent request created the account first — retry to find it
+                account = find_or_create_account_from_social(social_info)
+              end
+              newly_created = account.previously_new_record?
               session_manager.sign_in_account(account)
 
               provider_name = provider.provider_name

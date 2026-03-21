@@ -82,7 +82,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
     let(:connection) { "email" }
 
     def enable_passwordless!
-      allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
+      allow(StandardId.config.passwordless).to receive(:enabled).and_return(true)
       allow(StandardId.config.passwordless).to receive(:connection).and_return(connection)
     end
 

@@ -2,7 +2,6 @@ module StandardId
   module Web
     class LoginVerifyController < BaseController
       public_controller
-      requires_web_mechanism :passwordless_login
 
       include StandardId::InertiaRendering
       include StandardId::LifecycleHooks
@@ -10,6 +9,7 @@ module StandardId
       layout "public"
 
       skip_before_action :require_browser_session!, only: [:show, :update]
+      before_action :ensure_passwordless_enabled!
       before_action :redirect_if_authenticated, only: [:show]
       before_action :require_otp_payload!
 
@@ -26,9 +26,6 @@ module StandardId
           return
         end
 
-        # Check if the account exists before verification to detect new account creation
-        account_existed = StandardId::EmailIdentifier.exists?(value: @otp_data[:username])
-
         result = StandardId::Passwordless::VerificationService.verify(
           connection: @otp_data[:connection],
           username: @otp_data[:username],
@@ -43,7 +40,7 @@ module StandardId
         end
 
         account = result.account
-        newly_created = !account_existed
+        newly_created = account.previously_new_record?
 
         session_manager.sign_in_account(account)
         emit_authentication_succeeded(account)
@@ -63,6 +60,13 @@ module StandardId
       end
 
       private
+
+      def ensure_passwordless_enabled!
+        return if StandardId.config.passwordless.enabled
+
+        session.delete(:standard_id_otp_payload)
+        redirect_to login_path, alert: "Passwordless login is not available"
+      end
 
       def redirect_if_authenticated
         redirect_to after_authentication_url, status: :see_other if authenticated?

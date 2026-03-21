@@ -33,7 +33,7 @@ module StandardId
       private
 
       def passwordless_enabled?
-        StandardId.config.web.passwordless_login
+        StandardId.config.passwordless.enabled
       end
 
       def handle_password_login
