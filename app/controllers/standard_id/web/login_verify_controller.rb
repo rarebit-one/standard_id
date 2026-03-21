@@ -2,14 +2,14 @@ module StandardId
   module Web
     class LoginVerifyController < BaseController
       public_controller
+      requires_web_mechanism :passwordless_login
 
       include StandardId::InertiaRendering
+      include StandardId::LifecycleHooks
 
       layout "public"
 
       skip_before_action :require_browser_session!, only: [:show, :update]
-
-      before_action :ensure_passwordless_enabled!
       before_action :redirect_if_authenticated, only: [:show]
       before_action :require_otp_payload!
 
@@ -26,6 +26,9 @@ module StandardId
           return
         end
 
+        # Check if the account exists before verification to detect new account creation
+        account_existed = StandardId::EmailIdentifier.exists?(value: @otp_data[:username])
+
         result = StandardId::Passwordless::VerificationService.verify(
           connection: @otp_data[:connection],
           username: @otp_data[:username],
@@ -39,22 +42,27 @@ module StandardId
           return
         end
 
-        session_manager.sign_in_account(result.account)
-        emit_authentication_succeeded(result.account)
+        account = result.account
+        newly_created = !account_existed
+
+        session_manager.sign_in_account(account)
+        emit_authentication_succeeded(account)
+
+        invoke_after_account_created(account, { mechanism: "passwordless", provider: nil }) if newly_created
+
+        context = { connection: "email", provider: nil }
+        redirect_override = invoke_after_sign_in(account, context)
 
         session.delete(:standard_id_otp_payload)
 
-        redirect_to after_authentication_url, status: :see_other, notice: "Successfully signed in"
+        destination = redirect_override || after_authentication_url
+        redirect_to destination, status: :see_other, notice: "Successfully signed in"
+      rescue StandardId::AuthenticationDenied => e
+        session.delete(:standard_id_otp_payload)
+        handle_authentication_denied(e)
       end
 
       private
-
-      def ensure_passwordless_enabled!
-        return if StandardId.config.passwordless.enabled
-
-        session.delete(:standard_id_otp_payload)
-        redirect_to login_path, alert: "Passwordless login is not available"
-      end
 
       def redirect_if_authenticated
         redirect_to after_authentication_url, status: :see_other if authenticated?

@@ -2,8 +2,10 @@ module StandardId
   module Web
     class SignupController < BaseController
       public_controller
+      requires_web_mechanism :signup
 
       include StandardId::InertiaRendering
+      include StandardId::LifecycleHooks
 
       layout "public"
 
@@ -38,14 +40,20 @@ module StandardId
 
         if form.submit
           session_manager.sign_in_account(form.account)
-          redirect_to params[:redirect_uri] || after_authentication_url,
-                      notice: "Account created successfully"
+          invoke_after_account_created(form.account, { mechanism: "signup", provider: nil })
+
+          context = { connection: "password", provider: nil }
+          redirect_override = invoke_after_sign_in(form.account, context)
+          destination = redirect_override || params[:redirect_uri] || after_authentication_url
+          redirect_to destination, notice: "Account created successfully"
         else
           @redirect_uri = params[:redirect_uri] || after_authentication_url
           @connection = params[:connection]
           flash.now[:alert] = form.errors.full_messages.join(", ")
           render_with_inertia action: :show, props: auth_page_props(errors: form.errors.to_hash), status: :unprocessable_content
         end
+      rescue StandardId::AuthenticationDenied => e
+        handle_authentication_denied(e)
       end
 
       def social_signup_url
