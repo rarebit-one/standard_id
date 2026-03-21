@@ -4,6 +4,7 @@ module StandardId
       include StandardId::ControllerPolicy
       include StandardId::WebAuthentication
       include StandardId::SetCurrentRequestDetails
+      include StandardId::WebMechanismGate
 
       include StandardId::WebEngine.routes.url_helpers
       helper StandardId::WebEngine.routes.url_helpers

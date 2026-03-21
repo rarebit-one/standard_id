@@ -5,12 +5,12 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
   let(:connection) { "email" }
 
   def enable_passwordless!
-    allow(StandardId.config.passwordless).to receive(:enabled).and_return(true)
+    allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
     allow(StandardId.config.passwordless).to receive(:connection).and_return(connection)
   end
 
   def disable_passwordless!
-    allow(StandardId.config.passwordless).to receive(:enabled).and_return(false)
+    allow(StandardId.config.web).to receive(:passwordless_login).and_return(false)
   end
 
   # Sets up an OTP session by going through the actual login flow
@@ -123,12 +123,11 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       expect(flash[:alert]).to eq("Your verification session has expired. Please try again.")
     end
 
-    it "redirects to login when passwordless is disabled" do
+    it "returns 404 when passwordless is disabled" do
       disable_passwordless!
       http_get "/login_verify"
 
-      expect(response).to redirect_to("/login")
-      expect(flash[:alert]).to eq("Passwordless login is not available")
+      expect(response).to have_http_status(:not_found)
     end
   end
 

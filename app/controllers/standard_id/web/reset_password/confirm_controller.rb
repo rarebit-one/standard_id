@@ -3,6 +3,7 @@ module StandardId
     module ResetPassword
       class ConfirmController < BaseController
         public_controller
+        requires_web_mechanism :password_reset
 
         layout "public"
 

@@ -4,6 +4,7 @@ module StandardId
       module Callback
         class ProvidersController < StandardId::Web::BaseController
           public_controller
+          requires_web_mechanism :social_login
 
           include StandardId::WebAuthentication
           include StandardId::SocialAuthentication
