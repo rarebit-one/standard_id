@@ -21,6 +21,20 @@ StandardConfig.schema.draw do
     # Callable (lambda/proc) that returns a Hash of extra Sentry user context fields.
     # Receives (account, session) where session may be nil. Non-callable values are ignored.
     field :sentry_context, type: :any, default: nil
+
+    # Post-authentication lifecycle hooks (synchronous, WebEngine only)
+    #
+    # after_sign_in: Called after successful sign-in, before redirect.
+    #   Receives: (account, request, context)
+    #   Context: { first_sign_in: bool, connection: "email"/"password"/"social", provider: nil/"google"/"apple" }
+    #   Return: nil (default redirect) or a path string (override redirect)
+    #   Raise StandardId::AuthenticationDenied.new("message") to reject sign-in.
+    field :after_sign_in, type: :any, default: nil
+
+    # after_account_created: Called after a new account is created via any mechanism.
+    #   Receives: (account, request, context)
+    #   Context: { mechanism: "passwordless"/"social"/"signup", provider: nil/"google"/"apple" }
+    field :after_account_created, type: :any, default: nil
   end
 
   scope :events do
@@ -80,5 +94,16 @@ StandardConfig.schema.draw do
     field :social_account_attributes, type: :any, default: nil
     field :allowed_redirect_url_prefixes, type: :array, default: []
     field :available_scopes, type: :array, default: -> { [] }
+  end
+
+  scope :web do
+    field :password_login, type: :boolean, default: true
+    field :signup, type: :boolean, default: true
+    field :passwordless_login, type: :boolean, default: false
+    field :social_login, type: :boolean, default: true
+    field :password_reset, type: :boolean, default: true
+    field :email_verification, type: :boolean, default: true
+    field :phone_verification, type: :boolean, default: true
+    field :sessions_management, type: :boolean, default: true
   end
 end

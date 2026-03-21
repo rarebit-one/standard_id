@@ -6,6 +6,7 @@ module StandardId
       include StandardId::InertiaRendering
       include StandardId::Web::SocialLoginParams
       include StandardId::PasswordlessStrategy
+      include StandardId::LifecycleHooks
 
       layout "public"
 
@@ -37,11 +38,16 @@ module StandardId
 
       def handle_password_login
         if sign_in_account(login_params)
-          redirect_to params[:redirect_uri] || after_authentication_url, status: :see_other, notice: "Successfully signed in"
+          context = { connection: "password", provider: nil }
+          redirect_override = invoke_after_sign_in(current_account, context)
+          destination = redirect_override || params[:redirect_uri] || after_authentication_url
+          redirect_to destination, status: :see_other, notice: "Successfully signed in"
         else
           flash.now[:alert] = "Invalid email or password"
           render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content
         end
+      rescue StandardId::AuthenticationDenied => e
+        handle_authentication_denied(e)
       end
 
       def handle_passwordless_login

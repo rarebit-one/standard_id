@@ -8,6 +8,7 @@ module StandardId
           include StandardId::WebAuthentication
           include StandardId::SocialAuthentication
           include StandardId::Web::SocialLoginParams
+          include StandardId::LifecycleHooks
 
           # Social callbacks must be accessible without an existing browser session
           # because they create/sign-in the session upon successful callback.
@@ -28,21 +29,35 @@ module StandardId
               provider_response = get_user_info_from_provider(redirect_uri:, nonce:)
               social_info = provider_response[:user_info]
               provider_tokens = provider_response[:tokens]
-              account = find_or_create_account_from_social(social_info)
+              begin
+                account = find_or_create_account_from_social(social_info)
+              rescue ActiveRecord::RecordNotUnique
+                # Race condition: concurrent request created the account first — retry to find it
+                account = find_or_create_account_from_social(social_info)
+              end
+              newly_created = account.previously_new_record?
               session_manager.sign_in_account(account)
 
+              provider_name = provider.provider_name
+              invoke_after_account_created(account, { mechanism: "social", provider: provider_name }) if newly_created
+
               run_social_callback(
-                provider: provider.provider_name,
+                provider: provider_name,
                 social_info: social_info,
                 provider_tokens: provider_tokens,
                 account: account,
                 original_request_params: state_data
               )
 
-              destination = state_data["redirect_uri"]
-              redirect_options = { notice: "Successfully signed in with #{provider.provider_name.humanize}" }
+              context = { connection: "social", provider: provider_name }
+              redirect_override = invoke_after_sign_in(account, context)
+
+              destination = redirect_override || state_data["redirect_uri"]
+              redirect_options = { notice: "Successfully signed in with #{provider_name.humanize}" }
               redirect_options[:allow_other_host] = true if allow_other_host_redirect?(destination)
               redirect_to destination, redirect_options
+            rescue StandardId::AuthenticationDenied => e
+              handle_authentication_denied(e)
             rescue StandardId::OAuthError => e
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             end

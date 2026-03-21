@@ -4,11 +4,11 @@ module StandardId
       public_controller
 
       include StandardId::InertiaRendering
+      include StandardId::LifecycleHooks
 
       layout "public"
 
       skip_before_action :require_browser_session!, only: [:show, :update]
-
       before_action :ensure_passwordless_enabled!
       before_action :redirect_if_authenticated, only: [:show]
       before_action :require_otp_payload!
@@ -39,12 +39,24 @@ module StandardId
           return
         end
 
-        session_manager.sign_in_account(result.account)
-        emit_authentication_succeeded(result.account)
+        account = result.account
+        newly_created = account.previously_new_record?
+
+        session_manager.sign_in_account(account)
+        emit_authentication_succeeded(account)
+
+        invoke_after_account_created(account, { mechanism: "passwordless", provider: nil }) if newly_created
+
+        context = { connection: "email", provider: nil }
+        redirect_override = invoke_after_sign_in(account, context)
 
         session.delete(:standard_id_otp_payload)
 
-        redirect_to after_authentication_url, status: :see_other, notice: "Successfully signed in"
+        destination = redirect_override || after_authentication_url
+        redirect_to destination, status: :see_other, notice: "Successfully signed in"
+      rescue StandardId::AuthenticationDenied => e
+        session.delete(:standard_id_otp_payload)
+        handle_authentication_denied(e)
       end
 
       private

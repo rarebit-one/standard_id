@@ -70,6 +70,9 @@ module StandardId
     def oauth_error_code = :unsupported_response_type
   end
 
+  # Lifecycle hook errors
+  class AuthenticationDenied < StandardError; end
+
   # Audience verification errors
   class InvalidAudienceError < StandardError
     attr_reader :required, :actual
