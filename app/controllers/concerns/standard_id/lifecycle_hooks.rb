@@ -42,14 +42,31 @@ module StandardId
     end
 
     # Handle AuthenticationDenied by revoking the session and redirecting to login.
+    # If the account was just created, clean it up to avoid orphaned records.
     #
     # @param error [StandardId::AuthenticationDenied] the denial error
-    def handle_authentication_denied(error)
+    # @param account [Object, nil] the account to clean up if newly created
+    # @param newly_created [Boolean] whether the account was created during this request
+    def handle_authentication_denied(error, account: nil, newly_created: false)
       session_manager.revoke_current_session!
+      destroy_newly_created_account(account) if newly_created
       message = error.message
       # When raised without arguments, StandardError#message returns the class name
       message = "Sign-in was denied" if message.blank? || message == error.class.name
       redirect_to StandardId::WebEngine.routes.url_helpers.login_path, alert: message
+    end
+
+    # Destroy a newly created account and all its dependents.
+    # Used when after_sign_in rejects a just-created account to avoid orphans.
+    def destroy_newly_created_account(account)
+      return unless account&.persisted?
+
+      ActiveRecord::Base.transaction do
+        account.sessions.destroy_all
+        account.identifiers.each { |i| i.credentials.destroy_all }
+        account.identifiers.destroy_all
+        account.destroy
+      end
     end
   end
 end

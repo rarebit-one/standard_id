@@ -58,7 +58,7 @@ module StandardId
               redirect_options[:allow_other_host] = true if allow_other_host_redirect?(destination)
               redirect_to destination, redirect_options
             rescue StandardId::AuthenticationDenied => e
-              handle_authentication_denied(e)
+              handle_authentication_denied(e, account: account, newly_created: newly_created)
             rescue StandardId::OAuthError => e
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             end
