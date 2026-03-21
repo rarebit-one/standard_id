@@ -42,6 +42,8 @@ StandardConfig.schema.draw do
   end
 
   scope :passwordless do
+    # Deprecated: use web.passwordless_login to control WebEngine passwordless login.
+    # Retained for backwards compatibility with consuming apps that set this field.
     field :enabled, type: :boolean, default: false
     field :connection, type: :string, default: "email"
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds

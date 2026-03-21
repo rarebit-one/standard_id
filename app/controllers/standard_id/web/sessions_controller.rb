@@ -2,6 +2,7 @@ module StandardId
   module Web
     class SessionsController < BaseController
       authenticated_controller
+      requires_web_mechanism :sessions_management
 
       def index
         @sessions = current_account.sessions.active.order(created_at: :desc)

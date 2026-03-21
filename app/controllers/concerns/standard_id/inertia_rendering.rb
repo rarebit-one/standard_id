@@ -42,8 +42,23 @@ module StandardId
         social_providers: {
           google_enabled: StandardId.config.google_client_id.present?,
           apple_enabled: StandardId.config.apple_client_id.present?
-        }
+        },
+        enabled_mechanisms: web_enabled_mechanisms
       }.deep_merge(additional_props)
+    end
+
+    def web_enabled_mechanisms
+      web = StandardId.config.web
+      {
+        password_login: web.password_login,
+        signup: web.signup,
+        passwordless_login: web.passwordless_login,
+        social_login: web.social_login,
+        password_reset: web.password_reset,
+        email_verification: web.email_verification,
+        phone_verification: web.phone_verification,
+        sessions_management: web.sessions_management
+      }
     end
   end
 end

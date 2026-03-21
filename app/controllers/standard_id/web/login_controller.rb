@@ -33,10 +33,12 @@ module StandardId
       private
 
       def passwordless_enabled?
-        StandardId.config.passwordless.enabled
+        StandardId.config.web.passwordless_login
       end
 
       def handle_password_login
+        return head(:not_found) unless StandardId.config.web.password_login
+
         if sign_in_account(login_params)
           context = { connection: "password", provider: nil }
           redirect_override = invoke_after_sign_in(current_account, context)

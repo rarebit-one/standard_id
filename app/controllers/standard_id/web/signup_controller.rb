@@ -2,6 +2,7 @@ module StandardId
   module Web
     class SignupController < BaseController
       public_controller
+      requires_web_mechanism :signup
 
       include StandardId::InertiaRendering
       include StandardId::LifecycleHooks
