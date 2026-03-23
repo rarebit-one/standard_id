@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-03-23
+
+### Added
+
+- Post-authentication lifecycle hooks: `after_sign_in` and `after_account_created` config callbacks for host apps to run custom logic after authentication events (#118)
+- `StandardId::AuthenticationDenied` exception for rejecting sign-ins from hooks, with automatic session revocation and redirect
+- Configurable auth mechanism toggles for WebEngine via `config.web.*` scope — selectively enable/disable password login, passwordless OTP, social login, signup, password reset, email/phone verification, and session management (#119)
+- `WebMechanismGate` concern with `requires_web_mechanism` class method for controller-level enforcement
+- `first_sign_in?` helper in `LifecycleHooks` concern using active session count
+
+### Fixed
+
+- Orphaned accounts when `after_sign_in` raises `AuthenticationDenied` during signup or social login — newly created accounts are now cleaned up atomically (#120)
+- Race condition in social login: `RecordNotUnique` on concurrent requests is now rescued with retry
+- `first_sign_in?` now only counts active sessions (excludes expired/revoked)
+- Hardcoded `connection: "email"` in passwordless verify now uses `@otp_data[:connection]`
+- `enforce_web_mechanism!` validates mechanism names with `respond_to?` for actionable errors on typos
+- Removed obsolete brakeman ignore entries, added ignores for hook-controlled redirects
+
+### Deprecated
+
+- `passwordless.enabled` config field — use `web.passwordless_login` instead
+
 ## [0.7.1] - 2026-03-20
 
 ### Added
