@@ -3,11 +3,12 @@ module StandardId
     class SessionManager
       attr_reader :token_manager, :request, :session, :cookies
 
-      def initialize(token_manager, request:, session:, cookies:)
+      def initialize(token_manager, request:, session:, cookies:, reset_session: nil)
         @token_manager = token_manager
         @request = request
         @session = session
         @cookies = cookies
+        @reset_session = reset_session
       end
 
       def current_session
@@ -20,6 +21,11 @@ module StandardId
 
       def sign_in_account(account)
         emit_session_creating(account, "browser")
+
+        # Prevent session fixation by resetting the Rails session before
+        # creating an authenticated session (Rails Security Guide §2.5).
+        @reset_session&.call
+
         token_manager.create_browser_session(account).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
           # Action Cable will use the encrypted cookie

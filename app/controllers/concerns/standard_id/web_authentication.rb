@@ -107,7 +107,13 @@ module StandardId
     end
 
     def session_manager
-      @session_manager ||= StandardId::Web::SessionManager.new(token_manager, request: request, session: session, cookies: cookies)
+      @session_manager ||= StandardId::Web::SessionManager.new(
+        token_manager,
+        request: request,
+        session: session,
+        cookies: cookies,
+        reset_session: -> { reset_session }
+      )
     end
 
     def token_manager
