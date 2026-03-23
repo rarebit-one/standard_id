@@ -10,6 +10,9 @@ module StandardId
         id_token
         refresh_token
         access_token
+        state
+        nonce
+        authorization_code
       ]
     end
 
