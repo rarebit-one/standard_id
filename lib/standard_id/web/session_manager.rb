@@ -97,6 +97,9 @@ module StandardId
         password_credential = StandardId::PasswordCredential.find_by_token_for(:remember_me, cookies[:remember_token])
         return if password_credential.blank?
 
+        # Prevent session fixation on returning-user remember-me flow
+        @reset_session&.call
+
         token_manager.create_browser_session(password_credential.account, remember_me: true).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
           session[:session_token] = browser_session.token

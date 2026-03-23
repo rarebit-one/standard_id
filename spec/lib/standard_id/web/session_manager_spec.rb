@@ -21,7 +21,10 @@ RSpec.describe StandardId::Web::SessionManager do
   end
   let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser") }
   let(:token_manager) { double("TokenManager") }
-  let(:session_manager) { described_class.new(token_manager, request: request, session: session, cookies: cookies) }
+  let(:reset_session_callable) { nil }
+  let(:session_manager) do
+    described_class.new(token_manager, request: request, session: session, cookies: cookies, reset_session: reset_session_callable)
+  end
   let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account) }
   let(:account) { double("Account") }
 
@@ -195,6 +198,73 @@ RSpec.describe StandardId::Web::SessionManager do
       it "returns nil" do
         expect(session_manager.current_account).to be_nil
       end
+    end
+  end
+
+  describe "#sign_in_account" do
+    before do
+      allow(browser_session).to receive(:token).and_return("new_token")
+      allow(token_manager).to receive(:create_browser_session).with(account).and_return(browser_session)
+      allow(StandardId::Events).to receive(:publish)
+    end
+
+    context "when reset_session is provided" do
+      let(:reset_session_callable) { spy("reset_session") }
+
+      it "calls reset_session before creating the browser session" do
+        call_order = []
+        allow(reset_session_callable).to receive(:call) { call_order << :reset }
+        allow(token_manager).to receive(:create_browser_session) { call_order << :create; browser_session }
+
+        session_manager.sign_in_account(account)
+
+        expect(call_order).to eq(%i[reset create])
+      end
+
+      it "stores the session token" do
+        session_manager.sign_in_account(account)
+        expect(session[:session_token]).to eq("new_token")
+        expect(encrypted_cookies[:session_token]).to eq("new_token")
+      end
+    end
+
+    context "when reset_session is nil (backward compat)" do
+      let(:reset_session_callable) { nil }
+
+      it "does not raise an error" do
+        expect { session_manager.sign_in_account(account) }.not_to raise_error
+      end
+
+      it "stores the session token" do
+        session_manager.sign_in_account(account)
+        expect(session[:session_token]).to eq("new_token")
+      end
+    end
+  end
+
+  describe "#load_session_from_remember_token (session fixation)" do
+    let(:password_credential) { double("PasswordCredential", account: account) }
+    let(:reset_session_callable) { spy("reset_session") }
+
+    before do
+      plain_cookies[:remember_token] = "remember_token"
+      allow(StandardId::PasswordCredential).to receive(:find_by_token_for)
+        .with(:remember_me, "remember_token").and_return(password_credential)
+      allow(token_manager).to receive(:create_browser_session).with(account, remember_me: true).and_return(browser_session)
+      allow(browser_session).to receive(:token).and_return("token_value")
+      allow(token_manager).to receive(:create_remember_token).with(password_credential).and_return({ value: "new_remember_token" })
+      allow(Current).to receive(:session=) do |value|
+        allow(Current).to receive(:session).and_return(value)
+      end
+    end
+
+    it "calls reset_session before creating the browser session" do
+      call_order = []
+      allow(reset_session_callable).to receive(:call) { call_order << :reset }
+      allow(token_manager).to receive(:create_browser_session) { |*_args, **_kwargs| call_order << :create; browser_session }
+
+      session_manager.current_session
+      expect(call_order).to eq(%i[reset create])
     end
   end
 
