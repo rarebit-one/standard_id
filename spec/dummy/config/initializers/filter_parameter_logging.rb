@@ -6,3 +6,6 @@
 Rails.application.config.filter_parameters += [
   :passw, :email, :secret, :token, :_key, :crypt, :salt, :certificate, :otp, :ssn, :cvv, :cvc
 ]
+
+# Note: StandardId::Engine automatically adds OAuth-sensitive parameters:
+# code_verifier, code_challenge, client_secret, id_token, refresh_token, access_token

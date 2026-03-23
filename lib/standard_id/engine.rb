@@ -2,6 +2,17 @@ module StandardId
   class Engine < ::Rails::Engine
     isolate_namespace StandardId
 
+    initializer "standard_id.filter_parameters" do |app|
+      app.config.filter_parameters += %i[
+        code_verifier
+        code_challenge
+        client_secret
+        id_token
+        refresh_token
+        access_token
+      ]
+    end
+
     config.after_initialize do
       if StandardId.config.events.enable_logging
         StandardId::Events::Subscribers::LoggingSubscriber.attach
