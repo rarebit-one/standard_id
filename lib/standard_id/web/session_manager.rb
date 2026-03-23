@@ -3,11 +3,12 @@ module StandardId
     class SessionManager
       attr_reader :token_manager, :request, :session, :cookies
 
-      def initialize(token_manager, request:, session:, cookies:)
+      def initialize(token_manager, request:, session:, cookies:, reset_session: nil)
         @token_manager = token_manager
         @request = request
         @session = session
         @cookies = cookies
+        @reset_session = reset_session
       end
 
       def current_session
@@ -20,6 +21,14 @@ module StandardId
 
       def sign_in_account(account)
         emit_session_creating(account, "browser")
+
+        # Prevent session fixation by resetting the Rails session before
+        # creating an authenticated session (Rails Security Guide §2.5).
+        # Preserve return_to URL across the reset so post-login redirect works.
+        return_to = session[:return_to_after_authenticating]
+        @reset_session&.call
+        session[:return_to_after_authenticating] = return_to if return_to
+
         token_manager.create_browser_session(account).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
           # Action Cable will use the encrypted cookie
@@ -90,6 +99,9 @@ module StandardId
       def load_session_from_remember_token
         password_credential = StandardId::PasswordCredential.find_by_token_for(:remember_me, cookies[:remember_token])
         return if password_credential.blank?
+
+        # Prevent session fixation on returning-user remember-me flow
+        @reset_session&.call
 
         token_manager.create_browser_session(password_credential.account, remember_me: true).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
