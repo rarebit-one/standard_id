@@ -8,4 +8,5 @@ Rails.application.config.filter_parameters += [
 ]
 
 # Note: StandardId::Engine automatically adds OAuth-sensitive parameters:
-# code_verifier, code_challenge, client_secret, id_token, refresh_token, access_token
+# code_verifier, code_challenge, client_secret, id_token, refresh_token,
+# access_token, state, nonce, authorization_code
