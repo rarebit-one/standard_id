@@ -210,6 +210,17 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
       expect(response).to redirect_to("/login")
       expect(flash[:alert]).to eq("Registration closed")
     end
+
+    it "cleans up the account when AuthenticationDenied is raised during signup" do
+      hook = ->(_account, _request, _context) { raise StandardId::AuthenticationDenied, "Not allowed" }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      expect {
+        http_post "/signup", params: { signup: { email: "orphan@example.com", password: "s3cureP@ss", password_confirmation: "s3cureP@ss" } }
+      }.not_to change(Account, :count)
+
+      expect(Account.find_by(email: "orphan@example.com")).to be_nil
+    end
   end
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -294,6 +305,17 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
 
       expect(response).to redirect_to("/login")
       expect(flash[:alert]).to eq("Social login denied")
+    end
+
+    it "cleans up the account when AuthenticationDenied is raised for a new social account" do
+      hook = ->(_account, _request, _context) { raise StandardId::AuthenticationDenied, "Not allowed" }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      expect {
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+      }.not_to change(Account, :count)
+
+      expect(Account.find_by(email: "social@example.com")).to be_nil
     end
   end
 

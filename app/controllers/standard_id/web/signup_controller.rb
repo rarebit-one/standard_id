@@ -53,7 +53,7 @@ module StandardId
           render_with_inertia action: :show, props: auth_page_props(errors: form.errors.to_hash), status: :unprocessable_content
         end
       rescue StandardId::AuthenticationDenied => e
-        handle_authentication_denied(e)
+        handle_authentication_denied(e, account: form.account, newly_created: form.account&.previously_new_record?)
       end
 
       def social_signup_url

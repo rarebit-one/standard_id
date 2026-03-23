@@ -47,7 +47,7 @@ module StandardId
 
         invoke_after_account_created(account, { mechanism: "passwordless", provider: nil }) if newly_created
 
-        context = { connection: "email", provider: nil }
+        context = { connection: @otp_data[:connection], provider: nil }
         redirect_override = invoke_after_sign_in(account, context)
 
         session.delete(:standard_id_otp_payload)
@@ -56,7 +56,7 @@ module StandardId
         redirect_to destination, status: :see_other, notice: "Successfully signed in"
       rescue StandardId::AuthenticationDenied => e
         session.delete(:standard_id_otp_payload)
-        handle_authentication_denied(e)
+        handle_authentication_denied(e, account: account, newly_created: newly_created)
       end
 
       private
