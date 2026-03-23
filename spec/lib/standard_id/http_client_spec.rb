@@ -1,6 +1,10 @@
 require "rails_helper"
 
 RSpec.describe StandardId::HttpClient do
+  before do
+    allow(Resolv).to receive(:getaddresses).and_return(["93.184.216.34"])
+  end
+
   describe "timeout configuration" do
     it "defines OPEN_TIMEOUT at the class level" do
       expect(described_class::OPEN_TIMEOUT).to eq(5)
@@ -15,7 +19,9 @@ RSpec.describe StandardId::HttpClient do
         .to_return(status: 200, body: "{}")
 
       expect(Net::HTTP).to receive(:start)
-        .with("example.com", 443, use_ssl: true, open_timeout: 5, read_timeout: 10)
+        .with("example.com", 443,
+              use_ssl: true, open_timeout: 5, read_timeout: 10,
+              verify_mode: OpenSSL::SSL::VERIFY_PEER)
         .and_call_original
 
       described_class.post_form("https://example.com/token", { key: "value" })
@@ -26,10 +32,132 @@ RSpec.describe StandardId::HttpClient do
         .to_return(status: 200, body: "{}")
 
       expect(Net::HTTP).to receive(:start)
-        .with("example.com", 443, use_ssl: true, open_timeout: 5, read_timeout: 10)
+        .with("example.com", 443,
+              use_ssl: true, open_timeout: 5, read_timeout: 10,
+              verify_mode: OpenSSL::SSL::VERIFY_PEER)
         .and_call_original
 
       described_class.get_with_bearer("https://example.com/api", "token")
+    end
+  end
+
+  describe "SSRF protection" do
+    it "blocks requests to 127.0.0.1 (loopback)" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["127.0.0.1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError, "Requests to private/internal addresses are not allowed")
+    end
+
+    it "blocks requests to 10.x.x.x (private class A)" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["10.0.0.1"])
+
+      expect {
+        described_class.get_with_bearer("https://evil.com/api", "token")
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "blocks requests to 172.16.x.x (private class B)" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["172.16.0.1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "blocks requests to 192.168.x.x (private class C)" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["192.168.1.1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "blocks requests to 169.254.x.x (link-local)" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["169.254.169.254"])
+
+      expect {
+        described_class.get_with_bearer("https://evil.com/api", "token")
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "blocks requests to 0.0.0.0" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["0.0.0.0"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "blocks requests to IPv6 loopback (::1)" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["::1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "blocks requests to IPv6 unique local (fd00::)" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["fd00::1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "blocks when any resolved address is private" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["93.184.216.34", "127.0.0.1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+    end
+
+    it "allows requests to public IP addresses" do
+      allow(Resolv).to receive(:getaddresses).with("example.com").and_return(["93.184.216.34"])
+
+      stub_request(:post, "https://example.com/token")
+        .to_return(status: 200, body: "{}")
+
+      response = described_class.post_form("https://example.com/token", { key: "value" })
+
+      expect(response).to be_a(Net::HTTPSuccess)
+    end
+
+    it "does not reveal blocked IP ranges in error message" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["10.0.0.1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {})
+      }.to raise_error(StandardId::HttpClient::SsrfError, "Requests to private/internal addresses are not allowed")
+    end
+  end
+
+  describe "SSL verification" do
+    it "sets VERIFY_PEER for HTTPS connections" do
+      stub_request(:get, "https://secure.example.com/api")
+        .to_return(status: 200, body: "{}")
+
+      expect(Net::HTTP).to receive(:start)
+        .with("secure.example.com", 443,
+              use_ssl: true, open_timeout: 5, read_timeout: 10,
+              verify_mode: OpenSSL::SSL::VERIFY_PEER)
+        .and_call_original
+
+      described_class.get_with_bearer("https://secure.example.com/api", "token")
+    end
+
+    it "does not set verify_mode for HTTP connections" do
+      stub_request(:get, "http://example.com/api")
+        .to_return(status: 200, body: "{}")
+
+      expect(Net::HTTP).to receive(:start)
+        .with("example.com", 80,
+              use_ssl: false, open_timeout: 5, read_timeout: 10)
+        .and_call_original
+
+      described_class.get_with_bearer("http://example.com/api", "token")
     end
   end
 
