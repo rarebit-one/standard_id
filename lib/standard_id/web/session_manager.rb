@@ -24,7 +24,10 @@ module StandardId
 
         # Prevent session fixation by resetting the Rails session before
         # creating an authenticated session (Rails Security Guide §2.5).
+        # Preserve return_to URL across the reset so post-login redirect works.
+        return_to = session[:return_to_after_authenticating]
         @reset_session&.call
+        session[:return_to_after_authenticating] = return_to if return_to
 
         token_manager.create_browser_session(account).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
