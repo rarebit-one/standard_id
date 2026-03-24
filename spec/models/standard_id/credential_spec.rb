@@ -11,7 +11,7 @@ module StandardId
       it "can be associated with a password credential" do
         password_credential = PasswordCredential.create!(
           login: "user@example.com",
-          password: "password123"
+          password: "Password1!"
         )
 
         credential = Credential.create!(

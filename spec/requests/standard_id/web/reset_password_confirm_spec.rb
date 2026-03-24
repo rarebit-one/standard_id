@@ -4,7 +4,7 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
   let(:account) { Account.create!(email: "user@example.com", name: "Test User") }
   let(:email) { "user@example.com" }
   let!(:identifier) { StandardId::EmailIdentifier.create!(account: account, value: email) }
-  let!(:password_credential) { StandardId::PasswordCredential.create!(login: email, password: "oldpassword123") }
+  let!(:password_credential) { StandardId::PasswordCredential.create!(login: email, password: "OldPass1!xyz") }
   let!(:credential) { StandardId::Credential.create!(credentialable: password_credential, identifier: identifier) }
   let(:valid_token) { password_credential.generate_token_for(:password_reset) }
 
@@ -35,7 +35,7 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
 
   describe "PATCH /reset_password/confirm" do
     context "with valid token and password" do
-      let(:new_password) { "newpassword123" }
+      let(:new_password) { "NewPass1!abc" }
 
       it "updates password and redirects to login" do
         http_patch "/reset_password/confirm", params: {
@@ -49,7 +49,7 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
 
         password_credential.reload
         expect(password_credential.authenticate(new_password)).to be_truthy
-        expect(password_credential.authenticate("oldpassword123")).to be_falsey
+        expect(password_credential.authenticate("OldPass1!xyz")).to be_falsey
       end
 
       it "destroys all existing sessions for security" do
@@ -71,8 +71,8 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
       it "redirects to login with error message" do
         http_patch "/reset_password/confirm", params: {
           token: "invalid_token",
-          password: "newpassword123",
-          password_confirmation: "newpassword123"
+          password: "NewPass1!abc",
+          password_confirmation: "NewPass1!abc"
         }
 
         expect(response).to redirect_to(standard_id_web.login_path)
@@ -97,7 +97,7 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
       it "shows error and re-renders form" do
         http_patch "/reset_password/confirm", params: {
           token: valid_token,
-          password: "newpassword123",
+          password: "NewPass1!abc",
           password_confirmation: "differentpassword"
         }
 

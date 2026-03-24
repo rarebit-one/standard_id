@@ -3,7 +3,7 @@ require "rails_helper"
 RSpec.describe StandardId::Web::SignupForm, type: :model do
   describe "validations" do
     it "requires a valid email" do
-      form = described_class.new(email: "bad", password: "password123", password_confirmation: "password123")
+      form = described_class.new(email: "bad", password: "Password1!", password_confirmation: "Password1!")
       expect(form).not_to be_valid
       expect(form.errors[:email]).to be_present
     end
@@ -15,7 +15,7 @@ RSpec.describe StandardId::Web::SignupForm, type: :model do
     end
 
     it "requires matching password confirmation" do
-      form = described_class.new(email: "user@example.com", password: "password123", password_confirmation: "different")
+      form = described_class.new(email: "user@example.com", password: "Password1!", password_confirmation: "different")
       expect(form).not_to be_valid
       expect(form.errors[:password_confirmation]).to be_present
     end
@@ -23,7 +23,7 @@ RSpec.describe StandardId::Web::SignupForm, type: :model do
 
   describe "#submit" do
     it "creates account, identifier, credential, and password_credential, and returns true" do
-      form = described_class.new(email: "newuser@example.com", password: "password123", password_confirmation: "password123")
+      form = described_class.new(email: "newuser@example.com", password: "Password1!", password_confirmation: "Password1!")
 
       expect {
         expect(form.submit).to eq(true)
@@ -46,13 +46,13 @@ RSpec.describe StandardId::Web::SignupForm, type: :model do
 
     it "adds base errors and returns false when nested create fails (e.g., duplicate email login)" do
       # Pre-create a conflicting password credential
-      existing = StandardId::PasswordCredential.create!(login: "dup@example.com", password: "password123")
+      existing = StandardId::PasswordCredential.create!(login: "dup@example.com", password: "Password1!")
       # Need an identifier+credential to satisfy associations; create a dummy account/identifier
       acc = Account.create!(name: "Dup", email: "dup@example.com")
       idf = StandardId::EmailIdentifier.create!(account: acc, value: "dup@example.com", verified_at: Time.current)
       StandardId::Credential.create!(credentialable: existing, identifier: idf)
 
-      form = described_class.new(email: "dup@example.com", password: "password123", password_confirmation: "password123")
+      form = described_class.new(email: "dup@example.com", password: "Password1!", password_confirmation: "Password1!")
       expect(form.submit).to eq(false)
       expect(form.errors[:base]).to be_present
     end
