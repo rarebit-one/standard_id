@@ -38,10 +38,12 @@ module StandardId
 
     def revoke!(reason: nil)
       @reason = reason
-      update!(revoked_at: Time.current)
-      # Cascade revocation to refresh tokens. Uses update_all for efficiency;
-      # intentionally skips updated_at since revocation is tracked via revoked_at.
-      refresh_tokens.active.update_all(revoked_at: Time.current)
+      transaction do
+        update!(revoked_at: Time.current)
+        # Cascade revocation to refresh tokens. Uses update_all for efficiency;
+        # intentionally skips updated_at since revocation is tracked via revoked_at.
+        refresh_tokens.active.update_all(revoked_at: Time.current)
+      end
     end
 
     private

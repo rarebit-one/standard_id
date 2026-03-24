@@ -4,6 +4,13 @@ module StandardId
       expect_params :refresh_token, :client_id
       permit_params :client_secret, :scope, :audience
 
+      # Wrap the full execute flow in a transaction so that old-token
+      # revocation and new-token creation are atomic. If the new token
+      # INSERT fails, the old token's revocation is rolled back.
+      def execute
+        StandardId::RefreshToken.transaction { super }
+      end
+
       def authenticate!
         validate_client_secret!(params[:client_id], params[:client_secret]) if params[:client_secret].present?
 
