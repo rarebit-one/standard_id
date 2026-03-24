@@ -81,7 +81,7 @@ module StandardId
     end
 
     def account_has_social_identifier_from?(account, provider)
-      account.identifiers.where(type: "StandardId::EmailIdentifier", provider: provider.provider_name).exists?
+      account.identifiers.where(type: StandardId::EmailIdentifier.sti_name, provider: provider.provider_name).exists?
     end
 
     def build_account_from_social(social_info)

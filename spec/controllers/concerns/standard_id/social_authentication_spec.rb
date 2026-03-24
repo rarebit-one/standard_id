@@ -210,8 +210,8 @@ RSpec.describe StandardId::SocialAuthentication do
 
         context "when the account has another identifier from the same provider" do
           before do
-            # The email identifier itself has no provider (created via passwordless)
-            StandardId::EmailIdentifier.create!(account: existing_account, value: email)
+            # The email identifier was created via a different provider (e.g. Apple)
+            StandardId::EmailIdentifier.create!(account: existing_account, value: email, provider: "apple")
             # But the account also has another identifier linked via Google
             other_email = "other-#{SecureRandom.hex(4)}@example.com"
             StandardId::EmailIdentifier.create!(account: existing_account, value: other_email, provider: "google")
