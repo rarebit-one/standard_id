@@ -74,14 +74,43 @@ module StandardId
       end
 
       def generate_refresh_token
+        jti = SecureRandom.uuid
         payload = {
           sub: subject_id,
           client_id: client_id,
           scope: token_scope,
           aud: audience,
-          grant_type: "refresh_token"
+          grant_type: "refresh_token",
+          jti: jti
         }.compact
-        StandardId::JwtService.encode(payload, expires_in: refresh_token_expiry)
+
+        expiry = refresh_token_expiry
+        # Capture expires_at once so the JWT exp and DB record are consistent
+        expires_at = expiry.from_now
+
+        # Persist the DB record first so we never hand out a signed JWT
+        # that has no backing record (e.g. if the INSERT were to fail).
+        persist_refresh_token!(jti: jti, expires_at: expires_at)
+
+        StandardId::JwtService.encode(payload, expires_at: expires_at)
+      end
+
+      def persist_refresh_token!(jti:, expires_at:)
+        StandardId::RefreshToken.create!(
+          account_id: subject_id,
+          session_id: refresh_token_session_id,
+          token_digest: StandardId::RefreshToken.digest_for(jti),
+          expires_at: expires_at,
+          previous_token: previous_refresh_token_record
+        )
+      end
+
+      def refresh_token_session_id
+        nil
+      end
+
+      def previous_refresh_token_record
+        nil
       end
 
       def refresh_token_expiry

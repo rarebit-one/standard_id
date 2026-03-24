@@ -7,6 +7,7 @@ RSpec.describe StandardId::Session, type: :model do
 
   describe "associations" do
     it { should belong_to(:account) }
+    it { should have_many(:refresh_tokens) }
   end
 
   describe "scopes" do
@@ -104,12 +105,50 @@ RSpec.describe StandardId::Session, type: :model do
       end
     end
 
+    describe "before_destroy" do
+      it "revokes active refresh tokens before session is destroyed" do
+        active_rt = StandardId::RefreshToken.create!(
+          account: account,
+          session: session,
+          token_digest: Digest::SHA256.hexdigest("destroy-active-rt"),
+          expires_at: 30.days.from_now
+        )
+
+        session.destroy!
+
+        expect(active_rt.reload.revoked?).to be true
+        expect(active_rt.session_id).to be_nil
+      end
+    end
+
     describe "#revoke!" do
       it "sets revoked_at to current time" do
         travel_to Time.current do
           session.revoke!
           expect(session.revoked_at).to eq(Time.current)
         end
+      end
+
+      it "revokes all associated active refresh tokens" do
+        active_rt = StandardId::RefreshToken.create!(
+          account: account,
+          session: session,
+          token_digest: Digest::SHA256.hexdigest("active-rt"),
+          expires_at: 30.days.from_now
+        )
+
+        already_revoked_rt = StandardId::RefreshToken.create!(
+          account: account,
+          session: session,
+          token_digest: Digest::SHA256.hexdigest("revoked-rt"),
+          expires_at: 30.days.from_now,
+          revoked_at: 1.day.ago
+        )
+
+        session.revoke!
+
+        expect(active_rt.reload.revoked?).to be true
+        expect(already_revoked_rt.reload.revoked_at).to be_within(1.second).of(1.day.ago)
       end
     end
   end

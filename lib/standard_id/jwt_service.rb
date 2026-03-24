@@ -122,8 +122,12 @@ module StandardId
       @jwks_ref.set(nil)
     end
 
-    def self.encode(payload, expires_in: 1.hour)
-      payload[:exp] = expires_in.from_now.to_i
+    def self.encode(payload, expires_in: nil, expires_at: nil)
+      payload[:exp] = if expires_at
+        expires_at.to_i
+      else
+        (expires_in || 1.hour).from_now.to_i
+      end
       payload[:iat] = Time.current.to_i
       payload[:iss] ||= StandardId.config.issuer if StandardId.config.issuer.present?
 

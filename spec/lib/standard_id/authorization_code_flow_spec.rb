@@ -116,6 +116,9 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
         .with(code)
         .and_return(authorization_code)
 
+      allow_any_instance_of(described_class)
+        .to receive(:persist_refresh_token!)
+
       flow.authenticate!
     end
 
@@ -197,6 +200,9 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
         .to receive(:find_authorization_code)
         .with(code)
         .and_return(scoped_code)
+
+      allow_any_instance_of(described_class)
+        .to receive(:persist_refresh_token!)
 
       encoded_payloads = []
       allow(StandardId::JwtService).to receive(:encode) do |payload, _|

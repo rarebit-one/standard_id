@@ -20,6 +20,8 @@ RSpec.describe StandardId::Oauth::SocialFlow do
   before do
     allow(StandardId).to receive(:account_class).and_return(double(find_by: account))
     allow(StandardId::JwtService).to receive(:encode).and_return("jwt_token")
+    allow_any_instance_of(described_class)
+      .to receive(:persist_refresh_token!)
   end
 
   describe "#initialize" do
