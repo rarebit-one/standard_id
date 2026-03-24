@@ -33,10 +33,10 @@ module StandardId
           return
         end
 
-        result = StandardId::Passwordless::VerificationService.verify(
-          connection: @otp_data[:connection],
+        result = StandardId::Passwordless.verify(
           username: @otp_data[:username],
           code: code,
+          connection: @otp_data[:connection],
           request: request,
           allow_registration: passwordless_registration_enabled?
         )

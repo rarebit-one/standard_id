@@ -148,6 +148,7 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
         account: account,
         challenge: challenge,
         error: nil,
+        error_code: nil,
         attempts: nil
       )
 
