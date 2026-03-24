@@ -52,7 +52,7 @@ module StandardId
                 original_request_params: state_data
               )
 
-              context = { connection: "social", provider: provider_name }
+              context = { mechanism: "social", provider: provider_name }
               redirect_override = invoke_after_sign_in(account, context)
 
               destination = redirect_override || state_data["redirect_uri"]

@@ -59,7 +59,7 @@ module StandardId
         }
 
         if result
-          context = { connection: "password", provider: nil }
+          context = { mechanism: "password", provider: nil }
           redirect_override = invoke_after_sign_in(current_account, context)
           destination = redirect_override || params[:redirect_uri] || after_authentication_url
           redirect_to destination, status: :see_other, notice: "Successfully signed in"

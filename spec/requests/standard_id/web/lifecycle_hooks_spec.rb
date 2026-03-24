@@ -4,13 +4,6 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
   let(:email) { "hook-user@example.com" }
   let(:password) { "s3cureP@ss" }
 
-  after do
-    # Reset hooks after each test
-    allow(StandardId.config).to receive(:after_sign_in).and_call_original
-    allow(StandardId.config).to receive(:after_account_created).and_call_original
-    allow(StandardId.config).to receive(:before_sign_in).and_call_original
-  end
-
   # ───────────────────────────────────────────────────────────────────────────
   # Password login
   # ───────────────────────────────────────────────────────────────────────────
@@ -28,7 +21,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
       expect(hook).to have_received(:call).with(
         an_instance_of(Account),
         an_instance_of(ActionDispatch::Request),
-        hash_including(connection: "password", provider: nil, first_sign_in: true)
+        hash_including(mechanism: "password", provider: nil, first_sign_in: true)
       )
       expect(response).to have_http_status(:see_other)
     end
@@ -236,7 +229,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
       end
 
-      it "calls after_sign_in with connection: email" do
+      it "calls after_sign_in with mechanism: passwordless" do
         received_context = nil
         hook = lambda { |_account, _request, context|
           received_context = context
@@ -248,7 +241,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         challenge = StandardId::CodeChallenge.last
         http_patch "/login_verify", params: { code: challenge.code.to_s }
 
-        expect(received_context[:connection]).to eq("email")
+        expect(received_context[:mechanism]).to eq("passwordless")
         expect(received_context[:provider]).to be_nil
       end
 
@@ -349,7 +342,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
       expect(sign_in_hook).to have_received(:call).with(
         an_instance_of(Account),
         an_instance_of(ActionDispatch::Request),
-        hash_including(connection: "password", provider: nil, first_sign_in: true)
+        hash_including(mechanism: "password", provider: nil, first_sign_in: true)
       )
     end
 
@@ -408,7 +401,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         .and_return({ "params" => { "redirect_uri" => redirect_uri }, "nonce" => nil })
     end
 
-    it "calls after_sign_in with connection: social and provider name" do
+    it "calls after_sign_in with mechanism: social and provider name" do
       received_context = nil
       hook = lambda { |_account, _request, context|
         received_context = context
@@ -418,7 +411,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
 
       http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
 
-      expect(received_context[:connection]).to eq("social")
+      expect(received_context[:mechanism]).to eq("social")
       expect(received_context[:provider]).to eq("google")
     end
 

@@ -18,7 +18,7 @@ module StandardId
       hook = StandardId.config.before_sign_in
       return unless hook.respond_to?(:call)
 
-      context = context.merge(first_sign_in: first_sign_in?(account))
+      context = context.merge(first_sign_in: first_sign_in?(account, session_created: false))
       result = hook.call(account, request, context)
 
       if result.is_a?(Hash) && result[:error].present?
@@ -30,7 +30,7 @@ module StandardId
     #
     # @param account [Object] the authenticated account
     # @param context [Hash] context about the sign-in
-    #   - :connection [String] "email", "password", or "social"
+    #   - :mechanism [String] "password", "passwordless", or "social"
     #   - :provider [String, nil] e.g. "google", "apple", or nil
     #   - :first_sign_in [Boolean] whether this is the account's first browser session
     #   - :session [StandardId::Session] the session that was just created
@@ -41,7 +41,7 @@ module StandardId
       return nil unless hook.respond_to?(:call)
 
       context = context.merge(
-        first_sign_in: first_sign_in?(account),
+        first_sign_in: first_sign_in?(account, session_created: true),
         session: session_manager.current_session
       )
       hook.call(account, request, context)
@@ -62,9 +62,12 @@ module StandardId
     end
 
     # Determine if this is the account's first browser session.
-    # A count of 1 means the session just created is the only one.
-    def first_sign_in?(account)
-      account.sessions.where(type: "StandardId::BrowserSession").active.count <= 1
+    # When called before session creation (before_sign_in), count == 0 means first.
+    # When called after session creation (after_sign_in), count <= 1 means first
+    # (the just-created session is the only one).
+    def first_sign_in?(account, session_created: true)
+      active_count = account.sessions.where(type: "StandardId::BrowserSession").active.count
+      session_created ? active_count <= 1 : active_count == 0
     end
 
     # Handle AuthenticationDenied by revoking the session and redirecting to login.
@@ -74,7 +77,7 @@ module StandardId
     # @param account [Object, nil] the account to clean up if newly created
     # @param newly_created [Boolean] whether the account was created during this request
     def handle_authentication_denied(error, account: nil, newly_created: false)
-      session_manager.revoke_current_session!
+      session_manager.revoke_current_session! if session_manager.current_session.present?
       destroy_newly_created_account(account) if newly_created
       message = error.message
       # When raised without arguments, StandardError#message returns the class name

@@ -39,8 +39,8 @@ StandardConfig.schema.draw do
 
     # after_sign_in: Called after successful sign-in, before redirect.
     #   Receives: (account, request, context)
-    #   Context: { first_sign_in: bool, connection: "email"/"password"/"social", provider: nil/"google"/"apple",
-    #              session: StandardId::Session }
+    #   Context: { first_sign_in: bool, mechanism: "password"/"passwordless"/"social",
+    #              provider: nil/"google"/"apple", session: StandardId::Session }
     #   Return: nil (default redirect) or a path string (override redirect)
     #   Raise StandardId::AuthenticationDenied.new("message") to reject sign-in.
     field :after_sign_in, type: :any, default: nil

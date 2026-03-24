@@ -60,7 +60,7 @@ module StandardId
           invoke_after_account_created(account, { mechanism: "passwordless", provider: nil })
         end
 
-        context = { connection: @otp_data[:connection], provider: nil }
+        context = { mechanism: "passwordless", provider: nil }
         redirect_override = invoke_after_sign_in(account, context)
 
         session.delete(:standard_id_otp_payload)
