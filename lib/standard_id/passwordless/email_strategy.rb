@@ -22,6 +22,7 @@ module StandardId
       end
 
       def sender_callback
+        return nil if StandardId.config.passwordless.delivery == :built_in
         StandardId.config.passwordless_email_sender
       end
     end

@@ -13,4 +13,22 @@ RSpec.describe "StandardId config schema" do
       expect(StandardId.config.passwordless.bypass_code).to eq("test-code")
     end
   end
+
+  describe "passwordless.delivery" do
+    it "defaults to :custom" do
+      expect(StandardId.config.passwordless.delivery).to eq(:custom)
+    end
+  end
+
+  describe "passwordless.mailer_from" do
+    it "defaults to noreply@example.com" do
+      expect(StandardId.config.passwordless.mailer_from).to eq("noreply@example.com")
+    end
+  end
+
+  describe "passwordless.mailer_subject" do
+    it "defaults to 'Your sign-in code'" do
+      expect(StandardId.config.passwordless.mailer_subject).to eq("Your sign-in code")
+    end
+  end
 end

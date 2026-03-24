@@ -32,6 +32,24 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
     end
   end
 
+  describe "#sender_callback" do
+    it "returns the email sender when delivery is :custom" do
+      sender = double("sender")
+      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      allow(StandardId.config.passwordless).to receive(:delivery).and_return(:custom)
+
+      expect(strategy.send(:sender_callback)).to eq(sender)
+    end
+
+    it "returns nil when delivery is :built_in to prevent duplicate emails" do
+      sender = double("sender")
+      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+
+      expect(strategy.send(:sender_callback)).to be_nil
+    end
+  end
+
   describe "#find_or_create_account!" do
     it "returns existing account when identifier exists" do
       account = Account.create!(name: "User", email: "user@example.com")
