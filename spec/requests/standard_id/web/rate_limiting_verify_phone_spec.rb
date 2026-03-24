@@ -22,7 +22,7 @@ RSpec.describe "Rate limiting: Web Verify Phone (RAR-56)", type: :request do
       end
 
       http_post "/verify_phone/start", params: { phone_number: phone }
-      expect(response).to have_http_status(:too_many_requests)
+      expect(response).to redirect_to("/")
     end
 
     it "does not rate limit a different phone number" do
@@ -33,7 +33,7 @@ RSpec.describe "Rate limiting: Web Verify Phone (RAR-56)", type: :request do
       end
 
       http_post "/verify_phone/start", params: { phone_number: "+14155550999" }
-      expect(response).not_to have_http_status(:too_many_requests)
+      expect(response).not_to redirect_to("/")
     end
   end
 
@@ -46,7 +46,7 @@ RSpec.describe "Rate limiting: Web Verify Phone (RAR-56)", type: :request do
       end
 
       http_post "/verify_phone/start", params: { phone_number: "+14155550199" }
-      expect(response).to have_http_status(:too_many_requests)
+      expect(response).to redirect_to("/")
     end
   end
 end

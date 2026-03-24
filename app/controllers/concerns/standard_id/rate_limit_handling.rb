@@ -11,14 +11,16 @@ module StandardId
     private
 
     def handle_rate_limited(_exception)
+      response.set_header("Retry-After", 15.minutes.to_i.to_s)
+
       if self.class.ancestors.include?(ActionController::API)
         render json: {
           error: "rate_limit_exceeded",
           error_description: "Too many requests. Please try again later."
         }, status: :too_many_requests
       else
-        flash.now[:alert] = "Too many requests. Please try again later."
-        head :too_many_requests
+        flash[:alert] = "Too many requests. Please try again later."
+        redirect_to request.referer || main_app.root_path, status: :see_other
       end
     end
   end

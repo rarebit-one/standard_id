@@ -116,9 +116,7 @@ StandardConfig.schema.draw do
     field :password_login_per_ip, type: :integer, default: 20        # per 15 minutes
     field :password_login_per_email, type: :integer, default: 5      # per 15 minutes
 
-    # RAR-60: OTP / passwordless
-    field :otp_start_per_email, type: :integer, default: 5           # per 15 minutes
-    field :otp_start_per_ip, type: :integer, default: 10             # per hour
+    # RAR-60: OTP verification
     field :otp_verify_per_ip, type: :integer, default: 20            # per 15 minutes
 
     # RAR-56: Email/phone verification code generation

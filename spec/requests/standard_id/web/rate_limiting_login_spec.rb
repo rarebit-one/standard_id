@@ -11,14 +11,6 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       .to receive(:increment) { |name, amount, **opts| memory_store.increment(name, amount, **opts) }
   end
 
-  # Pre-fill the rate limit counter to just below the limit so the next request triggers it.
-  # The cache key format is: "rate-limit:{controller_path}/{name}/{by_key}"
-  def exhaust_rate_limit(key_fragment, limit)
-    # Find the matching key pattern and set it to the limit
-    # We use the store directly since the key is constructed by Rails internally
-    memory_store.write(key_fragment, limit, raw: true)
-  end
-
   describe "per-IP rate limiting on POST /login" do
     before do
       create_account_with_password(email: email, password: password)
@@ -38,7 +30,8 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email, password: "wrong" } }
-      expect(response).to have_http_status(:too_many_requests)
+      expect(response).to redirect_to("/")
+      expect(flash[:alert]).to eq("Too many requests. Please try again later.")
     end
   end
 
@@ -47,7 +40,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       create_account_with_password(email: email, password: password)
     end
 
-    it "returns 429 when email limit is exceeded" do
+    it "redirects with flash when email limit is exceeded" do
       email_limit = StandardId.config.rate_limits.password_login_per_email # 5
 
       email_limit.times do
@@ -55,7 +48,8 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email, password: "wrong" } }
-      expect(response).to have_http_status(:too_many_requests)
+      expect(response).to redirect_to("/")
+      expect(flash[:alert]).to eq("Too many requests. Please try again later.")
     end
 
     it "does not rate limit a different email after one email is exhausted" do
@@ -69,7 +63,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
 
       # Different email should still work (assuming IP limit is not exceeded)
       http_post "/login", params: { login: { email: other_email, password: "wrong" } }
-      expect(response).not_to have_http_status(:too_many_requests)
+      expect(response).not_to redirect_to("/")
     end
   end
 
@@ -78,7 +72,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       create_account_with_password(email: email, password: password)
     end
 
-    it "sets a flash alert message" do
+    it "sets a flash alert message and includes Retry-After header" do
       email_limit = StandardId.config.rate_limits.password_login_per_email # 5
 
       email_limit.times do
@@ -86,8 +80,9 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email, password: "wrong" } }
-      expect(response).to have_http_status(:too_many_requests)
+      expect(response).to redirect_to("/")
       expect(flash[:alert]).to eq("Too many requests. Please try again later.")
+      expect(response.headers["Retry-After"]).to eq(15.minutes.to_i.to_s)
     end
   end
 
@@ -108,7 +103,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email } }
-      expect(response).to have_http_status(:too_many_requests)
+      expect(response).to redirect_to("/")
     end
   end
 end
