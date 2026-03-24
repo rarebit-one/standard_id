@@ -21,6 +21,11 @@ module StandardId
         Account.create!(identifiers_attributes:)
       end
 
+      def find_existing_account(phone_number)
+        identifier = StandardId::PhoneNumberIdentifier.includes(:account).find_by(value: phone_number)
+        identifier&.account
+      end
+
       def sender_callback
         StandardId.config.passwordless_sms_sender
       end

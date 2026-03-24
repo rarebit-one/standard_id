@@ -57,7 +57,8 @@ module StandardId
         password_reset: web.password_reset,
         email_verification: web.email_verification,
         phone_verification: web.phone_verification,
-        sessions_management: web.sessions_management
+        sessions_management: web.sessions_management,
+        passwordless_registration: web.passwordless_registration
       }
     end
   end

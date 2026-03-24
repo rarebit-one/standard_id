@@ -463,5 +463,125 @@ RSpec.describe StandardId::Passwordless::VerificationService do
         described_class.verify(email: email, code: otp_code, request: request)
       end
     end
+
+    context "allow_registration parameter" do
+      context "when allow_registration: true (default)" do
+        it "creates a new account when no identifier exists" do
+          new_email = "reg-new@example.com"
+          create_challenge(channel: "email", target: new_email)
+
+          new_account = Account.create!(name: "Auto", email: new_email)
+          StandardId::EmailIdentifier.create!(account: new_account, value: new_email, verified_at: Time.current)
+          allow(Account).to receive(:create!)
+            .with(hash_including(identifiers_attributes: kind_of(Array)))
+            .and_return(new_account)
+
+          result = described_class.verify(email: new_email, code: otp_code, request: request, allow_registration: true)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(new_account)
+        end
+
+        it "returns existing account without creating a new one" do
+          account = create_email_account(email)
+          create_challenge(channel: "email", target: email)
+
+          result = described_class.verify(email: email, code: otp_code, request: request, allow_registration: true)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(account)
+        end
+      end
+
+      context "when allow_registration: false" do
+        it "returns success for existing accounts" do
+          account = create_email_account(email)
+          create_challenge(channel: "email", target: email)
+
+          result = described_class.verify(email: email, code: otp_code, request: request, allow_registration: false)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(account)
+        end
+
+        it "returns failure when no account exists" do
+          new_email = "noreg@example.com"
+          create_challenge(channel: "email", target: new_email)
+
+          result = described_class.verify(email: new_email, code: otp_code, request: request, allow_registration: false)
+
+          expect(result.success?).to be false
+          expect(result.error).to eq("No account found for this email address")
+          expect(result.account).to be_nil
+        end
+
+        it "does not consume the challenge when account is not found" do
+          new_email = "noreg2@example.com"
+          challenge = create_challenge(channel: "email", target: new_email)
+
+          described_class.verify(email: new_email, code: otp_code, request: request, allow_registration: false)
+
+          expect(challenge.reload).not_to be_used
+        end
+
+        it "does not emit OTP_VALIDATED events when account is not found" do
+          new_email = "noreg3@example.com"
+          create_challenge(channel: "email", target: new_email)
+
+          validated_events = []
+          sub = StandardId::Events.subscribe(StandardId::Events::OTP_VALIDATED) do |event|
+            validated_events << event
+          end
+
+          described_class.verify(email: new_email, code: otp_code, request: request, allow_registration: false)
+
+          expect(validated_events).to be_empty
+        ensure
+          StandardId::Events.unsubscribe(sub)
+        end
+      end
+
+      context "with connection:/username: interface" do
+        it "passes allow_registration through" do
+          new_email = "noreg-conn@example.com"
+          create_challenge(channel: "email", target: new_email)
+
+          result = described_class.verify(
+            connection: "email",
+            username: new_email,
+            code: otp_code,
+            request: request,
+            allow_registration: false
+          )
+
+          expect(result.success?).to be false
+          expect(result.error).to eq("No account found for this email address")
+        end
+      end
+
+      context "with bypass_code" do
+        let(:bypass_code) { "BYPASS-REG-TEST" }
+
+        before do
+          allow(StandardId.config.passwordless).to receive(:bypass_code).and_return(bypass_code)
+        end
+
+        it "returns failure when allow_registration: false and no account exists" do
+          result = described_class.verify(email: "noone@example.com", code: bypass_code, request: request, allow_registration: false)
+
+          expect(result.success?).to be false
+          expect(result.error).to eq("No account found for this email address")
+        end
+
+        it "returns success when allow_registration: false and account exists" do
+          account = create_email_account(email)
+
+          result = described_class.verify(email: email, code: bypass_code, request: request, allow_registration: false)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(account)
+        end
+      end
+    end
   end
 end

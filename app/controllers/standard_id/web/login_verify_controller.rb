@@ -37,7 +37,8 @@ module StandardId
           connection: @otp_data[:connection],
           username: @otp_data[:username],
           code: code,
-          request: request
+          request: request,
+          allow_registration: passwordless_registration_enabled?
         )
 
         unless result.success?
@@ -52,7 +53,10 @@ module StandardId
         session_manager.sign_in_account(account)
         emit_authentication_succeeded(account)
 
-        invoke_after_account_created(account, { mechanism: "passwordless", provider: nil }) if newly_created
+        if newly_created
+          emit_passwordless_account_created(account)
+          invoke_after_account_created(account, { mechanism: "passwordless", provider: nil })
+        end
 
         context = { connection: @otp_data[:connection], provider: nil }
         redirect_override = invoke_after_sign_in(account, context)
@@ -86,6 +90,19 @@ module StandardId
           session.delete(:standard_id_otp_payload)
           redirect_to login_path, alert: "Your verification session has expired. Please try again."
         end
+      end
+
+      def passwordless_registration_enabled?
+        StandardId.config.web.passwordless_registration
+      end
+
+      def emit_passwordless_account_created(account)
+        StandardId::Events.publish(
+          StandardId::Events::PASSWORDLESS_ACCOUNT_CREATED,
+          account: account,
+          channel: @otp_data[:connection],
+          identifier: @otp_data[:username]
+        )
       end
 
       def emit_authentication_succeeded(account)

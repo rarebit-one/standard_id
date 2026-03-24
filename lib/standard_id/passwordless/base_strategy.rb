@@ -53,12 +53,23 @@ module StandardId
         raise NotImplementedError
       end
 
+      def find_existing_account(_username)
+        raise NotImplementedError
+      end
+
       public
 
       # Public wrapper to reuse account lookup/creation outside OTP verification
       def find_or_create_account(username)
         validate_username!(username)
         find_or_create_account!(username)
+      end
+
+      # Public wrapper to look up an existing account without creating one.
+      # Returns nil if no account is found for the given username.
+      def find_account(username)
+        validate_username!(username)
+        find_existing_account(username)
       end
 
       def identifier_class
