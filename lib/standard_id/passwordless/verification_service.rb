@@ -154,9 +154,15 @@ module StandardId
         return unless secure_compare(bypass_code, @code)
 
         strategy = strategy_for(@channel)
-        account = resolve_account(strategy)
+        account = nil
+        ActiveRecord::Base.transaction do
+          account = resolve_account(strategy)
+        end
 
-        return failure("No account found for this email address") unless account
+        unless account
+          label = @channel == "sms" ? "phone number" : "email address"
+          return failure("No account found for this #{label}")
+        end
 
         StandardId::Events.publish(
           StandardId::Events::OTP_VALIDATED,

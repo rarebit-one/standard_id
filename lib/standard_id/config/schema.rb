@@ -53,7 +53,7 @@ StandardConfig.schema.draw do
 
     # Custom account factory for passwordless registration.
     # When set, replaces the default find_or_create_account! logic in strategies.
-    # Must be a callable (lambda/proc) that receives (email:, params:, request:)
+    # Must be a callable (lambda/proc) that receives (identifier:, params:, request:)
     # and returns an Account (or account-like) record.
     # When nil (default), uses the built-in strategy behavior.
     field :account_factory, type: :any, default: nil
