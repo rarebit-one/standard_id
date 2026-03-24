@@ -62,7 +62,7 @@ module StandardId
           aud: audience
         }.compact
 
-        base_payload.merge(claims_from_scope_mapping)
+        base_payload.merge(claims_from_scope_mapping).merge(claims_from_custom_claims)
       end
 
       def token_expiry
@@ -153,6 +153,18 @@ module StandardId
         if invalid.any?
           raise StandardId::InvalidRequestError, "Invalid audience: #{invalid.join(', ')}"
         end
+      end
+
+      def claims_from_custom_claims
+        callable = StandardId.config.oauth.custom_claims
+        return {} unless callable.respond_to?(:call)
+
+        result = StandardId::Utils::CallableParameterFilter.filter(callable, claim_resolvers_context)
+        claims = callable.call(**result)
+        return {} unless claims.is_a?(Hash)
+
+        # Prevent custom claims from overriding reserved JWT keys
+        claims.symbolize_keys.except(*StandardId::JwtService::RESERVED_JWT_KEYS)
       end
 
       def claims_from_scope_mapping

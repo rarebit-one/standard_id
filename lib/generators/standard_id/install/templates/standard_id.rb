@@ -54,6 +54,11 @@ StandardId.configure do |c|
   #   }
   # }
   # c.oauth.allowed_audiences = %w[web mobile admin] # Empty = no validation
+  #
+  # Custom claims added to every access token (independent of scopes).
+  # Receives keyword arguments: account:, client:, request:, audience:
+  # Must return a Hash. Reserved JWT keys (sub, exp, iat, etc.) are excluded.
+  # c.oauth.custom_claims = ->(account:, **) { { channel_id: account.channel_id } }
 
   # JWT Signing Configuration (Asymmetric Algorithms)
   # By default, JWTs are signed with HS256 using Rails.application.secret_key_base.

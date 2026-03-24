@@ -166,6 +166,97 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
     end
   end
 
+  describe "custom_claims config" do
+    let(:client_application) { instance_double("StandardId::ClientApplication") }
+    let(:account_with_status) { double("Account", id: 77, locked?: false, inactive?: false, channel_id: "ch-42") }
+
+    before do
+      allow(StandardId::ClientApplication).to receive(:find_by).and_return(client_application)
+      allow(StandardId.config.oauth).to receive(:token_lifetimes).and_return({})
+      allow(StandardId.config.oauth).to receive(:default_token_lifetime).and_return(8.hours.to_i)
+      allow(StandardId.account_class).to receive(:find_by).and_return(account_with_status)
+      allow_any_instance_of(described_class)
+        .to receive(:persist_refresh_token!)
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account_with_status)
+    end
+
+    it "adds custom claims to the JWT payload when custom_claims is configured" do
+      allow(StandardId.config.oauth).to receive(:custom_claims).and_return(
+        ->(account:, **) { { channel_id: account.channel_id } }
+      )
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new(params, request).execute
+
+      access_payload = encoded_payloads.first
+      expect(access_payload[:channel_id]).to eq("ch-42")
+    end
+
+    it "does not add custom claims when custom_claims is nil" do
+      allow(StandardId.config.oauth).to receive(:custom_claims).and_return(nil)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new(params, request).execute
+
+      access_payload = encoded_payloads.first
+      expect(access_payload).not_to have_key(:channel_id)
+    end
+
+    it "prevents custom claims from overriding reserved JWT keys" do
+      allow(StandardId.config.oauth).to receive(:custom_claims).and_return(
+        ->(**) { { sub: "evil-override", exp: 9999999999, channel_id: "ch-ok" } }
+      )
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new(params, request).execute
+
+      access_payload = encoded_payloads.first
+      expect(access_payload[:sub]).to eq(77)
+      expect(access_payload[:channel_id]).to eq("ch-ok")
+      expect(access_payload).not_to have_key(:exp) # exp is set by encode, not payload
+    end
+
+    it "merges custom claims with scope claims" do
+      allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "read" => [:tenant_id] })
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
+        tenant_id: ->(account:, **) { "tenant-#{account.id}" }
+      })
+      allow(StandardId.config.oauth).to receive(:custom_claims).and_return(
+        ->(account:, **) { { channel_id: account.channel_id } }
+      )
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new(params, request).execute
+
+      access_payload = encoded_payloads.first
+      expect(access_payload[:tenant_id]).to eq("tenant-77")
+      expect(access_payload[:channel_id]).to eq("ch-42")
+    end
+  end
+
   describe "audience in refresh token" do
     let(:account_with_status) { instance_double("Account", id: 77, locked?: false, inactive?: false) }
     before do

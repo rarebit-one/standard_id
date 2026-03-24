@@ -7,7 +7,7 @@ require "digest"
 module StandardId
   class JwtService
     RESERVED_JWT_KEYS = %i[sub client_id scope grant_type exp iat aud iss nbf jti]
-    BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type aud]
+    BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type aud claims]
 
     # Supported signing algorithms categorized by type
     # Symmetric: use shared secret (Rails.application.secret_key_base)
@@ -187,7 +187,8 @@ module StandardId
         client_id: payload[:client_id],
         scopes: scopes,
         grant_type: payload[:grant_type],
-        aud: payload[:aud]
+        aud: payload[:aud],
+        claims: payload.to_h
       )
     end
 

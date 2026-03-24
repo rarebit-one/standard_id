@@ -344,14 +344,63 @@ RSpec.describe StandardId::JwtService do
       allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({})
     end
 
-    it "returns custom_claims with non-reserved payload keys" do
+    it "returns standard fields accessible as before" do
       token = described_class.encode(payload, expires_in: 5.minutes)
 
       session = described_class.decode_session(token)
 
+      expect(session.account_id).to eq("account-123")
+      expect(session.client_id).to eq("client-456")
       expect(session.scopes).to eq(%w[openid profile])
+      expect(session.grant_type).to eq("password")
+      expect(session.aud).to eq("https://example.com")
+      expect(session.active?).to be true
+    end
+
+    it "does not expose non-resolver custom payload keys as struct fields" do
+      token = described_class.encode(payload, expires_in: 5.minutes)
+
+      session = described_class.decode_session(token)
+
       expect(session).not_to respond_to(:custom_flag)
       expect(session).not_to respond_to(:metadata)
+    end
+
+    it "populates claims with the full decoded JWT payload hash" do
+      token = described_class.encode(payload, expires_in: 5.minutes)
+
+      session = described_class.decode_session(token)
+
+      expect(session.claims).to be_a(Hash)
+      expect(session.claims["sub"]).to eq("account-123")
+      expect(session.claims["client_id"]).to eq("client-456")
+      expect(session.claims["scope"]).to eq("openid profile")
+      expect(session.claims["grant_type"]).to eq("password")
+      expect(session.claims["aud"]).to eq("https://example.com")
+      expect(session.claims["exp"]).to be_present
+      expect(session.claims["iat"]).to be_present
+    end
+
+    it "includes non-standard claims in the claims hash" do
+      token = described_class.encode(payload, expires_in: 5.minutes)
+
+      session = described_class.decode_session(token)
+
+      expect(session.claims["custom_flag"]).to eq(true)
+      expect(session.claims["metadata"]).to eq({ "plan" => "pro" })
+    end
+
+    it "allows custom claim access like session.claims['channel_id']" do
+      custom_payload = payload.merge(channel_id: "ch-789")
+      token = described_class.encode(custom_payload, expires_in: 5.minutes)
+
+      session = described_class.decode_session(token)
+
+      expect(session.claims["channel_id"]).to eq("ch-789")
+    end
+
+    it "returns nil when token is invalid" do
+      expect(described_class.decode_session("invalid.token.here")).to be_nil
     end
 
     context "when claim resolvers are configured" do
