@@ -36,6 +36,19 @@ RSpec.describe StandardId::CleanupExpiredRefreshTokensJob, type: :job do
       expect(StandardId::RefreshToken.exists?(recent_token.id)).to be true
     end
 
+    it "nullifies child's previous_token_id when parent is deleted (on_delete: :nullify)" do
+      parent = create_refresh_token(expires_at: 30.days.ago, revoked_at: 30.days.ago)
+      child = create_refresh_token(previous_token: parent)
+
+      expect(child.previous_token_id).to eq(parent.id)
+
+      described_class.new.perform(grace_period_seconds: 7.days.to_i)
+
+      expect(StandardId::RefreshToken.exists?(parent.id)).to be false
+      expect(child.reload.previous_token_id).to be_nil
+      expect(StandardId::RefreshToken.exists?(child.id)).to be true
+    end
+
     it "preserves active tokens" do
       active_token = create_refresh_token
 

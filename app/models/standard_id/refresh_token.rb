@@ -34,7 +34,8 @@ module StandardId
     end
 
     def revoke!
-      update!(revoked_at: Time.current) unless revoked?
+      rows = self.class.where(id: id, revoked_at: nil).update_all(revoked_at: Time.current)
+      reload if rows > 0
     end
 
     # Revoke this token and all tokens in the same family chain.

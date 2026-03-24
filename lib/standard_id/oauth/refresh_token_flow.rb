@@ -4,11 +4,24 @@ module StandardId
       expect_params :refresh_token, :client_id
       permit_params :client_secret, :scope, :audience
 
-      # Wrap the full execute flow in a transaction so that old-token
-      # revocation and new-token creation are atomic. If the new token
-      # INSERT fails, the old token's revocation is rolled back.
+      # authenticate! runs outside the transaction so reuse-detection
+      # revocations (revoke_family!) persist even when the error propagates.
+      # Only the normal rotation path (revoke old + create new) is wrapped
+      # in a transaction for atomicity.
       def execute
-        StandardId::RefreshToken.transaction { super }
+        authenticate!
+        response = nil
+        StandardId::RefreshToken.transaction do
+          rotate_current_refresh_token!
+          response = generate_token_response
+        end
+
+        # If rotate detected a concurrent reuse (rows==0), the transaction
+        # was rolled back via ActiveRecord::Rollback and response is nil.
+        # Handle family revocation outside the transaction so it persists.
+        handle_concurrent_reuse! unless response
+
+        response
       end
 
       def authenticate!
@@ -43,42 +56,52 @@ module StandardId
         if @current_refresh_token_record.revoked?
           # Reuse detected: this token was already rotated. Revoke entire family.
           @current_refresh_token_record.revoke_family!
-          StandardId::Events.publish(
-            StandardId::Events::OAUTH_REFRESH_TOKEN_REUSE_DETECTED,
-            account_id: @refresh_payload[:sub],
-            client_id: @refresh_payload[:client_id],
-            refresh_token_id: @current_refresh_token_record.id
-          )
+          emit_reuse_detected_event
           raise StandardId::InvalidGrantError, "Refresh token reuse detected"
         end
 
         unless @current_refresh_token_record.active?
           raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
         end
+      end
 
-        # Atomically revoke the current token as part of rotation.
-        # Uses a conditional UPDATE to prevent TOCTOU race conditions — only one
-        # concurrent request can successfully revoke and proceed.
+      # Atomically revoke the current token as part of rotation.
+      # Uses a conditional UPDATE to prevent TOCTOU race conditions — only one
+      # concurrent request can successfully revoke and proceed.
+      # Called inside a transaction with new-token creation so both succeed or
+      # both roll back.
+      def rotate_current_refresh_token!
+        return unless @current_refresh_token_record
+
         rows = StandardId::RefreshToken
           .where(id: @current_refresh_token_record.id, revoked_at: nil)
           .update_all(revoked_at: Time.current)
 
-        if rows == 0
-          # A concurrent request revoked the token between the revoked? check
-          # and the UPDATE. Re-load to determine whether this is a reuse scenario.
-          @current_refresh_token_record.reload
-          if @current_refresh_token_record.revoked?
-            @current_refresh_token_record.revoke_family!
-            StandardId::Events.publish(
-              StandardId::Events::OAUTH_REFRESH_TOKEN_REUSE_DETECTED,
-              account_id: @refresh_payload[:sub],
-              client_id: @refresh_payload[:client_id],
-              refresh_token_id: @current_refresh_token_record.id
-            )
-            raise StandardId::InvalidGrantError, "Refresh token reuse detected"
-          end
-          raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
+        return if rows > 0
+
+        # A concurrent request won the race. Roll back this transaction
+        # (no new token should be issued). Reuse handling happens outside
+        # the transaction in handle_concurrent_reuse! so revocations persist.
+        raise ActiveRecord::Rollback
+      end
+
+      def handle_concurrent_reuse!
+        @current_refresh_token_record&.reload
+        if @current_refresh_token_record&.revoked?
+          @current_refresh_token_record.revoke_family!
+          emit_reuse_detected_event
+          raise StandardId::InvalidGrantError, "Refresh token reuse detected"
         end
+        raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
+      end
+
+      def emit_reuse_detected_event
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_REFRESH_TOKEN_REUSE_DETECTED,
+          account_id: @refresh_payload[:sub],
+          client_id: @refresh_payload[:client_id],
+          refresh_token_id: @current_refresh_token_record.id
+        )
       end
 
       def subject_id

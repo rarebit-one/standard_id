@@ -100,12 +100,12 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError, /not found/)
     end
 
-    it "revokes the current token during authentication (rotation)" do
+    it "revokes the current token during rotation (execute)" do
       record = create_refresh_token_record
       flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
       allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
 
-      flow.authenticate!
+      flow.execute
       expect(record.reload.revoked?).to be true
     end
 
