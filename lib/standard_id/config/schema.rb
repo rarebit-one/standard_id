@@ -96,6 +96,7 @@ StandardConfig.schema.draw do
     field :social_account_attributes, type: :any, default: nil
     field :allowed_redirect_url_prefixes, type: :array, default: []
     field :available_scopes, type: :array, default: -> { [] }
+    field :link_strategy, type: :symbol, default: :strict
   end
 
   scope :web do

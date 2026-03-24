@@ -64,6 +64,15 @@ RSpec.describe StandardId do
     end
 
     context "dynamic configuration with multitenancy" do
+      # Save and restore the config manager's provider state to prevent
+      # register(:social, ...) from leaking into other examples.
+      around do |example|
+        saved_providers = StandardConfig.config.instance_variable_get(:@providers).dup
+        example.run
+      ensure
+        StandardConfig.config.instance_variable_set(:@providers, saved_providers)
+      end
+
       let(:tenant_configs) do
         {
           "tenant_1" => {
