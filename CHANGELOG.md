@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-03-24
+
+### Security
+
+- **Fix social login account takeover via implicit email linking (RAR-46)** — When a social login returned an email matching an existing identifier from a different provider, the system granted access without verification. Now validates provider ownership with a configurable `link_strategy` (`:strict` default blocks cross-provider linking, `:trust_provider` preserves legacy behavior)
+- Add SSRF protection to `HttpClient` — resolve hostnames before connecting and reject private/loopback IP ranges; fix DNS rebinding by pinning connections to resolved IPs; validate URL scheme (http/https only)
+- Add session fixation protection — call `reset_session` before creating authenticated browser sessions on both login and remember-me flows
+- Filter sensitive OAuth parameters (`code_verifier`, `code_challenge`, `client_secret`, `id_token`, `refresh_token`, `access_token`, `state`, `nonce`, `authorization_code`) from Rails logs via engine initializer
+
+### Added
+
+- `StandardId::SocialLinkError` exception with `email` and `provider_name` attributes for host apps to build custom error responses
+- `social.link_strategy` config option (`:strict` or `:trust_provider`)
+- `SOCIAL_LINK_BLOCKED` event in both `SOCIAL_EVENTS` and `SECURITY_EVENTS`
+- `provider` column on `standard_id_identifiers` table (nullable, backfilled on social re-login)
+- `SsrfError` exception class for blocked internal requests
+
+### Migration Required
+
+```bash
+rails standard_id:install:migrations
+rails db:migrate
+```
+
 ## [0.8.0] - 2026-03-23
 
 ### Added
