@@ -54,7 +54,11 @@ module StandardId
       def handle_password_login
         return head(:not_found) unless StandardId.config.web.password_login
 
-        if sign_in_account(login_params)
+        result = sign_in_account(login_params) { |account|
+          invoke_before_sign_in(account, { mechanism: "password", provider: nil })
+        }
+
+        if result
           context = { connection: "password", provider: nil }
           redirect_override = invoke_after_sign_in(current_account, context)
           destination = redirect_override || params[:redirect_uri] || after_authentication_url

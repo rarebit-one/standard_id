@@ -39,6 +39,7 @@ module StandardId
         form = StandardId::Web::SignupForm.new(signup_params)
 
         if form.submit
+          invoke_before_sign_in(form.account, { mechanism: "password", provider: nil })
           session_manager.sign_in_account(form.account)
           invoke_after_account_created(form.account, { mechanism: "signup", provider: nil })
 

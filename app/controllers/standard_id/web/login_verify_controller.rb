@@ -50,6 +50,8 @@ module StandardId
         account = result.account
         newly_created = account.previously_new_record?
 
+        invoke_before_sign_in(account, { mechanism: "passwordless", provider: nil })
+
         session_manager.sign_in_account(account)
         emit_authentication_succeeded(account)
 

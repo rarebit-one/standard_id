@@ -37,6 +37,8 @@ module StandardId
                 account = find_or_create_account_from_social(social_info)
               end
               newly_created = account.previously_new_record?
+
+              invoke_before_sign_in(account, { mechanism: "social", provider: provider.provider_name })
               session_manager.sign_in_account(account)
 
               provider_name = provider.provider_name

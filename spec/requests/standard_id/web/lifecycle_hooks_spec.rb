@@ -8,6 +8,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
     # Reset hooks after each test
     allow(StandardId.config).to receive(:after_sign_in).and_call_original
     allow(StandardId.config).to receive(:after_account_created).and_call_original
+    allow(StandardId.config).to receive(:before_sign_in).and_call_original
   end
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -72,6 +73,139 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
 
       expect(response).to have_http_status(:see_other)
       expect(response).to redirect_to("/dashboard")
+    end
+  end
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # before_sign_in hook — password login
+  # ───────────────────────────────────────────────────────────────────────────
+  describe "before_sign_in on password login" do
+    before { create_account_with_password(email: email, password: password) }
+
+    it "calls before_sign_in with correct arguments" do
+      received_args = nil
+      hook = lambda { |account, request, context|
+        received_args = { account: account, request: request, context: context }
+        nil
+      }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_post "/login", params: { login: { email: email, password: password } }
+
+      expect(received_args[:account]).to be_an(Account)
+      expect(received_args[:request]).to be_an(ActionDispatch::Request)
+      expect(received_args[:context]).to include(mechanism: "password", provider: nil)
+      expect(received_args[:context]).to have_key(:first_sign_in)
+      expect(response).to have_http_status(:see_other)
+    end
+
+    it "proceeds with sign-in when hook returns nil" do
+      hook = ->(_account, _request, _context) { nil }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_post "/login", params: { login: { email: email, password: password } }
+
+      expect(response).to have_http_status(:see_other)
+    end
+
+    it "proceeds with sign-in when hook returns truthy" do
+      hook = ->(_account, _request, _context) { true }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_post "/login", params: { login: { email: email, password: password } }
+
+      expect(response).to have_http_status(:see_other)
+    end
+
+    it "rejects sign-in when hook returns error hash" do
+      hook = ->(_account, _request, _context) { { error: "Account suspended" } }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_post "/login", params: { login: { email: email, password: password } }
+
+      expect(response).to redirect_to("/login")
+      expect(flash[:alert]).to eq("Account suspended")
+    end
+
+    it "does not create a session when hook rejects sign-in" do
+      hook = ->(_account, _request, _context) { { error: "Blocked" } }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      expect {
+        http_post "/login", params: { login: { email: email, password: password } }
+      }.not_to change(StandardId::BrowserSession, :count)
+    end
+
+    it "does not call after_sign_in when before_sign_in rejects" do
+      before_hook = ->(_account, _request, _context) { { error: "Nope" } }
+      after_hook = instance_double(Proc)
+      allow(after_hook).to receive(:respond_to?).with(:call).and_return(true)
+      allow(after_hook).to receive(:call)
+      allow(StandardId.config).to receive(:before_sign_in).and_return(before_hook)
+      allow(StandardId.config).to receive(:after_sign_in).and_return(after_hook)
+
+      http_post "/login", params: { login: { email: email, password: password } }
+
+      expect(after_hook).not_to have_received(:call)
+    end
+
+    it "sets first_sign_in correctly" do
+      received_context = nil
+      hook = lambda { |_account, _request, context|
+        received_context = context
+        nil
+      }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_post "/login", params: { login: { email: email, password: password } }
+
+      expect(received_context[:first_sign_in]).to eq(true)
+    end
+
+    it "does not change behavior when no hook is configured" do
+      http_post "/login", params: { login: { email: email, password: password }, redirect_uri: "/dashboard" }
+
+      expect(response).to have_http_status(:see_other)
+      expect(response).to redirect_to("/dashboard")
+    end
+  end
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # before_sign_in hook — signup
+  # ───────────────────────────────────────────────────────────────────────────
+  describe "before_sign_in on signup" do
+    it "rejects sign-in when hook returns error hash during signup" do
+      hook = ->(_account, _request, _context) { { error: "Registration closed" } }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_post "/signup", params: { signup: { email: "blocked@example.com", password: "s3cureP@ss", password_confirmation: "s3cureP@ss" } }
+
+      expect(response).to redirect_to("/login")
+      expect(flash[:alert]).to eq("Registration closed")
+    end
+
+    it "cleans up the account when before_sign_in rejects during signup" do
+      hook = ->(_account, _request, _context) { { error: "Not allowed" } }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      expect {
+        http_post "/signup", params: { signup: { email: "orphan2@example.com", password: "s3cureP@ss", password_confirmation: "s3cureP@ss" } }
+      }.not_to change(Account, :count)
+
+      expect(Account.find_by(email: "orphan2@example.com")).to be_nil
+    end
+
+    it "calls before_sign_in with mechanism: password for signup" do
+      received_context = nil
+      hook = lambda { |_account, _request, context|
+        received_context = context
+        nil
+      }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_post "/signup", params: { signup: { email: "new-hook@example.com", password: "s3cureP@ss", password_confirmation: "s3cureP@ss" } }
+
+      expect(received_context).to include(mechanism: "password", provider: nil)
     end
   end
 
@@ -152,6 +286,33 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
 
         expect(response).to redirect_to("/login")
         expect(flash[:alert]).to eq("Not allowed")
+      end
+
+      it "calls before_sign_in with mechanism: passwordless" do
+        received_context = nil
+        hook = lambda { |_account, _request, context|
+          received_context = context
+          nil
+        }
+        allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+        initiate_passwordless_login!
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(received_context).to include(mechanism: "passwordless", provider: nil)
+      end
+
+      it "rejects sign-in when before_sign_in returns error hash on passwordless" do
+        hook = ->(_account, _request, _context) { { error: "Passwordless denied" } }
+        allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+        initiate_passwordless_login!
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(response).to redirect_to("/login")
+        expect(flash[:alert]).to eq("Passwordless denied")
       end
     end
 
@@ -310,6 +471,40 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
     it "cleans up the account when AuthenticationDenied is raised for a new social account" do
       hook = ->(_account, _request, _context) { raise StandardId::AuthenticationDenied, "Not allowed" }
       allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      expect {
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+      }.not_to change(Account, :count)
+
+      expect(Account.find_by(email: "social@example.com")).to be_nil
+    end
+
+    it "calls before_sign_in with mechanism: social and provider" do
+      received_context = nil
+      hook = lambda { |_account, _request, context|
+        received_context = context
+        nil
+      }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+      expect(received_context).to include(mechanism: "social", provider: "google")
+    end
+
+    it "rejects social sign-in when before_sign_in returns error hash" do
+      hook = ->(_account, _request, _context) { { error: "Social login blocked" } }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+      http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+      expect(response).to redirect_to("/login")
+      expect(flash[:alert]).to eq("Social login blocked")
+    end
+
+    it "cleans up account when before_sign_in rejects a new social account" do
+      hook = ->(_account, _request, _context) { { error: "Blocked" } }
+      allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
 
       expect {
         http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }

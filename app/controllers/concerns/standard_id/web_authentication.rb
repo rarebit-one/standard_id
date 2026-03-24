@@ -59,7 +59,7 @@ module StandardId
       session.delete(:return_to_after_authenticating) || "/"
     end
 
-    def sign_in_account(login_params)
+    def sign_in_account(login_params, &before_session)
       login = login_params[:email] || login_params[:login] # support both :email and :login keys
       password = login_params[:password]
       remember_me = ActiveModel::Type::Boolean.new.cast(login_params[:remember_me])
@@ -93,6 +93,10 @@ module StandardId
           account: password_credential.account,
           credential_id: password_credential.id
         )
+
+        # Allow callers to run before_sign_in hooks after credential verification
+        # but before session creation. The block may raise AuthenticationDenied.
+        before_session&.call(password_credential.account)
 
         session_manager.sign_in_account(password_credential.account)
         session_manager.set_remember_cookie(password_credential) if remember_me
