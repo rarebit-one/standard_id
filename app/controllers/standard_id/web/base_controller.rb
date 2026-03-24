@@ -5,6 +5,7 @@ module StandardId
       include StandardId::WebAuthentication
       include StandardId::SetCurrentRequestDetails
       include StandardId::WebMechanismGate
+      include StandardId::RateLimitHandling
 
       include StandardId::WebEngine.routes.url_helpers
       helper StandardId::WebEngine.routes.url_helpers

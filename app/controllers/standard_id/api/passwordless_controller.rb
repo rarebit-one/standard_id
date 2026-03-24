@@ -5,6 +5,21 @@ module StandardId
 
       include StandardId::PasswordlessStrategy
 
+      # RAR-60: Rate limit OTP initiation by IP (10 per hour)
+      rate_limit to: StandardId.config.rate_limits.api_passwordless_start_per_ip,
+                 within: 1.hour,
+                 name: "passwordless-ip",
+                 only: :start,
+                 store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
+      # RAR-60: Rate limit OTP initiation by target (5 per 15 minutes)
+      rate_limit to: StandardId.config.rate_limits.api_passwordless_start_per_target,
+                 within: 15.minutes,
+                 by: -> { "api-passwordless:#{(params[:username] || params[:email] || params[:phone_number]).to_s.strip.downcase}" },
+                 name: "passwordless-target",
+                 only: :start,
+                 store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
       def start
         raise StandardId::InvalidRequestError, "username, email, or phone_number parameter is required" if start_params[:username].blank?
 

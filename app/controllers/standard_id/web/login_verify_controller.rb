@@ -9,6 +9,13 @@ module StandardId
 
       layout "public"
 
+      # RAR-60: Rate limit OTP verification attempts by IP (20 per 15 minutes)
+      rate_limit to: StandardId.config.rate_limits.otp_verify_per_ip,
+                 within: 15.minutes,
+                 name: "otp-verify-ip",
+                 only: :update,
+                 store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
       skip_before_action :require_browser_session!, only: [:show, :update]
       before_action :redirect_if_authenticated, only: [:show]
       before_action :require_otp_payload!

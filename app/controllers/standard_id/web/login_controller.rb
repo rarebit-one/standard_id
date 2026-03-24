@@ -10,6 +10,21 @@ module StandardId
 
       layout "public"
 
+      # RAR-51: Rate limit login attempts by IP (20 per 15 minutes)
+      rate_limit to: StandardId.config.rate_limits.password_login_per_ip,
+                 within: 15.minutes,
+                 name: "login-ip",
+                 only: :create,
+                 store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
+      # RAR-51: Rate limit login attempts by email target (5 per 15 minutes)
+      rate_limit to: StandardId.config.rate_limits.password_login_per_email,
+                 within: 15.minutes,
+                 by: -> { "login-email:#{params.dig(:login, :email).to_s.strip.downcase}" },
+                 name: "login-email",
+                 only: :create,
+                 store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
       skip_before_action :require_browser_session!, only: [:show, :create]
 
       before_action :redirect_if_authenticated, only: [:show]
