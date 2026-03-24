@@ -169,6 +169,25 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
       expect(rec.code_challenge).not_to eq(s256)
     end
 
+    it "validates legacy codes with unhashed challenge (in-flight during deployment)" do
+      verifier = "a-very-long-random-verifier-#{SecureRandom.hex(16)}"
+      s256 = Base64.urlsafe_encode64(Digest::SHA256.digest(verifier)).delete("=")
+
+      # Simulate a pre-RAR-58 code with raw (unhashed) challenge stored directly
+      rec = described_class.issue!(
+        plaintext_code: plaintext_code,
+        client_id: client_id,
+        redirect_uri: redirect_uri,
+        code_challenge: s256,
+        code_challenge_method: "S256"
+      )
+      # Overwrite the hashed value with the raw challenge to simulate legacy storage
+      rec.update_column(:code_challenge, s256)
+
+      expect(rec.pkce_valid?(verifier)).to be true
+      expect(rec.pkce_valid?("wrong")).to be false
+    end
+
     it "skips PKCE when no challenge present" do
       rec = described_class.issue!(
         plaintext_code: plaintext_code,

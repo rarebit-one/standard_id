@@ -76,11 +76,16 @@ module StandardId
       # because it transmits the verifier in cleartext, defeating PKCE's purpose.
       return false unless (code_challenge_method || "").downcase == "s256"
 
-      # Recompute: SHA256(base64url(SHA256(verifier))) to match stored hash
-      expected = Digest::SHA256.hexdigest(
-        Base64.urlsafe_encode64(Digest::SHA256.digest(code_verifier)).delete("=")
-      )
-      ActiveSupport::SecurityUtils.secure_compare(expected, code_challenge)
+      s256_challenge = Base64.urlsafe_encode64(Digest::SHA256.digest(code_verifier)).delete("=")
+
+      # New format: stored value is SHA256(S256_challenge)
+      hashed_expected = Digest::SHA256.hexdigest(s256_challenge)
+      return true if ActiveSupport::SecurityUtils.secure_compare(hashed_expected, code_challenge)
+
+      # Legacy fallback: codes issued before RAR-58 store the raw S256 challenge.
+      # This handles in-flight codes during deployment (max 10-minute TTL).
+      # Safe to remove after one deployment cycle.
+      ActiveSupport::SecurityUtils.secure_compare(s256_challenge, code_challenge)
     end
 
     def mark_as_used!
