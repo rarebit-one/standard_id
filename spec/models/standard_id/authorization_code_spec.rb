@@ -91,16 +91,40 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
   end
 
   describe "PKCE" do
-    it "rejects plain method (only S256 is supported)" do
-      verifier = "abc123verifier"
-      rec = described_class.issue!(
-        plaintext_code: plaintext_code,
-        client_id: client_id,
-        redirect_uri: redirect_uri,
-        code_challenge: verifier,
-        code_challenge_method: "plain"
-      )
-      expect(rec.pkce_valid?(verifier)).to be false
+    it "rejects plain method at issuance" do
+      expect {
+        described_class.issue!(
+          plaintext_code: plaintext_code,
+          client_id: client_id,
+          redirect_uri: redirect_uri,
+          code_challenge: "abc123verifier",
+          code_challenge_method: "plain"
+        )
+      }.to raise_error(StandardId::InvalidRequestError, /only S256/)
+    end
+
+    it "rejects unknown challenge methods at issuance" do
+      expect {
+        described_class.issue!(
+          plaintext_code: plaintext_code,
+          client_id: client_id,
+          redirect_uri: redirect_uri,
+          code_challenge: "some-challenge",
+          code_challenge_method: "unknown"
+        )
+      }.to raise_error(StandardId::InvalidRequestError, /only S256/)
+    end
+
+    it "rejects nil challenge method when challenge is present" do
+      expect {
+        described_class.issue!(
+          plaintext_code: plaintext_code,
+          client_id: client_id,
+          redirect_uri: redirect_uri,
+          code_challenge: "some-challenge",
+          code_challenge_method: nil
+        )
+      }.to raise_error(StandardId::InvalidRequestError, /only S256/)
     end
 
     it "accepts S256 method when verifier matches hash" do
@@ -117,6 +141,19 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
       expect(rec.pkce_valid?("wrong")).to be false
     end
 
+    it "accepts lowercase s256 method" do
+      verifier = "a-very-long-random-verifier-#{SecureRandom.hex(16)}"
+      s256 = Base64.urlsafe_encode64(Digest::SHA256.digest(verifier)).delete("=")
+      rec = described_class.issue!(
+        plaintext_code: plaintext_code,
+        client_id: client_id,
+        redirect_uri: redirect_uri,
+        code_challenge: s256,
+        code_challenge_method: "s256"
+      )
+      expect(rec.pkce_valid?(verifier)).to be true
+    end
+
     it "hashes the code_challenge at storage time" do
       verifier = "a-very-long-random-verifier-#{SecureRandom.hex(16)}"
       s256 = Base64.urlsafe_encode64(Digest::SHA256.digest(verifier)).delete("=")
@@ -127,7 +164,7 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
         code_challenge: s256,
         code_challenge_method: "S256"
       )
-      # Stored value should be a SHA256 hex digest, not the original challenge
+      # Stored value is SHA256(S256_challenge), not the raw challenge
       expect(rec.code_challenge).to eq(Digest::SHA256.hexdigest(s256))
       expect(rec.code_challenge).not_to eq(s256)
     end
@@ -139,17 +176,6 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
         redirect_uri: redirect_uri
       )
       expect(rec.pkce_valid?(nil)).to be true
-    end
-
-    it "rejects unknown challenge methods" do
-      rec = described_class.issue!(
-        plaintext_code: plaintext_code,
-        client_id: client_id,
-        redirect_uri: redirect_uri,
-        code_challenge: "some-challenge",
-        code_challenge_method: "unknown"
-      )
-      expect(rec.pkce_valid?("some-challenge")).to be false
     end
   end
 end

@@ -10,7 +10,7 @@ RSpec.describe StandardId::Oauth::Subflows::TraditionalCodeGrant do
       audience: "api://default",
       state: "random_state",
       code_challenge: "challenge123",
-      code_challenge_method: "plain",
+      code_challenge_method: "S256",
       current_account: account
     }
   end
@@ -27,7 +27,7 @@ RSpec.describe StandardId::Oauth::Subflows::TraditionalCodeGrant do
           audience: "api://default",
           account: account,
           code_challenge: "challenge123",
-          code_challenge_method: "plain",
+          code_challenge_method: "S256",
           nonce: nil,
           metadata: { state: "random_state" }
         )

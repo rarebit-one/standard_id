@@ -17,9 +17,18 @@ module StandardId
     before_validation :set_issued_and_expiry, on: :create
 
     def self.issue!(plaintext_code:, client_id:, redirect_uri:, scope: nil, audience: nil, account: nil, code_challenge: nil, code_challenge_method: nil, nonce: nil, metadata: {})
+      # Fail fast: reject unsupported PKCE methods at issuance rather than
+      # storing a code that will always fail at redemption time.
+      if code_challenge.present?
+        unless code_challenge_method.to_s.downcase == "s256"
+          raise StandardId::InvalidRequestError, "Unsupported code_challenge_method: only S256 is allowed"
+        end
+      end
+
       # Hash the code_challenge for defense-in-depth (RAR-58).
-      # The challenge is derived from the verifier (not a secret itself),
-      # but hashing prevents exposure in case of database compromise.
+      # The stored value is SHA256(S256_challenge), where S256_challenge is
+      # base64url(SHA256(verifier)). This is intentionally a double-hash:
+      # S256 derives the challenge from the verifier, and we hash again for storage.
       hashed_challenge = code_challenge.present? ? Digest::SHA256.hexdigest(code_challenge) : nil
 
       create!(
@@ -67,6 +76,7 @@ module StandardId
       # because it transmits the verifier in cleartext, defeating PKCE's purpose.
       return false unless (code_challenge_method || "").downcase == "s256"
 
+      # Recompute: SHA256(base64url(SHA256(verifier))) to match stored hash
       expected = Digest::SHA256.hexdigest(
         Base64.urlsafe_encode64(Digest::SHA256.digest(code_verifier)).delete("=")
       )
