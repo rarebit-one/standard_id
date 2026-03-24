@@ -1,5 +1,7 @@
 module StandardId
   class PasswordlessMailer < ApplicationMailer
+    layout false
+
     def otp_email
       @otp_code = params[:otp_code]
       @email = params[:email]
