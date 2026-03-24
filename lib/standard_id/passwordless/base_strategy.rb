@@ -59,10 +59,22 @@ module StandardId
 
       public
 
-      # Public wrapper to reuse account lookup/creation outside OTP verification
+      # Public wrapper to reuse account lookup/creation outside OTP verification.
+      # When a custom account_factory is configured, delegates to it instead of
+      # the built-in find_or_create_account! logic.
       def find_or_create_account(username)
         validate_username!(username)
-        find_or_create_account!(username)
+
+        factory = StandardId.config.passwordless.account_factory
+        if factory.respond_to?(:call)
+          factory.call(
+            email: username,
+            params: request_params,
+            request: request
+          )
+        else
+          find_or_create_account!(username)
+        end
       end
 
       # Public wrapper to look up an existing account without creating one.
@@ -82,6 +94,13 @@ module StandardId
       end
 
       private
+
+      # Extract request parameters safely. Returns an empty hash if the request
+      # does not support parameters (e.g. test doubles).
+      def request_params
+        return {} unless request.respond_to?(:params)
+        request.params
+      end
 
       def emit_code_requested(username)
         StandardId::Events.publish(

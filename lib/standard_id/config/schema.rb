@@ -50,6 +50,13 @@ StandardConfig.schema.draw do
     field :max_attempts, type: :integer, default: 3
     field :retry_delay, type: :integer, default: 30 # 30 seconds
     field :bypass_code, type: :string, default: nil # E2E testing only — NEVER set in production
+
+    # Custom account factory for passwordless registration.
+    # When set, replaces the default find_or_create_account! logic in strategies.
+    # Must be a callable (lambda/proc) that receives (email:, params:, request:)
+    # and returns an Account (or account-like) record.
+    # When nil (default), uses the built-in strategy behavior.
+    field :account_factory, type: :any, default: nil
   end
 
   scope :password do
