@@ -3,6 +3,7 @@ module StandardId
     class ResetPasswordConfirmForm
       include ActiveModel::Model
       include ActiveModel::Attributes
+      include StandardId::PasswordStrength
 
       attribute :password, :string
       attribute :password_confirmation, :string
@@ -11,7 +12,6 @@ module StandardId
 
       validates :password,
         presence: { message: "cannot be blank" },
-        length: { minimum: 8, too_short: "must be at least 8 characters long" },
         confirmation: { message: "confirmation doesn't match" }
 
       def initialize(password_credential, params = {})

@@ -17,6 +17,20 @@ module StandardId
     before_validation :set_issued_and_expiry, on: :create
 
     def self.issue!(plaintext_code:, client_id:, redirect_uri:, scope: nil, audience: nil, account: nil, code_challenge: nil, code_challenge_method: nil, nonce: nil, metadata: {})
+      # Fail fast: reject unsupported PKCE methods at issuance rather than
+      # storing a code that will always fail at redemption time.
+      if code_challenge.present?
+        unless code_challenge_method.to_s.downcase == "s256"
+          raise StandardId::InvalidRequestError, "Unsupported code_challenge_method: only S256 is allowed"
+        end
+      end
+
+      # Hash the code_challenge for defense-in-depth (RAR-58).
+      # The stored value is SHA256(S256_challenge), where S256_challenge is
+      # base64url(SHA256(verifier)). This is intentionally a double-hash:
+      # S256 derives the challenge from the verifier, and we hash again for storage.
+      hashed_challenge = code_challenge.present? ? Digest::SHA256.hexdigest(code_challenge) : nil
+
       create!(
         account: account,
         code_hash: hash_for(plaintext_code),
@@ -24,7 +38,7 @@ module StandardId
         redirect_uri: redirect_uri,
         scope: scope,
         audience: audience,
-        code_challenge: code_challenge,
+        code_challenge: hashed_challenge,
         code_challenge_method: code_challenge_method,
         nonce: nonce,
         issued_at: Time.current,
@@ -58,15 +72,20 @@ module StandardId
 
       return false if code_verifier.blank?
 
-      case (code_challenge_method || "plain").downcase
-      when "s256"
-        expected = Base64.urlsafe_encode64(Digest::SHA256.digest(code_verifier)).delete("=")
-        ActiveSupport::SecurityUtils.secure_compare(expected, code_challenge)
-      when "plain"
-        ActiveSupport::SecurityUtils.secure_compare(code_verifier, code_challenge)
-      else
-        false
-      end
+      # Only S256 is supported (OAuth 2.1). The "plain" method is rejected
+      # because it transmits the verifier in cleartext, defeating PKCE's purpose.
+      return false unless (code_challenge_method || "").downcase == "s256"
+
+      s256_challenge = Base64.urlsafe_encode64(Digest::SHA256.digest(code_verifier)).delete("=")
+
+      # New format: stored value is SHA256(S256_challenge)
+      hashed_expected = Digest::SHA256.hexdigest(s256_challenge)
+      return true if ActiveSupport::SecurityUtils.secure_compare(hashed_expected, code_challenge)
+
+      # Legacy fallback: codes issued before RAR-58 store the raw S256 challenge.
+      # This handles in-flight codes during deployment (max 10-minute TTL).
+      # Safe to remove after one deployment cycle.
+      ActiveSupport::SecurityUtils.secure_compare(s256_challenge, code_challenge)
     end
 
     def mark_as_used!

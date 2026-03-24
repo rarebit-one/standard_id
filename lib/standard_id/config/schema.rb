@@ -54,9 +54,9 @@ StandardConfig.schema.draw do
 
   scope :password do
     field :minimum_length, type: :integer, default: 8
-    field :require_special_chars, type: :boolean, default: false
-    field :require_uppercase, type: :boolean, default: false
-    field :require_numbers, type: :boolean, default: false
+    field :require_special_chars, type: :boolean, default: true
+    field :require_uppercase, type: :boolean, default: true
+    field :require_numbers, type: :boolean, default: true
   end
 
   scope :session do

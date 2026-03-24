@@ -1,8 +1,8 @@
 FactoryBot.define do
   factory :standard_id_password_credential, class: "StandardId::PasswordCredential" do
     sequence(:login) { |n| "user#{n}@example.com" }
-    password { "password123" }
-    password_confirmation { "password123" }
+    password { "Password1!" }
+    password_confirmation { "Password1!" }
   end
 
   factory :standard_id_credential, class: "StandardId::Credential" do

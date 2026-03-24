@@ -14,7 +14,7 @@ RSpec.describe "StandardId Web Reset Password Start", type: :request do
 
     before do
       identifier = StandardId::EmailIdentifier.create!(account: account, value: email)
-      password_credential = StandardId::PasswordCredential.create!(login: email, password: "password123")
+      password_credential = StandardId::PasswordCredential.create!(login: email, password: "Password1!")
       StandardId::Credential.create!(credentialable: password_credential, identifier: identifier)
     end
 

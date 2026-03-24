@@ -18,7 +18,7 @@ RSpec.describe StandardId::Web::ResetPasswordStartForm, type: :model do
   describe "#submit" do
     let(:account) { Account.create!(email: "user@example.com", name: "User") }
     let!(:identifier) { StandardId::EmailIdentifier.create!(account: account, value: "user@example.com") }
-    let!(:password_credential) { StandardId::PasswordCredential.create!(login: "user@example.com", password: "password123") }
+    let!(:password_credential) { StandardId::PasswordCredential.create!(login: "user@example.com", password: "Password1!") }
     let!(:credential) { StandardId::Credential.create!(credentialable: password_credential, identifier: identifier) }
 
     it "returns true and sets token when account has password credential" do

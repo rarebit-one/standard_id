@@ -96,7 +96,7 @@ RSpec.describe StandardId::Testing do
       it "creates a password credential" do
         credential = create(:standard_id_password_credential)
         expect(credential).to be_persisted
-        expect(credential.authenticate("password123")).to be_truthy
+        expect(credential.authenticate("Password1!")).to be_truthy
       end
 
       it "creates a credential linking identifier and password" do
