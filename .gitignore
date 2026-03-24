@@ -18,3 +18,4 @@
 /.lefthook-local.yml
 .claude/worktrees/
 *.gem
+/coverage/
