@@ -240,7 +240,7 @@ module StandardId
     def self.claim_resolver_keys
       resolvers = StandardId.config.oauth.claim_resolvers
       keys = Hash.try_convert(resolvers)&.keys
-      keys.compact.map(&:to_sym).uniq.excluding(*RESERVED_JWT_KEYS)
+      keys.compact.map(&:to_sym).uniq.excluding(*RESERVED_JWT_KEYS, *BASE_SESSION_FIELDS)
     rescue StandardError
       []
     end

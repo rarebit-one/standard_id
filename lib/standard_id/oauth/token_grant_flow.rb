@@ -165,6 +165,9 @@ module StandardId
 
         # Prevent custom claims from overriding reserved JWT keys
         claims.symbolize_keys.except(*StandardId::JwtService::RESERVED_JWT_KEYS)
+      rescue StandardError => e
+        StandardId.config.logger&.error("[StandardId] custom_claims callable raised: #{e.message}")
+        {}
       end
 
       def claims_from_scope_mapping
