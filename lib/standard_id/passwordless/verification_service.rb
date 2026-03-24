@@ -112,7 +112,8 @@ module StandardId
           account = resolve_account(strategy)
 
           unless account
-            result = failure("No account found for this email address")
+            label = @channel == "sms" ? "phone number" : "email address"
+            result = failure("No account found for this #{label}")
             raise ActiveRecord::Rollback
           end
 
