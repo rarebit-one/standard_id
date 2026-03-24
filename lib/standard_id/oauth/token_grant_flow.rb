@@ -74,6 +74,7 @@ module StandardId
       end
 
       def generate_refresh_token
+        # custom_claims not included — refresh tokens carry identity only
         jti = SecureRandom.uuid
         payload = {
           sub: subject_id,
@@ -163,8 +164,8 @@ module StandardId
         claims = callable.call(**result)
         return {} unless claims.is_a?(Hash)
 
-        # Prevent custom claims from overriding reserved JWT keys
-        claims.symbolize_keys.except(*StandardId::JwtService::RESERVED_JWT_KEYS)
+        # Prevent custom claims from overriding reserved JWT keys or base session fields
+        claims.symbolize_keys.except(*StandardId::JwtService::RESERVED_JWT_KEYS, *StandardId::JwtService::BASE_SESSION_FIELDS)
       rescue StandardError => e
         StandardId.config.logger&.error("[StandardId] custom_claims callable raised: #{e.message}")
         {}
