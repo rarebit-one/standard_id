@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - Unreleased
+
+### Security
+
+- **Database-backed refresh token revocation with rotation and reuse detection (RAR-49)** — Refresh tokens are now stored in the database with token digest, expiry, and revocation tracking. Each refresh rotates the token (old one revoked, new one issued). Reuse of a rotated token triggers family-wide revocation and emits `OAUTH_REFRESH_TOKEN_REUSE_DETECTED` event.
+- **Enforce PKCE S256 only, reject plain method (RAR-50)** — The insecure PKCE `plain` method is no longer accepted. Only `S256` is supported, per OAuth 2.1 best practices.
+- **Hash PKCE code_challenge at storage time (RAR-58)** — The `code_challenge` column now stores a SHA256 hex digest instead of the raw challenge value, for defense-in-depth against database compromise.
+- **Secure password strength defaults (RAR-59)** — `require_special_chars`, `require_uppercase`, and `require_numbers` now default to `true`. Apps that intentionally want weaker passwords must explicitly set `false`.
+
+### Added
+
+- `StandardId::RefreshToken` model with token digest, expiry, revocation, and family chain tracking
+- `StandardId::CleanupExpiredRefreshTokensJob` for periodic cleanup of expired/revoked refresh tokens
+- `StandardId::PasswordStrength` concern for config-driven password complexity validation
+- `OAUTH_REFRESH_TOKEN_REUSE_DETECTED` security event
+- Session `revoke!` now cascades revocation to associated refresh tokens
+- Session `before_destroy` revokes active refresh tokens before deletion
+
+### Changed
+
+- **Breaking**: PKCE `plain` method no longer accepted — clients must use `S256`
+- **Breaking**: Password complexity defaults changed from `false` to `true`
+- Refresh tokens now include `jti` claim for database lookup; legacy tokens without `jti` are handled gracefully during migration period
+
+### Migration Required
+
+```bash
+rails standard_id:install:migrations
+rails db:migrate
+```
+
 ## [0.8.1] - 2026-03-24
 
 ### Security
