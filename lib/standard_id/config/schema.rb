@@ -108,6 +108,7 @@ StandardConfig.schema.draw do
     field :email_verification, type: :boolean, default: true
     field :phone_verification, type: :boolean, default: true
     field :sessions_management, type: :boolean, default: true
+    field :passwordless_registration, type: :boolean, default: false
   end
 
   # Rate limiting defaults (used by Rails 8 built-in rate_limit DSL)

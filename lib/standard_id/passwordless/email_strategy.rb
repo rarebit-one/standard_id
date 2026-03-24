@@ -15,6 +15,12 @@ module StandardId
         Account.find_or_create_by_verified_email!(email)
       end
 
+      def find_existing_account(email)
+        normalized = email.to_s.strip.downcase
+        identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized)
+        identifier&.account
+      end
+
       def sender_callback
         StandardId.config.passwordless_email_sender
       end

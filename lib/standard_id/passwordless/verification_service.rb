@@ -54,7 +54,7 @@ module StandardId
         #     render_error(result.error)
         #   end
         #
-        def verify(email: nil, phone: nil, code:, request:, connection: nil, username: nil)
+        def verify(email: nil, phone: nil, code:, request:, connection: nil, username: nil, allow_registration: true)
           # Allow callers to use connection:/username: instead of email:/phone:
           if connection.present?
             if username.blank?
@@ -68,13 +68,14 @@ module StandardId
             end
           end
 
-          new(email: email, phone: phone, code: code, request: request).verify
+          new(email: email, phone: phone, code: code, request: request, allow_registration: allow_registration).verify
         end
       end
 
-      def initialize(email: nil, phone: nil, code:, request:)
+      def initialize(email: nil, phone: nil, code:, request:, allow_registration: true)
         @code = code.to_s.strip
         @request = request
+        @allow_registration = allow_registration
         resolve_target_and_channel!(email, phone)
       end
 
@@ -108,7 +109,12 @@ module StandardId
           end
 
           strategy = strategy_for(@channel)
-          account = strategy.find_or_create_account(@target)
+          account = resolve_account(strategy)
+
+          unless account
+            result = failure("No account found for this email address")
+            raise ActiveRecord::Rollback
+          end
 
           locked_challenge.use!
 
@@ -147,7 +153,9 @@ module StandardId
         return unless secure_compare(bypass_code, @code)
 
         strategy = strategy_for(@channel)
-        account = strategy.find_or_create_account(@target)
+        account = resolve_account(strategy)
+
+        return failure("No account found for this email address") unless account
 
         StandardId::Events.publish(
           StandardId::Events::OTP_VALIDATED,
@@ -197,6 +205,17 @@ module StandardId
 
       def secure_compare(a, b)
         ActiveSupport::SecurityUtils.secure_compare(a.to_s, b.to_s)
+      end
+
+      # Resolve the account for the target identifier.
+      # When @allow_registration is true, creates a new account if none exists.
+      # When false, returns nil if no account is found.
+      def resolve_account(strategy)
+        if @allow_registration
+          strategy.find_or_create_account(@target)
+        else
+          strategy.find_account(@target)
+        end
       end
 
       def strategy_for(channel)
