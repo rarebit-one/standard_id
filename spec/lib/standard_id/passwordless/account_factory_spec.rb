@@ -67,8 +67,8 @@ RSpec.describe "passwordless.account_factory callback" do
 
     it "calls the factory with correct keyword arguments" do
       received_args = {}
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
-        received_args[:email] = email
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
+        received_args[:identifier] = identifier
         received_args[:params] = params
         received_args[:request] = request
         factory_account
@@ -81,14 +81,14 @@ RSpec.describe "passwordless.account_factory callback" do
       )
 
       expect(result.success?).to be true
-      expect(received_args[:email]).to eq(email)
+      expect(received_args[:identifier]).to eq(email)
       expect(received_args[:params]).to be_a(ActionController::Parameters)
       expect(received_args[:params][:timezone]).to eq("Asia/Singapore")
       expect(received_args[:request]).to eq(request)
     end
 
     it "uses the factory return value as the account" do
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         factory_account
       }
 
@@ -103,7 +103,7 @@ RSpec.describe "passwordless.account_factory callback" do
     end
 
     it "does not call the built-in find_or_create_account!" do
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         factory_account
       }
 
@@ -118,7 +118,7 @@ RSpec.describe "passwordless.account_factory callback" do
 
     it "still validates the username before calling the factory" do
       factory_called = false
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         factory_called = true
         factory_account
       }
@@ -133,7 +133,7 @@ RSpec.describe "passwordless.account_factory callback" do
 
     it "passes request params to the factory" do
       received_params = nil
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         received_params = params
         factory_account
       }
@@ -153,7 +153,7 @@ RSpec.describe "passwordless.account_factory callback" do
       )
 
       received_params = nil
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         received_params = params
         factory_account
       }
@@ -168,10 +168,10 @@ RSpec.describe "passwordless.account_factory callback" do
   describe "factory called within transaction context" do
     it "executes the factory inside the VerificationService transaction" do
       in_transaction = nil
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         # ActiveRecord::Base.connection.open_transactions > 0 means we're in a transaction
         in_transaction = ActiveRecord::Base.connection.open_transactions > 0
-        Account.create!(name: "TX Account", email: email)
+        Account.create!(name: "TX Account", email: identifier)
       }
 
       create_challenge(channel: "email", target: email)
@@ -185,9 +185,9 @@ RSpec.describe "passwordless.account_factory callback" do
     end
 
     it "rolls back factory side effects when the transaction fails" do
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
-        account = Account.create!(name: "Rollback Account", email: email)
-        StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
+        account = Account.create!(name: "Rollback Account", email: identifier)
+        StandardId::EmailIdentifier.create!(account: account, value: identifier, verified_at: Time.current)
         # Simulate a failure after account creation by raising
         raise ActiveRecord::RecordInvalid.new(account)
       }
@@ -207,7 +207,7 @@ RSpec.describe "passwordless.account_factory callback" do
 
   describe "error handling when factory raises" do
     it "returns failure result when factory raises ActiveRecord::RecordInvalid" do
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         account = Account.new
         account.errors.add(:base, "Custom validation failed")
         raise ActiveRecord::RecordInvalid.new(account)
@@ -225,7 +225,7 @@ RSpec.describe "passwordless.account_factory callback" do
     end
 
     it "propagates unexpected errors from the factory" do
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         raise ArgumentError, "Something went wrong in factory"
       }
 
@@ -253,9 +253,9 @@ RSpec.describe "passwordless.account_factory callback" do
     it "calls the factory for SMS verification too" do
       phone_account = Account.create!(name: "Phone User", email: "phone@example.com")
 
-      received_email_arg = nil
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
-        received_email_arg = email
+      received_identifier = nil
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
+        received_identifier = identifier
         phone_account
       }
 
@@ -267,8 +267,7 @@ RSpec.describe "passwordless.account_factory callback" do
 
       expect(result.success?).to be true
       expect(result.account).to eq(phone_account)
-      # The email: keyword receives the username (phone number in this case)
-      expect(received_email_arg).to eq(phone)
+      expect(received_identifier).to eq(phone)
     end
   end
 
@@ -283,7 +282,7 @@ RSpec.describe "passwordless.account_factory callback" do
       factory_called = false
       factory_account = Account.create!(name: "Bypass Factory", email: email)
 
-      StandardId.config.passwordless.account_factory = lambda { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = lambda { |identifier:, params:, request:|
         factory_called = true
         factory_account
       }
@@ -302,7 +301,7 @@ RSpec.describe "passwordless.account_factory callback" do
     it "works with a Proc as the factory" do
       factory_account = Account.create!(name: "Proc Account", email: email)
 
-      StandardId.config.passwordless.account_factory = Proc.new { |email:, params:, request:|
+      StandardId.config.passwordless.account_factory = Proc.new { |identifier:, params:, request:|
         factory_account
       }
 

@@ -67,11 +67,13 @@ module StandardId
 
         factory = StandardId.config.passwordless.account_factory
         if factory.respond_to?(:call)
-          factory.call(
-            email: username,
+          account = factory.call(
+            identifier: username,
             params: request_params,
             request: request
           )
+          raise StandardId::InvalidRequestError, "account_factory must return an account" unless account.present?
+          account
         else
           find_or_create_account!(username)
         end
