@@ -14,6 +14,14 @@
 #
 # See https://rubydoc.info/gems/rspec-core/RSpec/Core/Configuration
 
+require "simplecov"
+SimpleCov.start "rails" do
+  enable_coverage :branch
+  add_filter "/spec/"
+  add_filter "/dummy/"
+  minimum_coverage line: 90, branch: 75
+end
+
 # Set Rails environment to test before loading Rails
 ENV["RAILS_ENV"] ||= "test"
 

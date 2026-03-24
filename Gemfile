@@ -17,6 +17,7 @@ group :development, :test do
   gem "webmock", "~> 3.26"
 
   gem "factory_bot", "~> 6.5"
+  gem "simplecov", require: false
   gem "brakeman", require: false
   gem "bundler-audit", require: false
 end
