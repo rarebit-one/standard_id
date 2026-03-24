@@ -17,11 +17,11 @@
       "note": "Auth engine intentionally redirects to params[:redirect_uri] when user is not authenticated"
     },
     {
-      "fingerprint": "68be03a57d3ef2cfb68582fc78ac2eb6b96aaa0a9897a9a975c24b889fdbb2aa",
+      "fingerprint": "1fe5fcac2c90d0480ef08f002ad04041eec2b95caabbc4e8b5d6cccc23c9283f",
       "note": "after_sign_in hook redirect is controlled by the host app configuration, not user input"
     },
     {
-      "fingerprint": "277cf277d1c94f46d0abaeba9c51312d1d17e6f62c2e8d457dda47a6aad422aa",
+      "fingerprint": "413b5740add2c365198a540734a9e8c12b1c0483f521e2db145a80f3d582a4cc",
       "note": "after_sign_in hook redirect is controlled by the host app configuration, not user input"
     }
   ],

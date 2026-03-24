@@ -24,17 +24,26 @@ StandardConfig.schema.draw do
 
     # Post-authentication lifecycle hooks (synchronous, WebEngine only)
     #
-    # after_sign_in: Called after successful sign-in, before redirect.
-    #   Receives: (account, request, context)
-    #   Context: { first_sign_in: bool, connection: "email"/"password"/"social", provider: nil/"google"/"apple" }
-    #   Return: nil (default redirect) or a path string (override redirect)
-    #   Raise StandardId::AuthenticationDenied.new("message") to reject sign-in.
-    field :after_sign_in, type: :any, default: nil
-
     # after_account_created: Called after a new account is created via any mechanism.
     #   Receives: (account, request, context)
     #   Context: { mechanism: "passwordless"/"social"/"signup", provider: nil/"google"/"apple" }
     field :after_account_created, type: :any, default: nil
+
+    # before_sign_in: Called after credential verification, BEFORE session creation.
+    #   Receives: (account, request, context)
+    #   Context: { mechanism: "password"/"passwordless"/"social", provider: nil/"google"/"apple",
+    #              first_sign_in: bool }
+    #   Return: nil or truthy to proceed with sign-in.
+    #   Return { error: "message" } Hash to reject sign-in (error message is passed to the error flow).
+    field :before_sign_in, type: :any, default: nil
+
+    # after_sign_in: Called after successful sign-in, before redirect.
+    #   Receives: (account, request, context)
+    #   Context: { first_sign_in: bool, mechanism: "password"/"passwordless"/"social",
+    #              provider: nil/"google"/"apple", session: StandardId::Session }
+    #   Return: nil (default redirect) or a path string (override redirect)
+    #   Raise StandardId::AuthenticationDenied.new("message") to reject sign-in.
+    field :after_sign_in, type: :any, default: nil
   end
 
   scope :events do
