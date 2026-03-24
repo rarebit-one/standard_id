@@ -1,9 +1,11 @@
 module StandardId
   module Api
     class BaseController < ActionController::API
+      include ActionController::RateLimiting
       include StandardId::ControllerPolicy
       include StandardId::ApiAuthentication
       include StandardId::SetCurrentRequestDetails
+      include StandardId::RateLimitHandling
 
       before_action -> { Current.scope = :api if defined?(::Current) }
       before_action :validate_content_type!

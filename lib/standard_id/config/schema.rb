@@ -109,4 +109,25 @@ StandardConfig.schema.draw do
     field :phone_verification, type: :boolean, default: true
     field :sessions_management, type: :boolean, default: true
   end
+
+  # Rate limiting defaults (used by Rails 8 built-in rate_limit DSL)
+  scope :rate_limits do
+    # RAR-51: Password login
+    field :password_login_per_ip, type: :integer, default: 20        # per 15 minutes
+    field :password_login_per_email, type: :integer, default: 5      # per 15 minutes
+
+    # RAR-60: OTP / passwordless
+    field :otp_start_per_email, type: :integer, default: 5           # per 15 minutes
+    field :otp_start_per_ip, type: :integer, default: 10             # per hour
+    field :otp_verify_per_ip, type: :integer, default: 20            # per 15 minutes
+
+    # RAR-56: Email/phone verification code generation
+    field :verification_start_per_target, type: :integer, default: 3 # per 15 minutes
+    field :verification_start_per_ip, type: :integer, default: 10    # per hour
+
+    # API equivalents
+    field :api_passwordless_start_per_ip, type: :integer, default: 10    # per hour
+    field :api_passwordless_start_per_target, type: :integer, default: 5 # per 15 minutes
+    field :api_token_per_ip, type: :integer, default: 30                 # per 15 minutes
+  end
 end

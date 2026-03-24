@@ -6,6 +6,12 @@ module StandardId
 
         skip_before_action :validate_content_type!
 
+        # RAR-51/RAR-60: Rate limit token requests by IP (30 per 15 minutes)
+        rate_limit to: StandardId.config.rate_limits.api_token_per_ip,
+                   within: 15.minutes,
+                   only: :create,
+                   store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
         FLOW_STRATEGIES = {
           "client_credentials" => StandardId::Oauth::ClientCredentialsFlow,
           "authorization_code" => StandardId::Oauth::AuthorizationCodeFlow,

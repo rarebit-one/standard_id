@@ -2,6 +2,21 @@ module StandardId
   module Web
     module VerifyEmail
       class StartController < BaseController
+        # RAR-56: Rate limit verification code generation by IP (10 per hour)
+        rate_limit to: StandardId.config.rate_limits.verification_start_per_ip,
+                   within: 1.hour,
+                   name: "verify-ip",
+                   only: :create,
+                   store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
+        # RAR-56: Rate limit verification code generation by email target (3 per 15 minutes)
+        rate_limit to: StandardId.config.rate_limits.verification_start_per_target,
+                   within: 15.minutes,
+                   by: -> { "verify-email:#{params[:email].to_s.strip.downcase}" },
+                   name: "verify-target",
+                   only: :create,
+                   store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
         def show
           render plain: "verify email start", status: :ok
         end

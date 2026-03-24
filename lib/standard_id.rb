@@ -43,6 +43,7 @@ require "standard_id/passwordless/verification_service"
 require "standard_id/authorization_bypass"
 require "standard_id/utils/callable_parameter_filter"
 require "standard_id/utils/ip_normalizer"
+require "standard_id/rate_limit_store"
 
 require "concurrent/delay"
 
