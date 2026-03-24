@@ -1,0 +1,12 @@
+Hi,
+
+Use the following code to sign in:
+
+  <%= @otp_code %>
+
+This code will expire in <%= StandardId.config.passwordless.code_ttl / 60 %> minutes.
+
+If you did not request this code, you can safely ignore this email.
+
+--
+This is an automated message. Please do not reply.

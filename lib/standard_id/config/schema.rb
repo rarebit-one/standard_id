@@ -57,6 +57,13 @@ StandardConfig.schema.draw do
     # and returns an Account (or account-like) record.
     # When nil (default), uses the built-in strategy behavior.
     field :account_factory, type: :any, default: nil
+
+    # OTP email delivery mode:
+    #   :custom   — (default) host app handles delivery via event subscriber
+    #   :built_in — engine sends OTP emails automatically using PasswordlessMailer
+    field :delivery, type: :symbol, default: :custom
+    field :mailer_from, type: :string, default: "noreply@example.com"
+    field :mailer_subject, type: :string, default: "Your sign-in code"
   end
 
   scope :password do
