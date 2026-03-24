@@ -5,10 +5,13 @@ module StandardId
       # - success?: true/false
       # - account: the resolved account (nil on failure)
       # - challenge: the consumed CodeChallenge (nil on failure)
-      # - error: error message string (nil on success)
+      # - error: human-readable error message string (nil on success)
+      # - error_code: machine-readable symbol (nil on success)
+      #   One of :invalid_code, :expired, :max_attempts, :not_found, :blank_code,
+      #   :account_not_found, :server_error
       # - attempts: nil on success, 0 when no challenge was found (fabricated
       #   target), or 1+ for wrong-code failures against an active challenge
-      Result = Data.define(:success?, :account, :challenge, :error, :attempts)
+      Result = Data.define(:success?, :account, :challenge, :error, :error_code, :attempts)
 
       STRATEGY_MAP = {
         "email" => StandardId::Passwordless::EmailStrategy,
@@ -81,19 +84,29 @@ module StandardId
 
       def verify
         if @code.blank?
-          return failure("Code is required")
+          return failure("Code is required", error_code: :blank_code)
         end
 
         bypass_result = try_bypass
         return bypass_result if bypass_result
 
         challenge = find_active_challenge
-        code_matches = challenge.present? && secure_compare(challenge.code, @code)
+
+        unless challenge.present?
+          return failure("Invalid or expired verification code", error_code: :not_found, attempts: 0)
+        end
+
+        code_matches = secure_compare(challenge.code, @code)
         attempts = record_failed_attempt(challenge, code_matches)
 
         unless code_matches
-          emit_otp_validation_failed(attempts) if challenge.present?
-          return failure("Invalid or expired verification code", attempts: attempts)
+          emit_otp_validation_failed(attempts)
+
+          if attempts >= StandardId.config.passwordless.max_attempts
+            return failure("Too many failed attempts. Please request a new code.", error_code: :max_attempts, attempts: attempts)
+          end
+
+          return failure("Invalid or expired verification code", error_code: :invalid_code, attempts: attempts)
         end
 
         # Re-fetch with lock inside a transaction to prevent concurrent use.
@@ -104,7 +117,7 @@ module StandardId
             # No OTP_VALIDATION_FAILED event here: the code was correct but the
             # challenge was consumed by a concurrent request — not an attacker
             # guessing codes. Emitting a failure event would be misleading.
-            result = failure("Invalid or expired verification code", attempts: attempts)
+            result = failure("Invalid or expired verification code", error_code: :expired, attempts: attempts)
             raise ActiveRecord::Rollback
           end
 
@@ -113,7 +126,7 @@ module StandardId
 
           unless account
             label = @channel == "sms" ? "phone number" : "email address"
-            result = failure("No account found for this #{label}")
+            result = failure("No account found for this #{label}", error_code: :account_not_found)
             raise ActiveRecord::Rollback
           end
 
@@ -130,9 +143,9 @@ module StandardId
 
         result
       rescue ActiveRecord::RecordNotFound
-        failure("Invalid or expired verification code")
+        failure("Invalid or expired verification code", error_code: :expired)
       rescue ActiveRecord::RecordInvalid => e
-        failure("Unable to complete verification: #{e.record.errors.full_messages.to_sentence}")
+        failure("Unable to complete verification: #{e.record.errors.full_messages.to_sentence}", error_code: :server_error)
       end
 
       private
@@ -161,7 +174,7 @@ module StandardId
 
         unless account
           label = @channel == "sms" ? "phone number" : "email address"
-          return failure("No account found for this #{label}")
+          return failure("No account found for this #{label}", error_code: :account_not_found)
         end
 
         StandardId::Events.publish(
@@ -198,7 +211,6 @@ module StandardId
       # rescued alongside account-creation errors. This is intentional — both
       # represent unexpected persistence failures and warrant the same response.
       def record_failed_attempt(challenge, code_matches)
-        return 0 if challenge.blank?
         return 0 if code_matches
 
         attempts = (challenge.metadata["attempts"] || 0) + 1
@@ -266,17 +278,19 @@ module StandardId
           account: account,
           challenge: challenge,
           error: nil,
+          error_code: nil,
           attempts: nil
         )
       end
 
       # attempts is nil on success (not meaningful) and 0 when no challenge was found.
-      def failure(error, attempts: nil)
+      def failure(error, error_code: nil, attempts: nil)
         Result.new(
           "success?": false,
           account: nil,
           challenge: nil,
           error: error,
+          error_code: error_code,
           attempts: attempts
         )
       end
