@@ -90,6 +90,12 @@ StandardConfig.schema.draw do
     # Asymmetric (RSA): :rs256, :rs384, :rs512
     # Asymmetric (ECDSA): :es256, :es384, :es512
     field :signing_algorithm, type: :symbol, default: :hs256
+
+    # Custom claims callable for encoding additional claims into JWT access tokens.
+    # Receives keyword arguments: account:, client:, request:, audience:
+    # Must return a Hash of custom claims to merge into the JWT payload.
+    # Example: ->(account:, **) { { channel_id: account.channel_id } }
+    field :custom_claims, type: :any, default: nil
   end
 
   scope :social do
