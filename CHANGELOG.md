@@ -5,7 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.9.0] - Unreleased
+## [Unreleased]
+
+## [0.10.0] - 2026-03-24
+
+### Security
+
+- **Rate limiting on all auth endpoints (RAR-51, RAR-60, RAR-56)** — Add Rails 8 built-in `rate_limit` to password login, OTP verification, email/phone verification code generation, API passwordless, and API token endpoints. Configurable limits via `rate_limits` config scope. Includes `RateLimitStore` for lazy cache resolution and `RateLimitHandling` concern for graceful 429 responses with `Retry-After` header. (#129)
+
+### Added
+
+- **Post-authentication lifecycle hooks (RAR-73)** — `after_sign_in` and `after_account_created` configurable callbacks. Support redirect overrides, `AuthenticationDenied` rejection, and `first_sign_in?` detection across all auth paths (password, passwordless, social, signup). (#131)
+- **Passwordless account factory callback (RAR-71)** — `passwordless.account_factory` config callable receives `identifier:`, `params:`, `request:` and replaces default `find_or_create_account!` logic. Runs inside transaction for rollback protection. Eliminates monkey-patching in host apps. (#130)
+- **Passwordless registration flow in WebEngine (RAR-74)** — `web.passwordless_registration` config enables automatic account creation during passwordless login. Fires `PASSWORDLESS_ACCOUNT_CREATED` event. Challenge preserved on rejection for retry. (#131)
+- **Extensible JWT session struct (RAR-68)** — Session struct gains `claims` field with full decoded JWT payload. New `oauth.custom_claims` config callable for encoding custom claims into access tokens. Reserved JWT keys protected from override. (#132)
+- **Built-in OTP email delivery (RAR-63)** — `PasswordlessMailer` with HTML + text templates. `passwordless.delivery` config (`:custom` default / `:built_in`), `mailer_from`, `mailer_subject`. Eliminates ~15 lines of event subscriber boilerplate per host app. (#133)
+- **Reusable OTP verification API (RAR-45)** — `StandardId::Passwordless.verify` public method for host apps with custom controllers. Result object with `error_code` symbols (`:invalid_code`, `:expired`, `:max_attempts`, `:not_found`, `:blank_code`, `:account_not_found`, `:server_error`). (#134)
+- `find_existing_account` method on passwordless strategies for account lookup without creation
+- `RateLimitStore` lazy-resolving cache wrapper for rate limiting infrastructure
+
+## [0.9.0] - 2026-03-10
 
 ### Security
 
