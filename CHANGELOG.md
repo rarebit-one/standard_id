@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-03-25
+
+### Added
+
+- CI-driven gem publishing via GitHub Actions trusted publisher
+
+## [0.11.0] - 2026-03-25
+
+### Added
+
+- **Pre-authentication lifecycle hook (RAR-73)** — `before_sign_in` callback for pre-session gating. Supports `AuthenticationDenied` rejection before session creation across all auth paths. (#137)
+- Test coverage thresholds with SimpleCov (RAR-27) (#136)
+
 ## [0.10.0] - 2026-03-24
 
 ### Security
