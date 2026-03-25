@@ -80,9 +80,7 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: "4.0.1"
-
-      - name: Build gem
-        run: gem build *.gemspec
+          bundler-cache: true
 
       - name: Push to RubyGems
         uses: rubygems/release-gem@e9a6361a0b14562539327c2a02373edc56dd3169 # v1.1.4
