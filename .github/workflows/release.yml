@@ -7,21 +7,36 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: ci
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: Verify tag matches gem version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          gem_version=$(ruby -e "spec = Gem::Specification.load(Dir['*.gemspec'].first); puts spec.version")
+          if [ "$tag_version" != "$gem_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match gemspec version ($gem_version)"
+            exit 1
+          fi
 
       - name: Extract changelog entry
         id: changelog
         run: |
-          version="${{ steps.version.outputs.version }}"
+          version="${GITHUB_REF_NAME#v}"
           notes=$(awk -v ver="$version" '
             /^## \[/ {
               if (found) exit
@@ -53,3 +68,23 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
             --notes-file /tmp/release_notes.txt
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+
+      - name: Build gem
+        run: gem build standard_id.gemspec
+
+      - name: Push to RubyGems
+        uses: rubygems/release-gem@v1

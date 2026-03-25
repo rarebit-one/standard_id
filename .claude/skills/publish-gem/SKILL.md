@@ -1,22 +1,20 @@
 ---
 name: publish-gem
-description: "Publish a Ruby gem to RubyGems.org. Use when the user says 'publish gem', 'push gem', 'release gem', or '/publish-gem'. Handles version bump, changelog, build, push, tagging, and GitHub release."
+description: "Publish a Ruby gem to RubyGems.org via CI. Use when the user says 'publish gem', 'push gem', 'release gem', or '/publish-gem'. Handles version bump, changelog, build verification, PR, tagging, and CI-driven publish."
 ---
 
 # Publish Gem Skill
 
-Build and publish a Ruby gem to RubyGems.org.
+Prepare and publish a Ruby gem to RubyGems.org via GitHub Actions trusted publishing.
+
+Publishing is done by CI (not locally) — pushing a version tag triggers the `release.yml` workflow which builds the gem, creates a GitHub Release, and pushes to RubyGems via OIDC. This skill handles everything up to and including the tag push.
 
 ## Usage
 
 ```
-/publish-gem <OTP>        # Build and publish with MFA one-time password
-/publish-gem --dry-run    # Build and verify only, do not push
+/publish-gem              # Full release flow
+/publish-gem --dry-run    # Verify everything, stop before PR creation
 ```
-
-The OTP code is required for MFA-enabled RubyGems accounts. If omitted, the skill will ask for it before pushing.
-
-> **Security note:** Passing OTP on the command line exposes it in shell history and process listings. For interactive sessions, you can omit the OTP and let `gem push` prompt for it. The `--otp` flag is a convenience for scripted workflows where the code is ephemeral.
 
 ## Workflow
 
@@ -63,15 +61,11 @@ Also read and display:
 - CHANGELOG.md entry for this version (if exists)
 - `spec.files` count to verify packaging
 
-### 3. Pre-Publish Checks (Remote Registry)
+### 3. Pre-Publish Checks
 
 ```bash
 # Check if this version is already published on RubyGems.org
 gem info -r <gem_name> -v <version>
-
-# Verify gem credentials exist (location varies by Ruby version)
-# Ruby < 4.0 uses ~/.gem/credentials, Ruby >= 4.0 uses ~/.local/share/gem/credentials
-test -f "$(ruby -e "puts Gem.configuration.credentials_path")" && echo "Credentials found" || echo "No credentials — run: gem signin"
 
 # Check if CHANGELOG.md exists when gemspec references it
 ruby -e "spec = Gem::Specification.load(Dir['*.gemspec'].first); puts spec.metadata['changelog_uri']"
@@ -80,10 +74,10 @@ test -f CHANGELOG.md && echo "CHANGELOG.md found" || echo "CHANGELOG.md missing"
 
 **Blockers:**
 - Version already published — ask the user what version to bump to (suggest next patch/minor/major). If the user declines, abort the publish.
-- No credentials file found (checked via `Gem.configuration.credentials_path`) — stop, user needs to run `gem signin` first
 
 **Warnings:**
-- Gemspec `changelog_uri` is set but `CHANGELOG.md` does not exist locally — warn the user and suggest running `/update-changelog` or creating one before publishing. This will result in a broken link on RubyGems.org.
+- Gemspec `changelog_uri` is set but `CHANGELOG.md` does not exist locally — warn the user. This will result in a broken link on RubyGems.org.
+- CHANGELOG.md has no entry for the version being published — warn the user. The `release.yml` workflow will fail if no changelog entry exists for the version.
 
 ### 4. Version Bump (if needed)
 
@@ -91,80 +85,87 @@ When the current version is already published, or the user requests a bump:
 
 1. Update `lib/<gem_name>/version.rb` with the new version
 2. Run `bundle install` to sync `Gemfile.lock`
-3. **Do not commit yet** — the version bump is committed only after `gem push` succeeds (see Step 8)
 
 **Critical:** Always run `bundle install` after changing the version to keep `Gemfile.lock` in sync. Skipping this causes CI failures.
 
-### 5. Build the Gem
+### 5. Update CHANGELOG.md
+
+If the `[Unreleased]` section in CHANGELOG.md has content:
+1. Rename `[Unreleased]` to `[<version>] - <today's date>` (format: YYYY-MM-DD)
+2. Add a new empty `[Unreleased]` section above it
+
+If `[Unreleased]` is empty, warn the user and ask if they want to proceed without changelog entries for this version.
+
+### 6. Run Tests
+
+```bash
+bundle exec rspec
+```
+
+**Blockers:**
+- Tests fail — stop and ask the user to fix. Do not proceed with a failing test suite.
+
+### 7. Build Verification
 
 ```bash
 gem build <name>.gemspec
 ```
 
-Verify the `.gem` file was created and show its size.
-
-### 6. Publish Summary
-
-Present a summary before pushing:
-
-```
-## Gem Publish Summary
-
-Name:     standard_audit
-Version:  0.1.0
-File:     standard_audit-0.1.0.gem (12 KB)
-Registry: https://rubygems.org
-
-Changelog:
-  <first few lines of the version's CHANGELOG entry>
-```
-
-If `--dry-run` was passed, stop here and clean up the `.gem` file.
-
-### 7. Push to RubyGems
-
-```bash
-gem push <name>-<version>.gem --otp <OTP>
-```
-
-If the OTP was not provided as an argument, ask the user for it now.
-
-If `gem push` fails, revert the version bump and Gemfile.lock changes (`git checkout -- lib/<gem_name>/version.rb Gemfile.lock CHANGELOG.md`), report the error, and stop. Do not proceed to tagging or releasing.
-
-### 8. Post-Publish
-
-Only proceed here after `gem push` has succeeded.
-
-#### 8a. Clean up the built gem file
-
-Remove the `.gem` file immediately after a successful push to avoid it showing up as an uncommitted change in later git operations:
+Verify the `.gem` file was created, show its size, then clean up:
 
 ```bash
 rm <name>-<version>.gem
 ```
 
-#### 8b. Commit and push the version bump
+### 8. Release Summary
 
-Commit the version bump, changelog, and lockfile:
+Present a summary before proceeding:
+
+```
+## Release Summary
+
+Name:     <gem_name>
+Version:  <version>
+Files:    <file count> files in gem
+Registry: https://rubygems.org (published by CI via trusted publisher)
+
+Changelog:
+  <first few lines of the version's CHANGELOG entry>
+
+Next steps:
+  1. Create version bump PR
+  2. Merge PR (manual)
+  3. Tag release → CI publishes to RubyGems + creates GitHub Release
+```
+
+If `--dry-run` was passed, stop here.
+
+### 9. Create Version Bump PR
+
+Commit the version bump, changelog, and lockfile on a branch and open a PR:
 
 ```bash
+git checkout -b chore/release-v<version>
 git add lib/<gem_name>/version.rb Gemfile.lock CHANGELOG.md
-git commit -m "chore: Bump version to <version>"
+git commit -m "chore: Release v<version>"
+git push -u origin chore/release-v<version>
+gh pr create --title "chore: Release v<version>" --body "$(cat <<'EOF'
+## Release v<version>
+
+<changelog entry for this version>
+
+After merging, Claude will tag `v<version>` which triggers CI to:
+- Create a GitHub Release with changelog notes
+- Build and publish the gem to RubyGems.org via trusted publisher
+EOF
+)"
 ```
 
-The `main` branch is protected and requires PRs. Create a PR directly (do not attempt `git push origin main`):
+Tell the user to review and merge the PR, then let you know when it's merged.
 
-```bash
-git checkout -b chore/bump-v<version>
-git push -u origin chore/bump-v<version>
-gh pr create --title "chore: Bump version to <version>" --body "..."
-```
+### 10. Tag the Release (after PR merge)
 
-#### 8c. Tag the release
-
-Do **not** tag yet. Since `main` is protected, the version bump goes through a PR. A squash merge creates a new commit on `main`, so a pre-merge tag would point to an orphaned commit not in `main`'s history.
-
-Tell the user to let you know when the PR is merged. When confirmed, perform these steps automatically:
+When the user confirms the PR is merged:
 
 ```bash
 # Sync main — use reset to avoid divergent branch issues from squash merge
@@ -178,32 +179,33 @@ git push origin v<version>
 
 # Clean up the bump branch locally
 # -D needed because squash merge doesn't preserve individual commits in main's history
-git branch -D chore/bump-v<version>
+git branch -D chore/release-v<version>
 # Remote branch may already be deleted by GitHub's auto-delete setting — ignore errors
-git push origin --delete chore/bump-v<version> 2>/dev/null || true
+git push origin --delete chore/release-v<version> 2>/dev/null || true
 ```
 
-> **Note:** The `release.yml` GitHub Actions workflow automatically creates a GitHub Release with notes extracted from CHANGELOG.md when the tag is pushed. No manual `gh release create` is needed.
+The tag push triggers `release.yml` which:
+1. Verifies the tag version matches `version.rb`
+2. Waits for CI to pass
+3. Extracts changelog notes and creates a GitHub Release
+4. Builds the gem and publishes to RubyGems.org via OIDC trusted publisher
 
-### 9. Output
+### 11. Output
 
 Report:
-1. RubyGems URL: `https://rubygems.org/gems/<name>`
+1. RubyGems URL: `https://rubygems.org/gems/<name>` (available after CI completes)
 2. Git tag created: `v<version>`
-3. GitHub Release: created automatically by the `release.yml` workflow from CHANGELOG.md — link: `https://github.com/<owner>/<repo>/releases/tag/v<version>`
-4. Remind: allow a few minutes for the gem to appear on RubyGems and for the GitHub Release to be created
+3. GitHub Release + RubyGems publish: triggered by CI — link: `https://github.com/<owner>/<repo>/actions`
+4. Remind: allow a few minutes for CI to complete, then the gem will appear on RubyGems and the GitHub Release will be created
 
 ## Error Handling
 
 | Error | Solution |
 |-------|----------|
-| `gem push` fails with 401 | Credentials expired — run `gem signin` |
-| `gem push` fails with 403 | No push permission — check gem ownership |
-| `gem push` fails (any reason) | Revert uncommitted version bump (`git checkout -- lib/*/version.rb Gemfile.lock CHANGELOG.md`), report error, stop |
-| OTP rejected | Code expired — ask for a new OTP |
 | `gem build` fails | Fix gemspec errors and retry |
+| Tests fail | Fix tests before proceeding |
 | Tag already exists | Version was previously tagged — skip tagging |
-| Tag signing fails | If `git tag -s` is preferred, ensure GPG is configured; fall back to `git tag -a` |
 | Tag push fails | Likely a permissions issue — report and continue |
-| Remote branch already deleted | GitHub auto-deleted it — ignore the error, branch cleanup is done |
+| Remote branch already deleted | GitHub auto-deleted it — ignore the error |
 | User declines version bump | Abort the publish |
+| CI publish fails | Check the Actions tab — common causes: trusted publisher not configured on RubyGems.org, `rubygems` environment not set up in GitHub repo settings, or version mismatch between tag and version.rb |
