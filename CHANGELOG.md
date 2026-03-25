@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-03-25
+
+### Added
+
+- **`before_sign_in` lifecycle hook (RAR-73)** — Synchronous hook that runs after credential verification but before session creation. Return `{ error: "message" }` to reject sign-in. Wired into all WebEngine auth flows: password, signup, passwordless OTP, and social login. (#137)
+- **`session` in `after_sign_in` context** — The `after_sign_in` hook context now includes the created `StandardId::Session` record. (#137)
+- **Test coverage thresholds** — SimpleCov enforces minimum 90% line and 75% branch coverage. (#136)
+
+### Changed
+
+- **`after_sign_in` context key `connection:` renamed to `mechanism:`** — Aligns with `before_sign_in` for consistency. Values: `"password"`, `"passwordless"`, `"social"`. (#137)
+
+### Fixed
+
+- **`first_sign_in?` correctness** — Uses `count == 0` for `before_sign_in` (pre-session) and `count <= 1` for `after_sign_in` (post-session), fixing false positives for returning users. (#137)
+
 ## [0.10.0] - 2026-03-24
 
 ### Security
