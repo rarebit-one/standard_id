@@ -24,7 +24,7 @@ RSpec.describe StandardId::ScopeConfig do
 
       expect(config.name).to eq(:admin)
       expect(config.profile_type).to be_nil
-      expect(config.after_sign_in_path).to eq("/")
+      expect(config.after_sign_in_path).to be_nil
       expect(config.no_profile_message).to eq("Access denied. No matching profile found.")
       expect(config.label).to eq("Admin")
       expect(config.allow_registration).to eq(true)

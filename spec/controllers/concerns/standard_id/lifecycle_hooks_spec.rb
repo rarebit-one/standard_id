@@ -8,17 +8,13 @@ RSpec.describe StandardId::LifecycleHooks do
     Class.new(ActionController::Base) do
       include StandardId::LifecycleHooks
 
-      attr_accessor :params_hash, :mock_session_manager, :mock_request
+      attr_accessor :mock_session_manager, :mock_request
 
       # Expose private methods for testing
       public :invoke_before_sign_in, :invoke_after_sign_in, :invoke_after_account_created, :current_scope_config
 
-      def params
-        ActionController::Parameters.new(params_hash || {})
-      end
-
       def request
-        mock_request || OpenStruct.new
+        mock_request || OpenStruct.new(path_parameters: {})
       end
 
       def session_manager
@@ -29,6 +25,10 @@ RSpec.describe StandardId::LifecycleHooks do
 
   let(:controller) { controller_class.new }
 
+  let(:mock_request) do
+    double("Request", path_parameters: {})
+  end
+
   let(:mock_session_manager) do
     sm = double("SessionManager")
     allow(sm).to receive(:current_session).and_return(nil)
@@ -37,7 +37,7 @@ RSpec.describe StandardId::LifecycleHooks do
 
   before do
     controller.mock_session_manager = mock_session_manager
-    controller.mock_request = double("Request")
+    controller.mock_request = mock_request
     # Ensure no hooks are configured by default
     allow(StandardId.config).to receive(:before_sign_in).and_return(nil)
     allow(StandardId.config).to receive(:after_sign_in).and_return(nil)
@@ -48,25 +48,31 @@ RSpec.describe StandardId::LifecycleHooks do
   # current_scope_config
   # ─────────────────────────────────────────────────────────────────────────
   describe "#current_scope_config" do
-    it "returns nil when no scope param is present" do
-      controller.params_hash = {}
+    it "returns nil when no scope is in path_parameters" do
+      allow(mock_request).to receive(:path_parameters).and_return({})
       expect(controller.current_scope_config).to be_nil
     end
 
-    it "returns nil when scope param is present but not configured" do
-      controller.params_hash = { scope: :unknown }
+    it "returns nil when scope is in path_parameters but not configured" do
+      allow(mock_request).to receive(:path_parameters).and_return({ scope: :unknown })
       allow(StandardId).to receive(:scope_for).with(:unknown).and_return(nil)
       expect(controller.current_scope_config).to be_nil
     end
 
     it "returns the ScopeConfig when scope is configured" do
       scope_config = StandardId::ScopeConfig.new(:borrower, { profile_type: "BorrowerProfile" })
-      controller.params_hash = { scope: :borrower }
+      allow(mock_request).to receive(:path_parameters).and_return({ scope: :borrower })
       allow(StandardId).to receive(:scope_for).with(:borrower).and_return(scope_config)
 
       result = controller.current_scope_config
       expect(result).to be_a(StandardId::ScopeConfig)
       expect(result.name).to eq(:borrower)
+    end
+
+    it "ignores scope passed as a query param (not in path_parameters)" do
+      allow(mock_request).to receive(:path_parameters).and_return({})
+      # Even if scope appears in regular params, it should be ignored
+      expect(controller.current_scope_config).to be_nil
     end
   end
 
@@ -74,7 +80,7 @@ RSpec.describe StandardId::LifecycleHooks do
   # Backward compatibility — no scope
   # ─────────────────────────────────────────────────────────────────────────
   describe "backward compatibility (no scope)" do
-    before { controller.params_hash = {} }
+    before { allow(mock_request).to receive(:path_parameters).and_return({}) }
 
     it "invoke_before_sign_in works without scope" do
       expect { controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil }) }.not_to raise_error
@@ -133,7 +139,7 @@ RSpec.describe StandardId::LifecycleHooks do
     end
 
     before do
-      controller.params_hash = { scope: :borrower }
+      allow(mock_request).to receive(:path_parameters).and_return({ scope: :borrower })
       allow(StandardId).to receive(:scope_for).with(:borrower).and_return(scope_config)
       # Disable profile check for scope context tests (no profile_type requirement)
       allow(StandardId.config).to receive(:profile_resolver).and_return(->(account, profile_type) { true })
@@ -236,7 +242,7 @@ RSpec.describe StandardId::LifecycleHooks do
     end
 
     before do
-      controller.params_hash = { scope: :borrower }
+      allow(mock_request).to receive(:path_parameters).and_return({ scope: :borrower })
       allow(StandardId).to receive(:scope_for).with(:borrower).and_return(scope_config)
     end
 

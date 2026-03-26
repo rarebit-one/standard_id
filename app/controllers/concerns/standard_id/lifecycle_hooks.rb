@@ -163,7 +163,7 @@ module StandardId
     # Reads :scope from route defaults (set by scoped route constraints).
     # Returns nil when no scope is active, preserving backward compatibility.
     def current_scope_config
-      scope_name = params[:scope]
+      scope_name = request.path_parameters[:scope]
       return nil unless scope_name
       StandardId.scope_for(scope_name)
     end
