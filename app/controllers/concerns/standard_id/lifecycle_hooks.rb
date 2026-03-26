@@ -2,6 +2,9 @@ module StandardId
   module LifecycleHooks
     extend ActiveSupport::Concern
 
+    # Default profile resolver when StandardId.config.profile_resolver is nil.
+    DEFAULT_PROFILE_RESOLVER = ->(acct, pt) { acct.profiles.exists?(profileable_type: pt) }
+
     private
 
     # Invoke the before_sign_in hook if configured.
@@ -32,9 +35,7 @@ module StandardId
 
         # Built-in profile check — runs before the app's custom hook
         if scope_config.requires_profile?
-          resolver = StandardId.config.profile_resolver || ->(acct, pt) {
-            acct.profiles.exists?(profileable_type: pt)
-          }
+          resolver = StandardId.config.profile_resolver || DEFAULT_PROFILE_RESOLVER
           unless resolver.call(account, scope_config.profile_type)
             raise StandardId::AuthenticationDenied, scope_config.no_profile_message
           end
@@ -162,10 +163,10 @@ module StandardId
     # Look up the scope config for the current request.
     # Reads :scope from route defaults (set by scoped route constraints).
     # Returns nil when no scope is active, preserving backward compatibility.
+    # Memoized per request to avoid redundant ScopeConfig allocations.
     def current_scope_config
-      scope_name = request.path_parameters[:scope]
-      return nil unless scope_name
-      StandardId.scope_for(scope_name)
+      return @current_scope_config if defined?(@current_scope_config)
+      @current_scope_config = StandardId.scope_for(request.path_parameters[:scope])
     end
   end
 end

@@ -106,9 +106,9 @@ RSpec.describe StandardId::LifecycleHooks do
       controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil })
 
       expect(received_context).to include(mechanism: "password", provider: nil)
-      expect(received_context[:scope]).to be_nil
-      expect(received_context[:profile_type]).to be_nil
-      expect(received_context[:after_sign_in_path]).to be_nil
+      expect(received_context).not_to have_key(:scope)
+      expect(received_context).not_to have_key(:profile_type)
+      expect(received_context).not_to have_key(:after_sign_in_path)
     end
 
     it "invoke_after_sign_in calls hook without scope fields" do
@@ -121,8 +121,8 @@ RSpec.describe StandardId::LifecycleHooks do
 
       controller.invoke_after_sign_in(account, { mechanism: "password", provider: nil })
 
-      expect(received_context[:scope]).to be_nil
-      expect(received_context[:profile_type]).to be_nil
+      expect(received_context).not_to have_key(:scope)
+      expect(received_context).not_to have_key(:profile_type)
     end
   end
 
@@ -369,6 +369,34 @@ RSpec.describe StandardId::LifecycleHooks do
       controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil })
 
       expect(received_account).to eq(account)
+    end
+
+    context "when profile_resolver is nil (default fallback)" do
+      let(:profiles_relation) { double("profiles") }
+      let(:sessions_relation) { double("sessions", where: double(active: double(count: 0))) }
+      let(:account_with_profiles) { double("Account", profiles: profiles_relation, sessions: sessions_relation) }
+
+      before do
+        allow(StandardId.config).to receive(:profile_resolver).and_return(nil)
+      end
+
+      it "uses the built-in default resolver and denies when no matching profile exists" do
+        allow(profiles_relation).to receive(:exists?).and_return(false)
+
+        expect {
+          controller.invoke_before_sign_in(account_with_profiles, { mechanism: "password", provider: nil })
+        }.to raise_error(StandardId::AuthenticationDenied, "No access.")
+
+        expect(profiles_relation).to have_received(:exists?).with(profileable_type: "BorrowerProfile")
+      end
+
+      it "uses the built-in default resolver and allows when matching profile exists" do
+        allow(profiles_relation).to receive(:exists?).and_return(true)
+
+        expect {
+          controller.invoke_before_sign_in(account_with_profiles, { mechanism: "password", provider: nil })
+        }.not_to raise_error
+      end
     end
 
     it "uses default no_profile_message when none is configured" do

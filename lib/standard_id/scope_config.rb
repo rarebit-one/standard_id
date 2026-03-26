@@ -1,5 +1,7 @@
 module StandardId
   class ScopeConfig
+    # @!attribute [r] allow_registration
+    #   Reserved for future use — controls whether new accounts can register under this scope.
     attr_reader :name, :profile_type, :after_sign_in_path, :no_profile_message, :label, :allow_registration
 
     def initialize(name, config = {})
