@@ -16,6 +16,7 @@ module StandardId
       def start!(attrs)
         username = attrs[:username]
         validate_username!(username)
+        run_username_validator!(username)
         emit_code_requested(username)
         challenge = create_challenge!(username)
         emit_code_generated(challenge, username)
@@ -102,6 +103,14 @@ module StandardId
       def request_params
         return {} unless request.respond_to?(:params)
         request.params
+      end
+
+      def run_username_validator!(username)
+        validator = StandardId.config.passwordless.username_validator
+        return unless validator.respond_to?(:call)
+
+        error = validator.call(username, connection_type)
+        raise StandardId::InvalidRequestError, error if error.present?
       end
 
       def emit_code_requested(username)
