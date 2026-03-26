@@ -19,7 +19,6 @@ RSpec.describe "Multiple WebEngine mounts with scope defaults", type: :request d
       }
     }
 
-    original_routes = Rails.application.routes.routes.to_a.dup
     Rails.application.routes.draw do
       mount StandardId::WebEngine => "/", as: :standard_id_web
       mount StandardId::WebEngine => "/borrower", as: :standard_id_web_borrower, defaults: { scope: :borrower }
@@ -79,7 +78,7 @@ RSpec.describe "Multiple WebEngine mounts with scope defaults", type: :request d
       )
     end
 
-    it "does not produce route collisions between mounts" do
+    it "resolves each mount to the same controller with distinct scope defaults" do
       # Each mount prefix should resolve independently
       unscoped = Rails.application.routes.recognize_path("/login")
       borrower = Rails.application.routes.recognize_path("/borrower/login")
@@ -217,6 +216,7 @@ RSpec.describe "Multiple WebEngine mounts with scope defaults", type: :request d
       http_post "/login", params: { login: { email: email, password: password } }
 
       expect(response).to have_http_status(:see_other)
+      expect(received_context).to be_a(Hash)
       expect(received_context).not_to have_key(:scope)
     end
 
