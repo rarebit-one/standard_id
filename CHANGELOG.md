@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-03-26
+
+### Added
+
+- **Configurable `username_validator` for passwordless flows** — New `config.passwordless.username_validator` callable that runs before OTP generation to validate the recipient address (e.g. via truemail). Returns nil/false to proceed, or an error message string to reject with `InvalidRequestError`. Follows the same pattern as `account_factory` and `before_sign_in` hooks. (#150)
+- **Integration tests for multi-mount WebEngine with scope defaults (RAR-93)** — Comprehensive integration tests verifying multiple WebEngine mounts with independent scopes, session tracking, and lifecycle hooks. (#149)
+
 ## [0.13.0] - 2026-03-26
 
 ### Added
