@@ -26,18 +26,28 @@ module StandardId
         # creating an authenticated session (Rails Security Guide §2.5).
         # Preserve return_to URL across the reset so post-login redirect works.
         return_to = session[:return_to_after_authenticating]
+        existing_scopes = session[:standard_id_scopes]
         @reset_session&.call
         session[:return_to_after_authenticating] = return_to if return_to
+        session[:standard_id_scopes] = existing_scopes if existing_scopes
 
         token_manager.create_browser_session(account).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
           # Action Cable will use the encrypted cookie
           session[:session_token] = browser_session.token
           cookies.encrypted[:session_token] = browser_session.token
-          session[:standard_id_scope] = scope_name if scope_name
+          if scope_name
+            scopes = Array(session[:standard_id_scopes])
+            scopes << scope_name.to_s unless scopes.include?(scope_name.to_s)
+            session[:standard_id_scopes] = scopes
+          end
           Current.session = browser_session
           emit_session_created(browser_session, account, "browser")
         end
+      end
+
+      def current_scope_names
+        Array(session[:standard_id_scopes])
       end
 
       def revoke_current_session!

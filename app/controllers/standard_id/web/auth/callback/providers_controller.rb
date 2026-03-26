@@ -39,7 +39,7 @@ module StandardId
               newly_created = account.previously_new_record?
 
               invoke_before_sign_in(account, { mechanism: "social", provider: provider.provider_name })
-              session_manager.sign_in_account(account)
+              session_manager.sign_in_account(account, scope_name: request.path_parameters[:scope])
 
               provider_name = provider.provider_name
               invoke_after_account_created(account, { mechanism: "social", provider: provider_name }) if newly_created

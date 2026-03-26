@@ -52,7 +52,7 @@ module StandardId
 
         invoke_before_sign_in(account, { mechanism: "passwordless", provider: nil })
 
-        session_manager.sign_in_account(account)
+        session_manager.sign_in_account(account, scope_name: request.path_parameters[:scope])
         emit_authentication_succeeded(account)
 
         if newly_created

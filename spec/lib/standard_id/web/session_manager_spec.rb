@@ -240,6 +240,64 @@ RSpec.describe StandardId::Web::SessionManager do
         expect(session[:session_token]).to eq("new_token")
       end
     end
+
+    context "with scope_name" do
+      it "stores the scope name in the session" do
+        session_manager.sign_in_account(account, scope_name: "admin")
+        expect(session[:standard_id_scopes]).to eq(["admin"])
+      end
+
+      it "accumulates scopes across multiple sign-ins without duplicates" do
+        session_manager.sign_in_account(account, scope_name: "admin")
+        session_manager.sign_in_account(account, scope_name: "member")
+        expect(session[:standard_id_scopes]).to eq(["admin", "member"])
+      end
+
+      it "does not add duplicate scopes" do
+        session_manager.sign_in_account(account, scope_name: "admin")
+        session_manager.sign_in_account(account, scope_name: "admin")
+        expect(session[:standard_id_scopes]).to eq(["admin"])
+      end
+
+      it "converts scope_name to string" do
+        session_manager.sign_in_account(account, scope_name: :admin)
+        expect(session[:standard_id_scopes]).to eq(["admin"])
+      end
+
+      it "does not store scopes when scope_name is nil" do
+        session_manager.sign_in_account(account, scope_name: nil)
+        expect(session[:standard_id_scopes]).to be_nil
+      end
+    end
+
+    context "with scope preservation across session fixation reset" do
+      let(:reset_session_callable) do
+        proc { session.clear }
+      end
+
+      it "preserves existing scopes across session reset" do
+        session[:standard_id_scopes] = ["admin"]
+        session_manager.sign_in_account(account, scope_name: "member")
+        expect(session[:standard_id_scopes]).to eq(["admin", "member"])
+      end
+
+      it "preserves scopes even when no new scope_name is provided" do
+        session[:standard_id_scopes] = ["admin"]
+        session_manager.sign_in_account(account)
+        expect(session[:standard_id_scopes]).to eq(["admin"])
+      end
+    end
+  end
+
+  describe "#current_scope_names" do
+    it "returns an empty array when no scopes are set" do
+      expect(session_manager.current_scope_names).to eq([])
+    end
+
+    it "returns the stored scope names" do
+      session[:standard_id_scopes] = ["admin", "member"]
+      expect(session_manager.current_scope_names).to eq(["admin", "member"])
+    end
   end
 
   describe "#load_session_from_remember_token (session fixation)" do

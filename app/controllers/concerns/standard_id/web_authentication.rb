@@ -4,7 +4,7 @@ module StandardId
 
     included do
       include StandardId::InertiaSupport
-      helper_method :current_account, :authenticated?
+      helper_method :current_account, :authenticated?, :current_scope_names
 
       if StandardId.config.alias_current_user
         define_method(:current_user) { current_account }
@@ -12,7 +12,7 @@ module StandardId
       end
     end
 
-    delegate :current_session, :current_account, :revoke_current_session!, to: :session_manager
+    delegate :current_session, :current_account, :current_scope_names, :revoke_current_session!, to: :session_manager
 
     private
 
@@ -98,7 +98,7 @@ module StandardId
         # but before session creation. The block may raise AuthenticationDenied.
         before_session&.call(password_credential.account)
 
-        session_manager.sign_in_account(password_credential.account)
+        session_manager.sign_in_account(password_credential.account, scope_name: request.path_parameters[:scope])
         session_manager.set_remember_cookie(password_credential) if remember_me
 
         StandardId::Events.publish(
