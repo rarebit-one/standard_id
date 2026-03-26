@@ -5,6 +5,7 @@ module StandardId
       requires_web_mechanism :passwordless_login
 
       include StandardId::InertiaRendering
+      include StandardId::PasswordlessFlow
       include StandardId::LifecycleHooks
 
       layout "public"
@@ -33,11 +34,10 @@ module StandardId
           return
         end
 
-        result = StandardId::Passwordless.verify(
+        result = verify_passwordless_otp(
           username: @otp_data[:username],
           code: code,
           connection: @otp_data[:connection],
-          request: request,
           allow_registration: passwordless_registration_enabled?
         )
 

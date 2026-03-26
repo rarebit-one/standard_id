@@ -1,4 +1,32 @@
 module StandardId
+  # Public concern providing authentication lifecycle hook invocations.
+  #
+  # Include this in host app controllers that implement custom authentication
+  # flows but want to participate in StandardId's hook system. The hooks are
+  # configured via `StandardId.config.before_sign_in`, `after_sign_in`, and
+  # `after_account_created` callbacks.
+  #
+  # This is the same concern used internally by the WebEngine's built-in
+  # controllers -- there is no separate "internal" version.
+  #
+  # Requires the including controller to include `StandardId::WebAuthentication`
+  # (for `session_manager` and `request` access).
+  #
+  # @example Usage in a host app controller
+  #   class Auth::SessionsController < ApplicationController
+  #     include StandardId::WebAuthentication
+  #     include StandardId::LifecycleHooks
+  #
+  #     def create
+  #       account = authenticate_somehow(params)
+  #       invoke_before_sign_in(account, { mechanism: "custom", provider: nil })
+  #       session_manager.sign_in_account(account)
+  #       redirect_override = invoke_after_sign_in(account, { mechanism: "custom", provider: nil })
+  #       redirect_to redirect_override || root_path
+  #     rescue StandardId::AuthenticationDenied => e
+  #       handle_authentication_denied(e)
+  #     end
+  #   end
   module LifecycleHooks
     extend ActiveSupport::Concern
 
@@ -135,6 +163,11 @@ module StandardId
     # Handle AuthenticationDenied by revoking the session and redirecting to login.
     # If the account was just created, clean it up to avoid orphaned records.
     #
+    # @note By default this redirects to the WebEngine's login_path. Host app
+    #   controllers that include LifecycleHooks without mounting the WebEngine
+    #   should override this method to redirect to their own login page. When the
+    #   WebEngine route is unavailable, falls back to `StandardId.config.login_url`
+    #   or `"/"`.
     # @param error [StandardId::AuthenticationDenied] the denial error
     # @param account [Object, nil] the account to clean up if newly created
     # @param newly_created [Boolean] whether the account was created during this request
@@ -144,7 +177,12 @@ module StandardId
       message = error.message
       # When raised without arguments, StandardError#message returns the class name
       message = "Sign-in was denied" if message.blank? || message == error.class.name
-      redirect_to StandardId::WebEngine.routes.url_helpers.login_path, alert: message
+      login_path = begin
+        StandardId::WebEngine.routes.url_helpers.login_path
+      rescue NameError, NoMethodError, ActionController::UrlGenerationError
+        StandardId.config.login_url || "/"
+      end
+      redirect_to login_path, alert: message
     end
 
     # Destroy a newly created account and all its dependents.
