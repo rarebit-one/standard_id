@@ -44,7 +44,15 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
         expect(challenge).to be_persisted
       end
 
-      it "rejects when validator returns an error message" do
+      it "proceeds when validator returns false" do
+        StandardId.config.passwordless.username_validator = ->(_username, _connection) { false }
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
+
+        challenge = strategy.start!(connection: "email", username: "user@example.com")
+        expect(challenge).to be_persisted
+      end
+
+      it "rejects when validator returns an error message and does not create a challenge" do
         StandardId.config.passwordless.username_validator = ->(_username, _connection) {
           "Please enter a valid email address"
         }
@@ -52,14 +60,7 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
         expect {
           strategy.start!(connection: "email", username: "user@bad-domain.xyz")
         }.to raise_error(StandardId::InvalidRequestError, "Please enter a valid email address")
-      end
-
-      it "does not create a code challenge when validation fails" do
-        StandardId.config.passwordless.username_validator = ->(_username, _connection) { "Invalid" }
-
-        expect {
-          strategy.start!(connection: "email", username: "user@bad-domain.xyz") rescue nil
-        }.not_to change(StandardId::CodeChallenge, :count)
+          .and change(StandardId::CodeChallenge, :count).by(0)
       end
 
       it "passes username and connection_type to the validator" do

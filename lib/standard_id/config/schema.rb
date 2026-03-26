@@ -75,7 +75,7 @@ StandardConfig.schema.draw do
     # When set, called before OTP generation to validate the recipient address.
     # Must be a callable (lambda/proc) that receives (username, connection_type)
     # and returns nil/false to proceed, or an error message string to reject.
-    # Example: ->(username, connection) { "Invalid email" unless MyValidator.valid?(username) }
+    # Example: ->(username, connection_type) { "Invalid email" unless MyValidator.valid?(username) }
     field :username_validator, type: :any, default: nil
 
     # Custom account factory for passwordless registration.
