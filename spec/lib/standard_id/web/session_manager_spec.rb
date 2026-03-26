@@ -281,6 +281,8 @@ RSpec.describe StandardId::Web::SessionManager do
         expect(session[:standard_id_scopes]).to eq(["admin", "member"])
       end
 
+      # Simulates a user who already has one scope and re-authenticates
+      # (e.g. session fixation reset) without adding a new scope.
       it "preserves scopes even when no new scope_name is provided" do
         session[:standard_id_scopes] = ["admin"]
         session_manager.sign_in_account(account)

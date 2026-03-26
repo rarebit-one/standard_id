@@ -112,7 +112,10 @@ module StandardId
         password_credential = StandardId::PasswordCredential.find_by_token_for(:remember_me, cookies[:remember_token])
         return if password_credential.blank?
 
-        # Prevent session fixation on returning-user remember-me flow
+        # Prevent session fixation on returning-user remember-me flow.
+        # Note: standard_id_scopes are intentionally NOT preserved here —
+        # remember-me re-auth is a fresh session context where scopes
+        # must be re-acquired through explicit scoped sign-in.
         @reset_session&.call
 
         token_manager.create_browser_session(password_credential.account, remember_me: true).tap do |browser_session|
