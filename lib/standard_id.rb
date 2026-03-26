@@ -4,6 +4,7 @@ require "standard_id/engine"
 require "standard_id/web_engine"
 require "standard_id/api_engine"
 require "standard_id/config/schema"
+require "standard_id/scope_config"
 require "standard_id/errors"
 require "standard_id/events"
 require "standard_id/events/subscribers/base"
@@ -79,6 +80,13 @@ module StandardId
 
     def account_class
       config.account_class_name.constantize
+    end
+
+    def scope_for(name)
+      return nil if config.scopes.blank? || name.blank?
+      scope_hash = config.scopes[name.to_sym]
+      return nil unless scope_hash
+      ScopeConfig.new(name, scope_hash)
     end
 
     def skip_host_authorization(framework: nil, callback: nil)

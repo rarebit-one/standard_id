@@ -18,6 +18,17 @@ StandardConfig.schema.draw do
     field :use_inertia, type: :boolean, default: false
     field :inertia_component_namespace, type: :string, default: "standard_id"
     field :alias_current_user, type: :boolean, default: false
+
+    # Scope-aware authentication: maps scope names to profile-based access config.
+    # Each scope is a hash with keys: :profile_type, :after_sign_in_path,
+    # :no_profile_message, :label, :allow_registration.
+    field :scopes, type: :any, default: {}
+
+    # Callable that resolves whether an account has a profile for a given scope.
+    # Receives (account, profile_type) and returns true/false.
+    # Override to customise profile lookup logic.
+    # Default (nil) uses: account.profiles.exists?(profileable_type: profile_type)
+    field :profile_resolver, type: :any, default: nil
     # Callable (lambda/proc) that returns a Hash of extra Sentry user context fields.
     # Receives (account, session) where session may be nil. Non-callable values are ignored.
     field :sentry_context, type: :any, default: nil

@@ -14,6 +14,74 @@ RSpec.describe "StandardId config schema" do
     end
   end
 
+  describe "scopes field" do
+    it "defaults to an empty hash" do
+      expect(StandardId.config.scopes).to eq({})
+    end
+  end
+
+  describe "profile_resolver field" do
+    it "defaults to nil (built-in fallback used in lifecycle hooks)" do
+      expect(StandardId.config.profile_resolver).to be_nil
+    end
+  end
+
+  describe "StandardId.scope_for" do
+    around do |example|
+      original_scopes = StandardId.config.scopes
+      example.run
+    ensure
+      StandardId.config.scopes = original_scopes
+    end
+
+    it "returns nil when scopes is empty" do
+      StandardId.config.scopes = {}
+      expect(StandardId.scope_for(:borrower)).to be_nil
+    end
+
+    it "returns nil when name is nil" do
+      StandardId.config.scopes = { borrower: { profile_type: "BorrowerProfile" } }
+      expect(StandardId.scope_for(nil)).to be_nil
+    end
+
+    it "returns nil when name is blank" do
+      StandardId.config.scopes = { borrower: { profile_type: "BorrowerProfile" } }
+      expect(StandardId.scope_for("")).to be_nil
+    end
+
+    it "returns nil for an unknown scope" do
+      StandardId.config.scopes = { borrower: { profile_type: "BorrowerProfile" } }
+      expect(StandardId.scope_for(:admin)).to be_nil
+    end
+
+    it "returns a ScopeConfig for a known scope" do
+      StandardId.config.scopes = {
+        borrower: {
+          profile_type: "BorrowerProfile",
+          after_sign_in_path: "/borrower/dashboard",
+          no_profile_message: "No borrower account found.",
+          label: "Borrower Login",
+          allow_registration: false
+        }
+      }
+
+      scope = StandardId.scope_for(:borrower)
+      expect(scope).to be_a(StandardId::ScopeConfig)
+      expect(scope.name).to eq(:borrower)
+      expect(scope.profile_type).to eq("BorrowerProfile")
+      expect(scope.after_sign_in_path).to eq("/borrower/dashboard")
+      expect(scope.allow_registration).to eq(false)
+    end
+
+    it "accepts a string name and converts to symbol lookup" do
+      StandardId.config.scopes = { lender: { profile_type: "LenderProfile" } }
+
+      scope = StandardId.scope_for("lender")
+      expect(scope).to be_a(StandardId::ScopeConfig)
+      expect(scope.name).to eq(:lender)
+    end
+  end
+
   describe "passwordless.delivery" do
     it "defaults to :custom" do
       expect(StandardId.config.passwordless.delivery).to eq(:custom)
