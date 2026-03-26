@@ -1,4 +1,38 @@
 module StandardId
+  # Public concern providing cookie-based session management for web controllers.
+  #
+  # Include this in host app controllers to access StandardId's session
+  # management capabilities. This is the same concern used internally by
+  # the WebEngine's built-in controllers.
+  #
+  # ## Public helpers (available in controllers and views)
+  #
+  # - `current_account` -- Returns the currently authenticated account, or nil.
+  #   Loads from session token or remember-me cookie. Delegated to SessionManager.
+  #
+  # - `authenticated?` -- Returns true if a user is currently signed in.
+  #
+  # - `current_session` -- Returns the current StandardId::BrowserSession, or nil.
+  #   Delegated to SessionManager.
+  #
+  # - `revoke_current_session!` -- Revokes the current browser session and clears
+  #   all session/cookie tokens. Use for sign-out flows. Delegated to SessionManager.
+  #
+  # - `sign_in_account(login_params, &before_session)` -- Authenticates via password
+  #   credentials. Accepts a block called after credential verification but before
+  #   session creation (for lifecycle hooks). Returns the PasswordCredential on
+  #   success, nil on failure.
+  #
+  # - `session_manager` -- Returns the StandardId::Web::SessionManager instance
+  #   for the current request. Useful for direct session operations like
+  #   `session_manager.sign_in_account(account)` in passwordless flows.
+  #
+  # @example Usage in a host app controller
+  #   class ApplicationController < ActionController::Base
+  #     include StandardId::WebAuthentication
+  #
+  #     before_action :authenticate_account!
+  #   end
   module WebAuthentication
     extend ActiveSupport::Concern
 
@@ -12,10 +46,22 @@ module StandardId
       end
     end
 
+    # @!method current_session
+    #   Returns the current StandardId::BrowserSession, or nil.
+    # @!method current_account
+    #   Returns the currently authenticated account, or nil.
+    #   Loads from session token or remember-me cookie.
+    # @!method current_scope_names
+    #   Returns an array of scope names the user has authenticated into.
+    # @!method revoke_current_session!
+    #   Revokes the current browser session and clears all session/cookie tokens.
     delegate :current_session, :current_account, :current_scope_names, :revoke_current_session!, to: :session_manager
 
     private
 
+    # Returns true if a user is currently signed in.
+    #
+    # @return [Boolean]
     def authenticated?
       current_account.present?
     end
@@ -59,6 +105,16 @@ module StandardId
       session.delete(:return_to_after_authenticating) || "/"
     end
 
+    # Authenticate a user via password credentials and create a browser session.
+    #
+    # Accepts a block called after credential verification but before session
+    # creation, allowing lifecycle hooks (e.g. invoke_before_sign_in) to reject
+    # the sign-in by raising StandardId::AuthenticationDenied.
+    #
+    # @param login_params [Hash] must include :email (or :login) and :password;
+    #   optionally :remember_me
+    # @yield [account] called after password verification, before session creation
+    # @return [StandardId::PasswordCredential, nil] the credential on success, nil on failure
     def sign_in_account(login_params, &before_session)
       login = login_params[:email] || login_params[:login] # support both :email and :login keys
       password = login_params[:password]
@@ -110,6 +166,12 @@ module StandardId
       end
     end
 
+    # Returns the StandardId::Web::SessionManager for the current request.
+    #
+    # Use this for direct session operations in custom flows, e.g.:
+    #   session_manager.sign_in_account(account)
+    #
+    # @return [StandardId::Web::SessionManager]
     def session_manager
       @session_manager ||= StandardId::Web::SessionManager.new(
         token_manager,

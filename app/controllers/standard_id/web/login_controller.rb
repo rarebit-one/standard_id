@@ -5,7 +5,7 @@ module StandardId
 
       include StandardId::InertiaRendering
       include StandardId::Web::SocialLoginParams
-      include StandardId::PasswordlessStrategy
+      include StandardId::PasswordlessFlow
       include StandardId::LifecycleHooks
 
       layout "public"
@@ -81,10 +81,8 @@ module StandardId
           return
         end
 
-        strategy = strategy_for(connection)
-
         begin
-          strategy.start!(username: email, connection: connection)
+          generate_passwordless_otp(email: email, connection: connection)
         rescue StandardId::InvalidRequestError => e
           flash.now[:alert] = e.message
           render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content

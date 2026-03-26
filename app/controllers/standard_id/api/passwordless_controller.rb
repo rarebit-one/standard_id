@@ -3,7 +3,7 @@ module StandardId
     class PasswordlessController < BaseController
       public_controller
 
-      include StandardId::PasswordlessStrategy
+      include StandardId::PasswordlessFlow
 
       # RAR-60: Rate limit OTP initiation by IP (10 per hour)
       rate_limit to: StandardId.config.rate_limits.api_passwordless_start_per_ip,
@@ -23,7 +23,7 @@ module StandardId
       def start
         raise StandardId::InvalidRequestError, "username, email, or phone_number parameter is required" if start_params[:username].blank?
 
-        strategy_for(start_params[:connection]).start!(start_params)
+        generate_passwordless_otp(email: start_params[:username], connection: start_params[:connection])
 
         render json: { message: "Code sent successfully" }, status: :ok
       end
