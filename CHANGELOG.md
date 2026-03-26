@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-03-26
+
+### Added
+
+- **Scope-aware lifecycle hooks (RAR-95, RAR-96)** — Named authentication scopes with profile-type gating. `ScopeConfig` and `StandardId.scope_for(name)` define scopes; lifecycle hooks receive scope context. Built-in profile validation runs before custom `before_sign_in` hooks, raising `AuthenticationDenied` when required profile is missing. Configurable `profile_resolver` and per-scope `no_profile_message`. (#145)
+- **Multi-scope session tracking (RAR-97)** — `sign_in_account` accepts `scope_name:` and accumulates scopes in `session[:standard_id_scopes]`. New `current_scope_names` helper exposed to controllers and views. Scopes preserved across session fixation reset, cleared on logout. OAuth callback scope preserved via `state_data`. (#146)
+- **Reusable `PasswordlessFlow` concern (RAR-94)** — Public concern wrapping `PasswordlessStrategy` with `generate_passwordless_otp(username:)` and `verify_passwordless_otp(username:)`. YARD documentation added to `WebAuthentication`, `LifecycleHooks`, and `PasswordlessFlow` for host app adoption. `handle_authentication_denied` falls back gracefully when WebEngine is not mounted. (#147)
+
 ## [0.12.0] - 2026-03-25
 
 ### Added
