@@ -40,7 +40,7 @@ module StandardId
 
         if form.submit
           invoke_before_sign_in(form.account, { mechanism: "password", provider: nil })
-          session_manager.sign_in_account(form.account)
+          session_manager.sign_in_account(form.account, scope_name: request.path_parameters[:scope])
           invoke_after_account_created(form.account, { mechanism: "signup", provider: nil })
 
           context = { mechanism: "password", provider: nil }

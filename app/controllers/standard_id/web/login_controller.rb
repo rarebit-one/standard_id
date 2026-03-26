@@ -138,7 +138,11 @@ module StandardId
       end
 
       def extract_social_login_params
-        request.parameters.except("controller", "action", "format", "authenticity_token", "commit", "login").to_h.deep_dup
+        social_params = request.parameters.except("controller", "action", "format", "authenticity_token", "commit", "login").to_h.deep_dup
+        # Include scope from route defaults so it survives the OAuth redirect/callback round trip
+        scope = request.path_parameters[:scope]
+        social_params["scope"] = scope.to_s if scope.present?
+        social_params
       end
 
       def extract_oauth_params(provider)

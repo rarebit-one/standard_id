@@ -19,24 +19,35 @@ module StandardId
         Current.account ||= load_current_account
       end
 
-      def sign_in_account(account)
+      def sign_in_account(account, scope_name: nil)
         emit_session_creating(account, "browser")
 
         # Prevent session fixation by resetting the Rails session before
         # creating an authenticated session (Rails Security Guide §2.5).
         # Preserve return_to URL across the reset so post-login redirect works.
         return_to = session[:return_to_after_authenticating]
+        existing_scopes = session[:standard_id_scopes]
         @reset_session&.call
         session[:return_to_after_authenticating] = return_to if return_to
+        session[:standard_id_scopes] = existing_scopes if existing_scopes
 
         token_manager.create_browser_session(account).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
           # Action Cable will use the encrypted cookie
           session[:session_token] = browser_session.token
           cookies.encrypted[:session_token] = browser_session.token
+          if scope_name
+            scopes = Array(session[:standard_id_scopes])
+            scopes << scope_name.to_s unless scopes.include?(scope_name.to_s)
+            session[:standard_id_scopes] = scopes
+          end
           Current.session = browser_session
           emit_session_created(browser_session, account, "browser")
         end
+      end
+
+      def current_scope_names
+        Array(session[:standard_id_scopes])
       end
 
       def revoke_current_session!
@@ -51,6 +62,7 @@ module StandardId
       def clear_session!
         # TODO: make token key names configurable
         session.delete(:session_token)
+        session.delete(:standard_id_scopes)
         cookies.encrypted[:session_token] = nil
         cookies.delete(:remember_token)
 
@@ -100,7 +112,10 @@ module StandardId
         password_credential = StandardId::PasswordCredential.find_by_token_for(:remember_me, cookies[:remember_token])
         return if password_credential.blank?
 
-        # Prevent session fixation on returning-user remember-me flow
+        # Prevent session fixation on returning-user remember-me flow.
+        # Note: standard_id_scopes are intentionally NOT preserved here —
+        # remember-me re-auth is a fresh session context where scopes
+        # must be re-acquired through explicit scoped sign-in.
         @reset_session&.call
 
         token_manager.create_browser_session(password_credential.account, remember_me: true).tap do |browser_session|
