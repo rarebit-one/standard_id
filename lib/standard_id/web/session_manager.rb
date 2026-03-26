@@ -19,7 +19,7 @@ module StandardId
         Current.account ||= load_current_account
       end
 
-      def sign_in_account(account)
+      def sign_in_account(account, scope_name: nil)
         emit_session_creating(account, "browser")
 
         # Prevent session fixation by resetting the Rails session before
@@ -34,6 +34,7 @@ module StandardId
           # Action Cable will use the encrypted cookie
           session[:session_token] = browser_session.token
           cookies.encrypted[:session_token] = browser_session.token
+          session[:standard_id_scope] = scope_name if scope_name
           Current.session = browser_session
           emit_session_created(browser_session, account, "browser")
         end
