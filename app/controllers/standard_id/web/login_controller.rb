@@ -82,7 +82,7 @@ module StandardId
         end
 
         begin
-          generate_passwordless_otp(email: email, connection: connection)
+          generate_passwordless_otp(username: email, connection: connection)
         rescue StandardId::InvalidRequestError => e
           flash.now[:alert] = e.message
           render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content

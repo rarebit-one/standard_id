@@ -23,7 +23,7 @@ module StandardId
       def start
         raise StandardId::InvalidRequestError, "username, email, or phone_number parameter is required" if start_params[:username].blank?
 
-        generate_passwordless_otp(email: start_params[:username], connection: start_params[:connection])
+        generate_passwordless_otp(username: start_params[:username], connection: start_params[:connection])
 
         render json: { message: "Code sent successfully" }, status: :ok
       end

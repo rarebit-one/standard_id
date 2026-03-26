@@ -46,7 +46,7 @@ RSpec.describe StandardId::PasswordlessFlow do
   describe "#generate_passwordless_otp" do
     it "creates a CodeChallenge for the given email" do
       expect {
-        controller.send(:generate_passwordless_otp, email: email)
+        controller.send(:generate_passwordless_otp, username: email)
       }.to change(StandardId::CodeChallenge, :count).by(1)
 
       challenge = StandardId::CodeChallenge.last
@@ -56,14 +56,14 @@ RSpec.describe StandardId::PasswordlessFlow do
     end
 
     it "returns the created CodeChallenge" do
-      result = controller.send(:generate_passwordless_otp, email: email)
+      result = controller.send(:generate_passwordless_otp, username: email)
       expect(result).to be_a(StandardId::CodeChallenge)
       expect(result.target).to eq(email)
     end
 
     it "uses the specified connection type" do
       phone = "+14155550123"
-      controller.send(:generate_passwordless_otp, email: phone, connection: "sms")
+      controller.send(:generate_passwordless_otp, username: phone, connection: "sms")
 
       challenge = StandardId::CodeChallenge.last
       expect(challenge.channel).to eq("sms")
@@ -71,7 +71,7 @@ RSpec.describe StandardId::PasswordlessFlow do
     end
 
     it "defaults connection to email" do
-      controller.send(:generate_passwordless_otp, email: email)
+      controller.send(:generate_passwordless_otp, username: email)
 
       challenge = StandardId::CodeChallenge.last
       expect(challenge.channel).to eq("email")
@@ -79,13 +79,13 @@ RSpec.describe StandardId::PasswordlessFlow do
 
     it "raises InvalidRequestError for invalid email format" do
       expect {
-        controller.send(:generate_passwordless_otp, email: "not-an-email")
+        controller.send(:generate_passwordless_otp, username: "not-an-email")
       }.to raise_error(StandardId::InvalidRequestError, /Invalid email format/)
     end
 
     it "raises InvalidRequestError for unsupported connection type" do
       expect {
-        controller.send(:generate_passwordless_otp, email: email, connection: "carrier_pigeon")
+        controller.send(:generate_passwordless_otp, username: email, connection: "carrier_pigeon")
       }.to raise_error(StandardId::InvalidRequestError, /Unsupported connection type/)
     end
   end
@@ -95,7 +95,7 @@ RSpec.describe StandardId::PasswordlessFlow do
       account = create_email_account(email)
       create_challenge(channel: "email", target: email)
 
-      result = controller.send(:verify_passwordless_otp, email: email, code: otp_code)
+      result = controller.send(:verify_passwordless_otp, username: email, code: otp_code)
 
       expect(result.success?).to be true
       expect(result.account).to eq(account)
@@ -107,7 +107,7 @@ RSpec.describe StandardId::PasswordlessFlow do
       create_email_account(email)
       create_challenge(channel: "email", target: email)
 
-      result = controller.send(:verify_passwordless_otp, email: email, code: "000000")
+      result = controller.send(:verify_passwordless_otp, username: email, code: "000000")
 
       expect(result.success?).to be false
       expect(result.error_code).to eq(:invalid_code)
@@ -116,7 +116,7 @@ RSpec.describe StandardId::PasswordlessFlow do
     it "returns a failure result when no challenge exists" do
       create_email_account(email)
 
-      result = controller.send(:verify_passwordless_otp, email: email, code: otp_code)
+      result = controller.send(:verify_passwordless_otp, username: email, code: otp_code)
 
       expect(result.success?).to be false
       expect(result.error_code).to eq(:not_found)
@@ -126,7 +126,7 @@ RSpec.describe StandardId::PasswordlessFlow do
       account = create_email_account(email)
       create_challenge(channel: "email", target: email)
 
-      result = controller.send(:verify_passwordless_otp, email: email, code: otp_code)
+      result = controller.send(:verify_passwordless_otp, username: email, code: otp_code)
 
       expect(result.success?).to be true
       expect(result.account).to eq(account)
@@ -138,7 +138,7 @@ RSpec.describe StandardId::PasswordlessFlow do
       StandardId::PhoneNumberIdentifier.create!(account: account, value: phone, verified_at: Time.current)
       create_challenge(channel: "sms", target: phone)
 
-      result = controller.send(:verify_passwordless_otp, email: phone, code: otp_code, connection: "sms")
+      result = controller.send(:verify_passwordless_otp, username: phone, code: otp_code, connection: "sms")
 
       expect(result.success?).to be true
       expect(result.account).to eq(account)
@@ -149,7 +149,7 @@ RSpec.describe StandardId::PasswordlessFlow do
 
       result = controller.send(
         :verify_passwordless_otp,
-        email: "new@example.com",
+        username: "new@example.com",
         code: otp_code,
         allow_registration: false
       )
@@ -176,7 +176,7 @@ RSpec.describe StandardId::PasswordlessFlow do
         allow_registration: true
       ).and_return(mock_result)
 
-      controller.send(:verify_passwordless_otp, email: email, code: otp_code)
+      controller.send(:verify_passwordless_otp, username: email, code: otp_code)
     end
   end
 end

@@ -35,7 +35,7 @@ module StandardId
         end
 
         result = verify_passwordless_otp(
-          email: @otp_data[:username],
+          username: @otp_data[:username],
           code: code,
           connection: @otp_data[:connection],
           allow_registration: passwordless_registration_enabled?
