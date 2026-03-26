@@ -71,6 +71,13 @@ StandardConfig.schema.draw do
     field :retry_delay, type: :integer, default: 30 # 30 seconds
     field :bypass_code, type: :string, default: nil # E2E testing only — NEVER set in production
 
+    # Custom username validator for passwordless flows.
+    # When set, called before OTP generation to validate the recipient address.
+    # Must be a callable (lambda/proc) that receives (username, connection_type)
+    # and returns nil/false to proceed, or an error message string to reject.
+    # Example: ->(username, connection) { "Invalid email" unless MyValidator.valid?(username) }
+    field :username_validator, type: :any, default: nil
+
     # Custom account factory for passwordless registration.
     # When set, replaces the default find_or_create_account! logic in strategies.
     # Must be a callable (lambda/proc) that receives (identifier:, params:, request:)
