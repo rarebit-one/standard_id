@@ -347,5 +347,11 @@ RSpec.describe StandardId::Web::SessionManager do
       expect(Current).to receive(:session=).with(nil)
       session_manager.clear_session!
     end
+
+    it "clears standard_id_scopes from session" do
+      session[:standard_id_scopes] = %w[borrower lender]
+      session_manager.clear_session!
+      expect(session[:standard_id_scopes]).to be_nil
+    end
   end
 end

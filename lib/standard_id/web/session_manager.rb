@@ -62,6 +62,7 @@ module StandardId
       def clear_session!
         # TODO: make token key names configurable
         session.delete(:session_token)
+        session.delete(:standard_id_scopes)
         cookies.encrypted[:session_token] = nil
         cookies.delete(:remember_token)
 
