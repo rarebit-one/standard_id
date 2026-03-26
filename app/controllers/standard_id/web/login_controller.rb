@@ -147,7 +147,10 @@ module StandardId
         supported_params = provider.try(:supported_authorization_params)
         return {} if supported_params.blank?
 
-        params.permit(*supported_params).to_h.compact.symbolize_keys
+        # Exclude :scope from OAuth params — the route-level scope default (e.g., :user, :admin)
+        # is a StandardId auth scope, not an OAuth scope. Providers define their own default
+        # OAuth scopes (e.g., Google uses "openid email profile").
+        params.except(:scope).permit(*supported_params).to_h.compact.symbolize_keys
       end
 
       def generate_oauth_token
