@@ -158,9 +158,38 @@ RSpec.describe StandardId::PasswordlessFlow do
       expect(result.error_code).to eq(:account_not_found)
     end
 
+    it "returns :not_found when the challenge is expired" do
+      create_email_account(email)
+      challenge = create_challenge(channel: "email", target: email)
+      challenge.update_column(:expires_at, 1.minute.ago)
+
+      result = controller.send(:verify_passwordless_otp, username: email, code: otp_code)
+
+      expect(result.success?).to be false
+      expect(result.error_code).to eq(:not_found)
+    end
+
+    it "returns :max_attempts on the attempt that exceeds the limit" do
+      create_email_account(email)
+      create_challenge(channel: "email", target: email)
+
+      max_attempts = StandardId.config.passwordless.max_attempts
+
+      # Use all but one attempt
+      (max_attempts - 1).times do
+        controller.send(:verify_passwordless_otp, username: email, code: "000000")
+      end
+
+      # The final wrong attempt triggers :max_attempts and consumes the challenge
+      result = controller.send(:verify_passwordless_otp, username: email, code: "000000")
+
+      expect(result.success?).to be false
+      expect(result.error_code).to eq(:max_attempts)
+    end
+
     it "delegates to StandardId::Passwordless.verify" do
       mock_result = StandardId::Passwordless::VerificationService::Result.new(
-        "success?": true,
+        success?: true,
         account: nil,
         challenge: nil,
         error: nil,

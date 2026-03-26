@@ -179,7 +179,7 @@ module StandardId
       message = "Sign-in was denied" if message.blank? || message == error.class.name
       login_path = begin
         StandardId::WebEngine.routes.url_helpers.login_path
-      rescue NoMethodError, ActionController::UrlGenerationError
+      rescue NameError, NoMethodError, ActionController::UrlGenerationError
         StandardId.config.login_url || "/"
       end
       redirect_to login_path, alert: message

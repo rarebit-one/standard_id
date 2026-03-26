@@ -72,17 +72,17 @@ module StandardId
       end
 
       def handle_passwordless_login
-        email = login_params[:email].to_s.strip.downcase
+        username = login_params[:email].to_s.strip.downcase
         connection = StandardId.config.passwordless.connection
 
-        if email.blank?
+        if username.blank?
           flash.now[:alert] = "Please enter your email address"
           render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content
           return
         end
 
         begin
-          generate_passwordless_otp(username: email, connection: connection)
+          generate_passwordless_otp(username: username, connection: connection)
         rescue StandardId::InvalidRequestError => e
           flash.now[:alert] = e.message
           render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content
@@ -91,7 +91,7 @@ module StandardId
 
         code_ttl = StandardId.config.passwordless.code_ttl
         signed_payload = Rails.application.message_verifier(:otp).generate(
-          { username: email, connection: connection },
+          { username: username, connection: connection },
           expires_in: code_ttl.seconds
         )
         session[:standard_id_otp_payload] = signed_payload
