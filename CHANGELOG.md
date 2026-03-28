@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-03-28
+
+### Fixed
+
+- **Preserve TLS SNI hostname in SSRF-protected connections** — The SSRF protection layer now preserves the original hostname for TLS Server Name Indication (SNI), preventing certificate verification failures when connecting through resolved IP addresses. (#154)
+
 ## [0.14.0] - 2026-03-26
 
 ### Added
