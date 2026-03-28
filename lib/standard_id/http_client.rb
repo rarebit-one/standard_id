@@ -60,19 +60,15 @@ module StandardId
       end
 
       def start_connection(uri, resolved_ip: nil, &block)
-        host = resolved_ip || uri.host
-        options = {
-          use_ssl: uri.scheme == "https",
-          open_timeout: OPEN_TIMEOUT,
-          read_timeout: READ_TIMEOUT
-        }
-        options[:verify_mode] = OpenSSL::SSL::VERIFY_PEER if options[:use_ssl]
-
-        Net::HTTP.start(host, uri.port, **options) do |http|
-          # Set Host header for virtual hosting when connecting to resolved IP
-          http.instance_variable_set(:@address, uri.host) if resolved_ip
-          yield http
-        end
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = (uri.scheme == "https")
+        http.verify_mode = OpenSSL::SSL::VERIFY_PEER if http.use_ssl?
+        http.open_timeout = OPEN_TIMEOUT
+        http.read_timeout = READ_TIMEOUT
+        # Pin to the resolved IP for SSRF/DNS-rebinding protection while
+        # preserving the original hostname for TLS SNI and cert verification.
+        http.ipaddr = resolved_ip if resolved_ip
+        http.start(&block)
       end
     end
   end

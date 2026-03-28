@@ -18,26 +18,28 @@ RSpec.describe StandardId::HttpClient do
       stub_request(:post, "https://example.com/token")
         .to_return(status: 200, body: "{}")
 
-      expect(Net::HTTP).to receive(:start)
-        .with("93.184.216.34", 443,
-              use_ssl: true, open_timeout: 5, read_timeout: 10,
-              verify_mode: OpenSSL::SSL::VERIFY_PEER)
-        .and_call_original
+      http = Net::HTTP.new("example.com", 443)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:start).and_call_original
 
       described_class.post_form("https://example.com/token", { key: "value" })
+
+      expect(http.open_timeout).to eq(5)
+      expect(http.read_timeout).to eq(10)
     end
 
     it "configures timeouts on get_with_bearer requests" do
       stub_request(:get, "https://example.com/api")
         .to_return(status: 200, body: "{}")
 
-      expect(Net::HTTP).to receive(:start)
-        .with("93.184.216.34", 443,
-              use_ssl: true, open_timeout: 5, read_timeout: 10,
-              verify_mode: OpenSSL::SSL::VERIFY_PEER)
-        .and_call_original
+      http = Net::HTTP.new("example.com", 443)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:start).and_call_original
 
       described_class.get_with_bearer("https://example.com/api", "token")
+
+      expect(http.open_timeout).to eq(5)
+      expect(http.read_timeout).to eq(10)
     end
   end
 
@@ -172,15 +174,20 @@ RSpec.describe StandardId::HttpClient do
       }.to raise_error(StandardId::HttpClient::SsrfError)
     end
 
-    it "connects to the resolved IP to prevent DNS rebinding" do
+    it "preserves the hostname for TLS SNI when connecting to resolved IP" do
       allow(Resolv).to receive(:getaddresses).with("example.com").and_return(["93.184.216.34"])
       stub_request(:post, "https://example.com/token").to_return(status: 200, body: "{}")
 
-      expect(Net::HTTP).to receive(:start)
-        .with("93.184.216.34", 443, hash_including(use_ssl: true))
-        .and_call_original
+      http = Net::HTTP.new("example.com", 443)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:start).and_call_original
 
       described_class.post_form("https://example.com/token", {})
+
+      # Net::HTTP.new receives the hostname (for SNI), not the resolved IP
+      expect(Net::HTTP).to have_received(:new).with("example.com", 443)
+      # ipaddr= pins the TCP connection to the resolved IP
+      expect(http.ipaddr).to eq("93.184.216.34")
     end
 
     it "allows requests to public IP addresses" do
@@ -208,23 +215,26 @@ RSpec.describe StandardId::HttpClient do
       stub_request(:get, "https://secure.example.com/api")
         .to_return(status: 200, body: "{}")
 
-      expect(Net::HTTP).to receive(:start)
-        .with("93.184.216.34", 443, hash_including(verify_mode: OpenSSL::SSL::VERIFY_PEER))
-        .and_call_original
+      http = Net::HTTP.new("secure.example.com", 443)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:start).and_call_original
 
       described_class.get_with_bearer("https://secure.example.com/api", "token")
+
+      expect(http.verify_mode).to eq(OpenSSL::SSL::VERIFY_PEER)
     end
 
-    it "does not set verify_mode for HTTP connections" do
+    it "does not enable SSL for HTTP connections" do
       stub_request(:get, "http://example.com/api")
         .to_return(status: 200, body: "{}")
 
-      expect(Net::HTTP).to receive(:start)
-        .with("93.184.216.34", 80,
-              use_ssl: false, open_timeout: 5, read_timeout: 10)
-        .and_call_original
+      http = Net::HTTP.new("example.com", 80)
+      allow(Net::HTTP).to receive(:new).and_return(http)
+      allow(http).to receive(:start).and_call_original
 
       described_class.get_with_bearer("http://example.com/api", "token")
+
+      expect(http.use_ssl?).to be false
     end
   end
 
