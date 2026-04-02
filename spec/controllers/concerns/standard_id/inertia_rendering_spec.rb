@@ -35,11 +35,11 @@ RSpec.describe StandardId::InertiaRendering do
       end
 
       it "generates component name with default namespace" do
-        expect(controller.inertia_component_name).to eq("standard_id/Login/show")
+        expect(controller.inertia_component_name).to eq("standard_id/login/show")
       end
 
       it "uses provided action" do
-        expect(controller.inertia_component_name(:create)).to eq("standard_id/Login/create")
+        expect(controller.inertia_component_name(:create)).to eq("standard_id/login/create")
       end
     end
 
@@ -49,7 +49,7 @@ RSpec.describe StandardId::InertiaRendering do
       end
 
       it "generates component name with custom namespace" do
-        expect(controller.inertia_component_name).to eq("Auth/Login/show")
+        expect(controller.inertia_component_name).to eq("Auth/login/show")
       end
     end
   end
@@ -66,7 +66,7 @@ RSpec.describe StandardId::InertiaRendering do
         controller.render_with_inertia(props: { user: "test" })
 
         expect(controller).to have_received(:render).with(
-          inertia: "Auth/Login/show",
+          inertia: "Auth/login/show",
           props: { user: "test" },
           status: :ok
         )
@@ -86,7 +86,7 @@ RSpec.describe StandardId::InertiaRendering do
         controller.render_with_inertia(props: {}, status: :unprocessable_entity)
 
         expect(controller).to have_received(:render).with(
-          inertia: "Auth/Login/show",
+          inertia: "Auth/login/show",
           props: {},
           status: :unprocessable_entity
         )
