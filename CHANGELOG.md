@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-04-02
+
+### Fixed
+
+- **Guard `apply_skips!` against unloaded `ControllerPolicy`** — When `skip_host_authorization` is called from a Rails initializer, `ControllerPolicy` may not be autoloaded yet by Zeitwerk, causing a `NameError`. The method now checks `defined?` before accessing the constant. Controllers that register later still receive skips via the `apply_to_controller` callback and the `to_prepare` re-run. (#160)
+
 ## [0.14.2] - 2026-04-02
 
 ### Fixed
