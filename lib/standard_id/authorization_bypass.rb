@@ -103,6 +103,14 @@ module StandardId
       # Must remain public because it is invoked from a to_prepare lambda
       # registered in apply, which executes outside this module's scope.
       def apply_skips!
+        # ControllerPolicy lives in app/controllers/concerns/ and is autoloaded
+        # by Zeitwerk. When apply is called early (e.g. from a Rails initializer),
+        # the constant may not be loaded yet. This is safe to skip — controllers
+        # that register later will receive skips via apply_to_controller (called
+        # from ControllerPolicy.register), and the to_prepare block re-runs
+        # apply_skips! after class loading is complete.
+        return unless defined?(StandardId::ControllerPolicy)
+
         StandardId::ControllerPolicy.registry_snapshot.each do |policy, controllers|
           controllers.each { |controller| apply_to_controller(controller, policy) }
         end
