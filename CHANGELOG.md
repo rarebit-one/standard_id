@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-04-02
+
+### Fixed
+
+- **Lowercase controller name in Inertia component name generation** — `inertia_component_name` produced PascalCase names like `"standard_id/Login/show"` because `.demodulize` preserves class casing. Adding `.underscore` produces `"standard_id/login/show"` which matches the lowercase page file conventions used by consuming apps. (#158)
+
 ## [0.14.1] - 2026-03-28
 
 ### Fixed
