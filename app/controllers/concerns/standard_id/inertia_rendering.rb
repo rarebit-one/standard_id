@@ -24,7 +24,7 @@ module StandardId
     # Generate the Inertia component name based on controller and action
     def inertia_component_name(action = nil)
       namespace = StandardId.config.inertia_component_namespace.presence || "standard_id"
-      controller_name = self.class.name.demodulize.delete_suffix("Controller")
+      controller_name = self.class.name.demodulize.delete_suffix("Controller").underscore
       action_str = (action || self.action_name).to_s
 
       "#{namespace}/#{controller_name}/#{action_str}"
