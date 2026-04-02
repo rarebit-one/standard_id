@@ -320,4 +320,15 @@ RSpec.describe StandardId::AuthorizationBypass do
       StandardId.skip_host_authorization(framework: :action_policy)
     end
   end
+
+  describe "apply_skips! when ControllerPolicy is not yet autoloaded" do
+    it "does not raise when ControllerPolicy is not defined" do
+      # Simulate calling apply_skips! before Zeitwerk has autoloaded
+      # ControllerPolicy (e.g. from a Rails initializer)
+      allow(described_class).to receive(:apply_skips!).and_call_original
+      hide_const("StandardId::ControllerPolicy")
+
+      expect { described_class.apply_skips! }.not_to raise_error
+    end
+  end
 end
