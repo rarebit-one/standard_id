@@ -28,9 +28,11 @@ module StandardId
       protected
 
       def create_challenge!(username)
+        invalidate_active_challenges!(username)
+
         code = generate_otp_code
 
-        cc = StandardId::CodeChallenge.create!(
+        StandardId::CodeChallenge.create!(
           realm: "authentication",
           channel: connection_type,
           target: username,
@@ -39,7 +41,12 @@ module StandardId
           ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
           user_agent: request.user_agent
         )
-        cc
+      end
+
+      def invalidate_active_challenges!(username)
+        StandardId::CodeChallenge.active
+          .where(realm: "authentication", channel: connection_type, target: username)
+          .update_all(used_at: Time.current)
       end
 
       def generate_otp_code
