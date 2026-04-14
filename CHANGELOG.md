@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-04-14
+
+### Fixed
+
+- **Prevent OTP race condition with multiple active challenges** — When a user requests a new OTP before the previous one expires, multiple active challenges could accumulate. The verification lookup returned an arbitrary match, causing valid codes to be rejected. Now invalidates existing active challenges when creating a new one, with ordered lookup as a defensive fallback. Adds composite index on `code_challenges` for the new query pattern. (#165)
+
+### Changed
+
+- Bump puma from 7.2.0 to 8.0.0 (#162)
+- Group all Dependabot updates including majors (#163)
+
 ## [0.14.3] - 2026-04-02
 
 ### Fixed
