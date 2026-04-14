@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_03_11_100001) do
+ActiveRecord::Schema[8.1].define(version: 2026_04_14_200000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -113,6 +113,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_03_11_100001) do
     t.text "user_agent"
     t.index ["expires_at"], name: "index_standard_id_code_challenges_on_expires_at"
     t.index ["realm", "channel", "target", "code"], name: "index_code_challenges_on_lookup"
+    t.index ["realm", "channel", "target", "created_at"], name: "index_code_challenges_on_target_created_at"
     t.index ["used_at"], name: "index_standard_id_code_challenges_on_used_at"
   end
 
