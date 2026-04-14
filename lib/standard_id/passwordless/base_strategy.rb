@@ -28,18 +28,30 @@ module StandardId
       protected
 
       def create_challenge!(username)
-        code = generate_otp_code
+        ActiveRecord::Base.transaction do
+          invalidate_active_challenges!(username)
 
-        cc = StandardId::CodeChallenge.create!(
-          realm: "authentication",
-          channel: connection_type,
-          target: username,
-          code: code,
-          expires_at: StandardId.config.passwordless.code_ttl.seconds.from_now,
-          ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
-          user_agent: request.user_agent
-        )
-        cc
+          code = generate_otp_code
+
+          StandardId::CodeChallenge.create!(
+            realm: "authentication",
+            channel: connection_type,
+            target: username,
+            code: code,
+            expires_at: StandardId.config.passwordless.code_ttl.seconds.from_now,
+            ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
+            user_agent: request.user_agent
+          )
+        end
+      end
+
+      # Uses update_all for a single UPDATE statement (no N+1). This bypasses
+      # ActiveRecord callbacks intentionally — CodeChallenge has no after-save
+      # hooks today. If callbacks are added to CodeChallenge#use!, revisit this.
+      def invalidate_active_challenges!(username)
+        StandardId::CodeChallenge.active
+          .where(realm: "authentication", channel: connection_type, target: username)
+          .update_all(used_at: Time.current)
       end
 
       def generate_otp_code

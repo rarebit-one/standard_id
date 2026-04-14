@@ -120,6 +120,33 @@ RSpec.describe StandardId::Passwordless::VerificationService do
         expect(result.success?).to be false
         expect(result.error).to eq("Invalid or expired verification code")
       end
+
+      it "verifies against the most recently created challenge" do
+        account = create_email_account(email)
+        old_code = "111111"
+        new_code = "222222"
+
+        create_challenge(channel: "email", target: email, code: old_code)
+        create_challenge(channel: "email", target: email, code: new_code)
+
+        result = described_class.verify(email: email, code: new_code, request: request)
+
+        expect(result.success?).to be true
+        expect(result.account).to eq(account)
+      end
+
+      it "rejects the old code when multiple active challenges exist" do
+        create_email_account(email)
+        old_code = "111111"
+        new_code = "222222"
+
+        create_challenge(channel: "email", target: email, code: old_code)
+        create_challenge(channel: "email", target: email, code: new_code)
+
+        result = described_class.verify(email: email, code: old_code, request: request)
+
+        expect(result.success?).to be false
+      end
     end
 
     context "with phone (SMS)" do

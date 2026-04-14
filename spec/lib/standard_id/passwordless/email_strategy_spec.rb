@@ -31,6 +31,23 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
       expect(challenge).to be_active
     end
 
+    it "invalidates previous active challenges for the same target" do
+      first_challenge = strategy.start!(connection: "email", username: "user@example.com")
+      expect(first_challenge).to be_active
+
+      second_challenge = strategy.start!(connection: "email", username: "user@example.com")
+
+      expect(first_challenge.reload).to be_used
+      expect(second_challenge).to be_active
+    end
+
+    it "does not invalidate challenges for other targets" do
+      other_challenge = strategy.start!(connection: "email", username: "other@example.com")
+      strategy.start!(connection: "email", username: "user@example.com")
+
+      expect(other_challenge.reload).to be_active
+    end
+
     context "with username_validator configured" do
       after do
         StandardId.config.passwordless.username_validator = nil

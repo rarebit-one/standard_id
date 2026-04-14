@@ -200,11 +200,10 @@ module StandardId
       end
 
       def find_active_challenge
-        StandardId::CodeChallenge.active.find_by(
-          realm: "authentication",
-          channel: @channel,
-          target: @target
-        )
+        StandardId::CodeChallenge.active
+          .where(realm: "authentication", channel: @channel, target: @target)
+          .order(created_at: :desc)
+          .first
       end
 
       # NOTE: The update! here can raise ActiveRecord::RecordInvalid, which is
