@@ -25,19 +25,5 @@
       "Bash(git worktree:*)",
       "Bash(git stash:*)"
     ]
-  },
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Skill",
-        "hooks": [
-          {
-            "type": "prompt",
-            "prompt": "The skill has finished executing. Review the session only if the skill involved multiple phases and at least one step failed, required a workaround, or needed repeated corrections. If you find patterns that should be encoded into the skill definition, describe the proposed changes to the relevant .claude/skills/<skill-name>/SKILL.md file and ask the user for confirmation before applying. Do not edit skill files without explicit user approval. If the skill ran cleanly with no issues, do nothing and say nothing.",
-            "timeout": 60
-          }
-        ]
-      }
-    ]
   }
 }
