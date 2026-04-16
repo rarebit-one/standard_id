@@ -29,8 +29,34 @@ module StandardId
           # revocation via sub claim regardless of token type (RFC 7009 §2.1)
           revoked_sessions = sessions.to_a
           if revoked_sessions.any?
+            now = Time.current
+            session_ids = revoked_sessions.map(&:id)
+
+            # Bulk-revoke in two queries (one UPDATE per table) instead of
+            # issuing session.revoke! per row, which would be O(N) UPDATEs plus
+            # another O(N) cascades to refresh_tokens.
+            #
+            # Tradeoff: update_all skips ActiveRecord callbacks, so the per-row
+            # SESSION_REVOKED event emitted by Session#revoke! is not fired
+            # automatically. We re-emit it explicitly below so audit-trail
+            # subscribers (account status/locking, etc.) still see one event
+            # per revoked session — the semantics are preserved, only the SQL
+            # shape has changed.
             ActiveRecord::Base.transaction do
-              revoked_sessions.each { |session| session.revoke!(reason: "token_revocation") }
+              StandardId::Session.where(id: session_ids).update_all(revoked_at: now)
+              StandardId::RefreshToken
+                .where(session_id: session_ids, revoked_at: nil)
+                .update_all(revoked_at: now)
+            end
+
+            revoked_sessions.each do |session|
+              session.revoked_at = now
+              StandardId::Events.publish(
+                StandardId::Events::SESSION_REVOKED,
+                session: session,
+                account: session.account,
+                reason: "token_revocation"
+              )
             end
 
             StandardId::Events.publish(
