@@ -12,6 +12,7 @@ module StandardId
     validates :name, presence: true, length: { maximum: 255 }
     validates :description, length: { maximum: 1000 }
     validates :redirect_uris, presence: true
+    validate :redirect_uris_must_be_absolute_without_query_or_fragment
     validates :client_type, inclusion: { in: %w[confidential public] }
     validates :grant_types, presence: true
     validates :response_types, presence: true
@@ -78,8 +79,46 @@ module StandardId
       code_challenge_methods_array.include?(method.to_s)
     end
 
+    # Validates a redirect_uri presented in an OAuth request against this
+    # client's registered URIs.
+    #
+    # OAuth 2.0 (RFC 6749 §3.1.2) requires the authorization server to compare
+    # the registered redirect URI and the request redirect URI using simple
+    # string comparison, with the exception that the authorization server may
+    # redirect with additional query parameters. We implement a stricter
+    # scheme+host+port+path match: the *request* URI may add query or fragment
+    # segments, but the scheme, host, port, and path must exactly match a
+    # registered URI. This prevents a class of "query-string piggyback" attacks
+    # where a registered callback at /cb is abused with a crafted query string
+    # (or, worse, a different path segment like /cb/evil).
+    #
+    # Subdomain wildcards are NOT supported — host must match exactly.
     def valid_redirect_uri?(uri)
-      redirect_uris_array.include?(uri.to_s)
+      requested = self.class.parse_redirect_uri(uri)
+      return false unless requested
+
+      redirect_uris_array.any? do |registered_uri|
+        registered = self.class.parse_redirect_uri(registered_uri)
+        next false unless registered
+
+        registered.scheme == requested.scheme &&
+          registered.host == requested.host &&
+          registered.port == requested.port &&
+          registered.path == requested.path
+      end
+    end
+
+    # Parse a redirect URI string into a URI object suitable for comparison.
+    # Returns nil for unparseable, relative, or scheme-less URIs.
+    def self.parse_redirect_uri(value)
+      return nil if value.to_s.strip.empty?
+
+      parsed = URI.parse(value.to_s.strip)
+      return nil if parsed.scheme.blank? || parsed.host.blank?
+
+      parsed
+    rescue URI::InvalidURIError
+      nil
     end
 
     def confidential?
@@ -126,6 +165,29 @@ module StandardId
     end
 
     private
+
+    # Registered redirect URIs must be absolute (include scheme + host) and
+    # must NOT carry a query string or fragment. Allowing either would turn
+    # the whitelist into a prefix match and enable "query-param piggyback"
+    # attacks where a registered callback is reused with attacker-controlled
+    # parameters.
+    def redirect_uris_must_be_absolute_without_query_or_fragment
+      redirect_uris_array.each do |value|
+        parsed = self.class.parse_redirect_uri(value)
+        if parsed.nil?
+          errors.add(:redirect_uris, "contains an invalid URI (#{value.inspect}). Redirect URIs must be absolute (scheme + host)")
+          next
+        end
+
+        if parsed.query.present?
+          errors.add(:redirect_uris, "must not contain a query string (#{value.inspect}). Register the base URI only; OAuth adds query params at runtime")
+        end
+
+        if parsed.fragment.present?
+          errors.add(:redirect_uris, "must not contain a fragment (#{value.inspect})")
+        end
+      end
+    end
 
     def generate_client_id
       self.client_id ||= SecureRandom.hex(16)

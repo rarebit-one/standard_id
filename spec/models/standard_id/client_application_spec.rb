@@ -238,6 +238,79 @@ RSpec.describe StandardId::ClientApplication, type: :model do
         it "returns false for invalid redirect URIs" do
           expect(client.valid_redirect_uri?("https://malicious.com")).to be false
         end
+
+        it "allows the request URI to add a query string (OAuth spec allows the AS to append)" do
+          # RFC 6749 §3.1.2: the authorization server MAY redirect with
+          # additional query parameters. The registered URI is the canonical
+          # base — equality is on scheme+host+port+path only.
+          expect(client.valid_redirect_uri?("https://example.com/callback?attacker=1")).to be true
+        end
+
+        it "allows the request URI to include a fragment" do
+          expect(client.valid_redirect_uri?("https://example.com/callback#section")).to be true
+        end
+
+        it "rejects request URIs with extra path segments (no prefix match)" do
+          expect(client.valid_redirect_uri?("https://example.com/callback/evil")).to be false
+        end
+
+        it "rejects request URIs with a different host even when the path matches" do
+          expect(client.valid_redirect_uri?("https://attacker.com/callback")).to be false
+        end
+
+        it "rejects subdomain look-alikes (no wildcard matching)" do
+          expect(client.valid_redirect_uri?("https://evil.example.com/callback")).to be false
+        end
+
+        it "rejects request URIs with a different scheme" do
+          expect(client.valid_redirect_uri?("http://example.com/callback")).to be false
+        end
+
+        it "rejects relative and malformed URIs" do
+          expect(client.valid_redirect_uri?("/callback")).to be false
+          expect(client.valid_redirect_uri?("not a url")).to be false
+          expect(client.valid_redirect_uri?(nil)).to be false
+          expect(client.valid_redirect_uri?("")).to be false
+        end
+
+        it "distinguishes between ports" do
+          portful_client = described_class.create!(
+            owner: account,
+            name: "Portful",
+            redirect_uris: "https://example.com:8443/cb"
+          )
+          expect(portful_client.valid_redirect_uri?("https://example.com:8443/cb")).to be true
+          expect(portful_client.valid_redirect_uri?("https://example.com/cb")).to be false
+        end
+      end
+    end
+
+    describe "registered redirect_uris validation" do
+      it "rejects registered URIs that contain a query string" do
+        bad = described_class.new(owner: account, name: "Bad", redirect_uris: "https://example.com/cb?pre=existing")
+        expect(bad).not_to be_valid
+        expect(bad.errors[:redirect_uris].join).to include("must not contain a query string")
+      end
+
+      it "rejects registered URIs that contain a fragment" do
+        bad = described_class.new(owner: account, name: "Bad", redirect_uris: "https://example.com/cb#section")
+        expect(bad).not_to be_valid
+        expect(bad.errors[:redirect_uris].join).to include("must not contain a fragment")
+      end
+
+      it "rejects relative (non-absolute) registered URIs" do
+        bad = described_class.new(owner: account, name: "Bad", redirect_uris: "/callback")
+        expect(bad).not_to be_valid
+        expect(bad.errors[:redirect_uris].join).to include("invalid URI")
+      end
+
+      it "accepts multiple whitespace-separated absolute URIs" do
+        good = described_class.new(
+          owner: account,
+          name: "Good",
+          redirect_uris: "https://example.com/cb  https://app.example.com/auth"
+        )
+        expect(good).to be_valid
       end
     end
 
