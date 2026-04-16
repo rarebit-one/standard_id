@@ -31,6 +31,32 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
       expect(challenge).to be_active
     end
 
+    it "generates a 6-digit code by default" do
+      challenge = strategy.start!(connection: "email", username: "user@example.com")
+      expect(challenge.code).to match(/\A\d{6}\z/)
+    end
+
+    it "honors config.passwordless.code_length for longer codes" do
+      allow(StandardId.config.passwordless).to receive(:code_length).and_return(8)
+
+      challenge = strategy.start!(connection: "email", username: "user@example.com")
+      expect(challenge.code).to match(/\A\d{8}\z/)
+    end
+
+    it "clamps code_length into a sane range (ignores 0/negative)" do
+      allow(StandardId.config.passwordless).to receive(:code_length).and_return(0)
+
+      challenge = strategy.start!(connection: "email", username: "user@example.com")
+      expect(challenge.code).to match(/\A\d{6}\z/)
+    end
+
+    it "clamps code_length into a sane range (ignores absurdly large values)" do
+      allow(StandardId.config.passwordless).to receive(:code_length).and_return(50)
+
+      challenge = strategy.start!(connection: "email", username: "user@example.com")
+      expect(challenge.code.length).to eq(10)
+    end
+
     it "invalidates previous active challenges for the same target" do
       first_challenge = strategy.start!(connection: "email", username: "user@example.com")
       expect(first_challenge).to be_active

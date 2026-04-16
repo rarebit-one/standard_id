@@ -80,7 +80,27 @@ StandardConfig.schema.draw do
     field :enabled, type: :boolean, default: false
     field :connection, type: :string, default: "email"
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
+
+    # Length of generated OTP codes. Default 6 digits (~20 bits of entropy).
+    # For security-sensitive deployments, 8+ is recommended. Must be between 4 and 10.
+    # Changing this only affects newly generated codes; existing active challenges
+    # keep their original length.
+    field :code_length, type: :integer, default: 6
+
+    # Deprecated alias for :max_attempts_per_challenge, retained for backwards
+    # compatibility. When :max_attempts_per_challenge is unset (nil), the
+    # verification service falls back to this value.
     field :max_attempts, type: :integer, default: 3
+
+    # Maximum number of incorrect OTP submissions per challenge, globally
+    # (across all IPs). When the ceiling is reached, the challenge is marked
+    # used so further attempts fail fast. This is distinct from the per-IP
+    # rate limit (config.rate_limits.otp_verify_per_ip) — the per-IP limit
+    # prevents brute-forcing from a single source, while this ceiling defends
+    # against distributed brute-force attempts against the same challenge.
+    # When nil, falls back to :max_attempts for backwards compatibility.
+    field :max_attempts_per_challenge, type: :integer, default: nil
+
     field :retry_delay, type: :integer, default: 30 # 30 seconds
     # Bypass code for E2E testing — NEVER set in production (raises).
     # When set and Rails.env != "production", this code is accepted by

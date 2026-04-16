@@ -51,6 +51,27 @@ module StandardId
           allow_registration: allow_registration
         )
       end
+
+      # Resolve the configured OTP code length, clamped to a sane range.
+      # Shared by all OTP generators in the engine so one setting controls the
+      # code space end-to-end.
+      def otp_code_length
+        configured = StandardId.config.passwordless.code_length
+        length = configured.to_i
+        length = 6 if length <= 0
+        length.clamp(4, 10)
+      end
+
+      # Resolve the per-challenge attempt ceiling, preferring the newer
+      # :max_attempts_per_challenge setting but falling back to :max_attempts
+      # for backwards compatibility with apps that configured the older name.
+      def max_attempts_per_challenge
+        configured = StandardId.config.passwordless.max_attempts_per_challenge
+        return configured.to_i if configured && configured.to_i.positive?
+
+        legacy = StandardId.config.passwordless.max_attempts.to_i
+        legacy.positive? ? legacy : 5
+      end
     end
   end
 end

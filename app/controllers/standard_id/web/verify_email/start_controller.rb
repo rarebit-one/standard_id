@@ -46,7 +46,8 @@ module StandardId
         private
 
         def generate_otp_code
-          (SecureRandom.random_number(900_000) + 100_000).to_s
+          length = StandardId::Passwordless.otp_code_length
+          SecureRandom.random_number(10**length).to_s.rjust(length, "0")
         end
       end
     end

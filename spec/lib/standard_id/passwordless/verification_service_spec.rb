@@ -482,12 +482,123 @@ RSpec.describe StandardId::Passwordless::VerificationService do
     context "concurrent use protection" do
       it "uses pessimistic locking when consuming the challenge" do
         create_email_account(email)
-        challenge = create_challenge(channel: "email", target: email)
+        create_challenge(channel: "email", target: email)
 
         # Verify that lock is called during verification
         expect(StandardId::CodeChallenge).to receive(:lock).and_call_original
 
         described_class.verify(email: email, code: otp_code, request: request)
+      end
+
+      it "rejects a racing verifier when the challenge was consumed between select and lock" do
+        # Simulates the window between the initial `active` SELECT and the
+        # pessimistic `lock.find_by(id: ...)` re-fetch. If a concurrent
+        # transaction marks the row used in that gap, the verifier must
+        # return :not_found — even when the submitted code is correct.
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        original_find_by = StandardId::CodeChallenge.method(:find_by)
+        hijacked = false
+        allow_any_instance_of(ActiveRecord::Relation).to receive(:find_by).and_wrap_original do |m, *args|
+          # Only hijack once, and only when the verifier is calling find_by
+          # under the pessimistic lock scope.
+          result = m.call(*args)
+          if !hijacked && result.is_a?(StandardId::CodeChallenge)
+            hijacked = true
+            # A concurrent transaction consumes the challenge in the gap.
+            StandardId::CodeChallenge.where(id: result.id).update_all(used_at: Time.current)
+            result.reload
+          end
+          result
+        end
+
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:not_found)
+        expect(challenge.reload).to be_used
+      end
+
+      it "only lets one of two racing correct-code verifiers succeed" do
+        # Direct simulation of the race: the first verifier is suspended
+        # after selecting the challenge but before locking it; the second
+        # verifier runs to completion and consumes the challenge; then the
+        # first resumes and must observe the consumed state.
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        original_lock = StandardId::CodeChallenge.method(:lock)
+        first_call = true
+        allow(StandardId::CodeChallenge).to receive(:lock) do
+          if first_call
+            first_call = false
+            # Another verification sneaks in and consumes the challenge
+            # before this caller has taken the row lock.
+            StandardId::CodeChallenge.where(id: challenge.id).update_all(used_at: Time.current)
+          end
+          original_lock.call
+        end
+
+        result = described_class.verify(email: email, code: otp_code, request: request)
+
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:not_found)
+        expect(challenge.reload).to be_used
+      end
+    end
+
+    context "per-challenge attempt ceiling" do
+      it "burns the challenge after :max_attempts_per_challenge incorrect submissions" do
+        allow(StandardId.config.passwordless).to receive(:max_attempts_per_challenge).and_return(5)
+        allow(StandardId.config.passwordless).to receive(:max_attempts).and_return(100)
+
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        4.times do
+          result = described_class.verify(email: email, code: "000000", request: request)
+          expect(result.error_code).to eq(:invalid_code)
+        end
+
+        result = described_class.verify(email: email, code: "000000", request: request)
+        expect(result.error_code).to eq(:max_attempts)
+        expect(challenge.reload).to be_used
+      end
+
+      it "rejects subsequent attempts even from a different IP once the ceiling is hit" do
+        allow(StandardId.config.passwordless).to receive(:max_attempts_per_challenge).and_return(3)
+
+        create_email_account(email)
+        create_challenge(channel: "email", target: email)
+
+        # Simulate requests from a rotating set of IPs — the ceiling is
+        # per-challenge, not per-IP, so the Nth+1 attempt must fail even
+        # from a brand-new source address.
+        3.times do |i|
+          ip_request = instance_double("ActionDispatch::Request", remote_ip: "10.0.0.#{i + 1}", user_agent: "RSpec")
+          described_class.verify(email: email, code: "000000", request: ip_request)
+        end
+
+        fresh_ip_request = instance_double("ActionDispatch::Request", remote_ip: "203.0.113.99", user_agent: "RSpec")
+        result = described_class.verify(email: email, code: "000000", request: fresh_ip_request)
+
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:not_found)
+      end
+
+      it "falls back to :max_attempts when :max_attempts_per_challenge is nil" do
+        allow(StandardId.config.passwordless).to receive(:max_attempts_per_challenge).and_return(nil)
+        allow(StandardId.config.passwordless).to receive(:max_attempts).and_return(2)
+
+        create_email_account(email)
+        challenge = create_challenge(channel: "email", target: email)
+
+        described_class.verify(email: email, code: "000000", request: request)
+        result = described_class.verify(email: email, code: "000000", request: request)
+
+        expect(result.error_code).to eq(:max_attempts)
+        expect(challenge.reload).to be_used
       end
     end
 
