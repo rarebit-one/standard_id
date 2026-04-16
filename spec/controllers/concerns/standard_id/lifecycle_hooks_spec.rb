@@ -376,7 +376,7 @@ RSpec.describe StandardId::LifecycleHooks do
 
     context "when profile_resolver is nil (default fallback)" do
       let(:profiles_relation) { double("profiles") }
-      let(:sessions_relation) { double("sessions", where: double(active: double(count: 0))) }
+      let(:sessions_relation) { double("sessions", where: double(active: double(exists?: false))) }
       let(:account_with_profiles) { double("Account", profiles: profiles_relation, sessions: sessions_relation) }
 
       before do
