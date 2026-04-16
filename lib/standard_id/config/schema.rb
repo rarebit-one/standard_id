@@ -138,6 +138,21 @@ StandardConfig.schema.draw do
     field :require_numbers, type: :boolean, default: true
   end
 
+  scope :reset_password do
+    # Password reset email delivery mode:
+    #   :custom   — (default) host app handles delivery via event subscriber for
+    #               CREDENTIAL_PASSWORD_RESET_INITIATED
+    #   :built_in — engine sends reset emails automatically using
+    #               PasswordResetMailer
+    #
+    # Note: the scope is named `reset_password` rather than `password_reset` to
+    # avoid a name collision with the `web.password_reset` boolean feature flag
+    # — StandardConfig resolves unique field names globally.
+    field :delivery, type: :symbol, default: :custom
+    field :mailer_from, type: :string, default: "noreply@example.com"
+    field :mailer_subject, type: :string, default: "Reset your password"
+  end
+
   scope :session do
     field :browser_session_lifetime, type: :integer, default: 86400 # 24 hours in seconds
     field :browser_session_remember_me_lifetime, type: :integer, default: 2592000 # 30 days in seconds

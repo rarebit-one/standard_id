@@ -1,15 +1,17 @@
 require "rails_helper"
 
 RSpec.describe StandardId::Web::ResetPasswordStartForm, type: :model do
+  let(:reset_url_template) { "https://example.test/reset_password/confirm?token={token}" }
+
   describe "validations" do
     it "requires an email" do
-      form = described_class.new(email: "")
+      form = described_class.new(email: "", reset_url_template: reset_url_template)
       expect(form).not_to be_valid
       expect(form.errors[:email]).to include("Please enter your email address")
     end
 
     it "requires valid email format" do
-      form = described_class.new(email: "bad")
+      form = described_class.new(email: "bad", reset_url_template: reset_url_template)
       expect(form).not_to be_valid
       expect(form.errors[:email]).to be_present
     end
@@ -21,18 +23,36 @@ RSpec.describe StandardId::Web::ResetPasswordStartForm, type: :model do
     let!(:password_credential) { StandardId::PasswordCredential.create!(login: "user@example.com", password: "Password1!") }
     let!(:credential) { StandardId::Credential.create!(credentialable: password_credential, identifier: identifier) }
 
-    it "returns true and sets token when account has password credential" do
-      form = described_class.new(email: "user@example.com")
+    it "returns true and enqueues the delivery job when the email is valid" do
+      form = described_class.new(email: "user@example.com", reset_url_template: reset_url_template)
+
+      expect(StandardId::PasswordResetDeliveryJob).to receive(:perform_later).with(
+        email: "user@example.com",
+        reset_url_template: reset_url_template
+      )
+
       expect(form.submit).to eq(true)
-      expect(form.token).to be_present
-      expect(form.password_credential).to eq(password_credential)
     end
 
-    it "returns true and sets no token when email not found" do
-      form = described_class.new(email: "missing@example.com")
+    it "returns true and still enqueues the delivery job when the email does not match any account" do
+      # User enumeration defence: behaviour must be identical whether or not
+      # the account exists. The job itself no-ops when lookup fails.
+      form = described_class.new(email: "missing@example.com", reset_url_template: reset_url_template)
+
+      expect(StandardId::PasswordResetDeliveryJob).to receive(:perform_later).with(
+        email: "missing@example.com",
+        reset_url_template: reset_url_template
+      )
+
       expect(form.submit).to eq(true)
-      expect(form.token).to be_nil
-      expect(form.password_credential).to be_nil
+    end
+
+    it "does not enqueue the job when validation fails" do
+      form = described_class.new(email: "not-an-email", reset_url_template: reset_url_template)
+
+      expect(StandardId::PasswordResetDeliveryJob).not_to receive(:perform_later)
+
+      expect(form.submit).to eq(false)
     end
   end
 end
