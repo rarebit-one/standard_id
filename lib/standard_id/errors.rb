@@ -1,7 +1,4 @@
 module StandardId
-  # Configuration errors
-  class ConfigurationError < StandardError; end
-
   # Session errors
   class NotAuthenticatedError < StandardError; end
 
@@ -141,7 +138,8 @@ module StandardId
   class InvalidAudienceTokenError < InvalidTokenError; end
 
   # Raised for engine misconfiguration — a required config value is missing,
-  # malformed, or points at a non-callable. Always indicates a host-app bug
-  # at boot or first-use; never surfaced to end users.
+  # malformed, points at a non-callable with the wrong arity, or references a
+  # scope whose claims have no resolver registered. Always indicates a
+  # host-app bug at boot or first-use; never surfaced to end users.
   class ConfigurationError < StandardError; end
 end

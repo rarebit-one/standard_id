@@ -1,3 +1,6 @@
+require "standard_id/config/callable_validator"
+require "standard_id/config/scope_claims_validator"
+
 module StandardId
   class Engine < ::Rails::Engine
     isolate_namespace StandardId
@@ -30,6 +33,12 @@ module StandardId
         Rails.logger.warn("[StandardId] No issuer configured. JWT tokens will not include or verify the 'iss' claim. " \
                           "Set StandardId.config.issuer in your initializer for production use.")
       end
+
+      # Validate configured callables have the right shape and that every
+      # claim listed in scope_claims has a resolver registered. Raising here
+      # surfaces typos at boot instead of at callback time in production.
+      StandardId::Config::CallableValidator.validate!
+      StandardId::Config::ScopeClaimsValidator.validate!
 
       StandardId::Engine.verify_host_cookie_encryption!(app)
       StandardId::Engine.warn_if_allowed_audiences_empty_in_production!
