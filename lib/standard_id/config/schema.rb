@@ -193,11 +193,13 @@ StandardConfig.schema.draw do
     field :scope_claims, type: :hash, default: -> { {} }
     field :claim_resolvers, type: :hash, default: -> { {} }
     # List of audience values that tokens issued and accepted by this app may
-    # carry in their `aud` claim. When non-empty, the API/Web token managers
-    # pass this list to `JwtService.decode(..., allowed_audiences:)` so that
-    # tokens with a mismatched `aud` are rejected at decode time — closing the
-    # cross-audience replay vector globally, independent of whether individual
-    # controllers remember to `include StandardId::AudienceVerification`.
+    # carry in their `aud` claim. When non-empty, the API token manager passes
+    # this list to `JwtService.decode(..., allowed_audiences:)` so that tokens
+    # with a mismatched `aud` are rejected at decode time — closing the
+    # cross-audience replay vector on the API path, independent of whether
+    # individual controllers remember to
+    # `include StandardId::AudienceVerification`. The Web token manager is
+    # intentionally not wired through yet; that's a follow-up.
     # Empty (default) = no global audience validation; behavior matches
     # pre-threading releases. Production deployments should set this
     # explicitly (e.g., `%w[web api]`).
