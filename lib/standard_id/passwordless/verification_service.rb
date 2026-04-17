@@ -131,7 +131,9 @@ module StandardId
             if attempts >= StandardId::Passwordless.max_attempts_per_challenge
               # Ceiling hit: burn the challenge so further submissions fail
               # fast (including from different IPs). Protects against
-              # distributed brute-force on the same challenge.
+              # distributed brute-force on the same challenge. The row lock
+              # is held from lock_active_challenge above, so no other
+              # transaction can flip `used?` between our reads and this call.
               challenge.use!
               result = failure("Too many failed attempts. Please request a new code.", error_code: :max_attempts, attempts: attempts)
             else

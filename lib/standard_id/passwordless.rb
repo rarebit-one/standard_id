@@ -19,7 +19,7 @@ module StandardId
       #   - challenge — the consumed CodeChallenge (nil on failure)
       #   - error — human-readable message (nil on success)
       #   - error_code — machine-readable symbol (nil on success):
-      #       :invalid_code, :expired, :max_attempts, :not_found, :blank_code,
+      #       :invalid_code, :max_attempts, :not_found, :blank_code,
       #       :account_not_found, :server_error
       #   - attempts — failed attempt count (nil on success)
       #
@@ -36,7 +36,6 @@ module StandardId
       #   else
       #     case result.error_code
       #     when :invalid_code then render_invalid_code
-      #     when :expired      then render_expired
       #     when :max_attempts then render_locked_out
       #     when :not_found    then render_not_found
       #     end
