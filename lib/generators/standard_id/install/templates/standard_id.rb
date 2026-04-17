@@ -55,6 +55,24 @@ StandardId.configure do |c|
   # }
   # c.oauth.allowed_audiences = %w[web mobile admin] # Empty = no validation
   #
+  # Audience → profile-type binding. When set, StandardId::AudienceVerification
+  # will additionally verify that the authenticated account holds a profile of
+  # the configured type for the matched audience. Values may be a single
+  # profile-type string or an Array<String> for multi-type audiences.
+  # c.oauth.audience_profile_types = {
+  #   "admin_kit"     => "PlatformProfile",
+  #   "companion_kit" => "DeviceUserProfile",
+  #   "harness"       => ["PlatformProfile", "DeviceUserProfile"]
+  # }
+  #
+  # Optional resolver for picking the profile used for a given audience. Called
+  # with (account:, audience:, profile_types:). When nil (default), the gem
+  # looks up `account.profiles` and picks one whose `profileable_type` is in
+  # the configured profile_types (preferring an `active?` record).
+  # c.oauth.audience_profile_resolver = ->(account:, audience:, profile_types:) {
+  #   account.profiles.active.find_by(profileable_type: profile_types)
+  # }
+  #
   # Custom claims added to every access token (independent of scopes).
   # Receives keyword arguments: account:, client:, request:, audience:
   # Must return a Hash. Reserved JWT keys (sub, exp, iat, etc.) are excluded.
