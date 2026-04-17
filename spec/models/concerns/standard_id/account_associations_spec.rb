@@ -98,4 +98,82 @@ RSpec.describe StandardId::AccountAssociations, type: :model do
       end
     end
   end
+
+  describe "typed identifier accessors" do
+    let(:email) { "typed-#{SecureRandom.hex(4)}@example.com" }
+    let(:phone) { "+1415555#{rand(1000..9999)}" }
+    let(:username) { "user_#{SecureRandom.hex(4)}" }
+
+    let!(:account_with_all_identifiers) do
+      Account.create!(
+        name: "All Types",
+        email: email,
+        identifiers_attributes: [
+          { type: "StandardId::EmailIdentifier", value: email },
+          { type: "StandardId::PhoneNumberIdentifier", value: phone },
+          { type: "StandardId::UsernameIdentifier", value: username }
+        ]
+      )
+    end
+
+    describe "#email_identifier" do
+      it "returns the EmailIdentifier for the account" do
+        result = account_with_all_identifiers.email_identifier
+        expect(result).to be_a(StandardId::EmailIdentifier)
+        expect(result.value).to eq(email)
+      end
+
+      it "returns nil when no email identifier exists" do
+        bare = Account.create!(name: "No Email Ident", email: "bare-#{SecureRandom.hex(4)}@example.com")
+        expect(bare.email_identifier).to be_nil
+      end
+
+      it "does not issue a query when the identifiers association is already loaded" do
+        account = Account.includes(:identifiers).find(account_with_all_identifiers.id)
+        expect(account.association(:identifiers)).to be_loaded
+
+        queries = []
+        subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _start, _finish, _id, payload|
+          next if payload[:name].to_s.start_with?("SCHEMA") || payload[:name].to_s.start_with?("TRANSACTION")
+          queries << payload[:sql]
+        end
+
+        begin
+          result = account.email_identifier
+          expect(result).to be_a(StandardId::EmailIdentifier)
+        ensure
+          ActiveSupport::Notifications.unsubscribe(subscriber)
+        end
+
+        expect(queries).to be_empty, "expected no queries when identifiers loaded, got: #{queries.inspect}"
+      end
+
+      it "issues a scoped query when identifiers is not loaded" do
+        account = Account.find(account_with_all_identifiers.id)
+        expect(account.association(:identifiers)).not_to be_loaded
+
+        result = account.email_identifier
+        expect(result).to be_a(StandardId::EmailIdentifier)
+        # A query was issued, but the association should not be fully loaded
+        # because we used a scoped where(type: ...).first.
+        expect(account.association(:identifiers)).not_to be_loaded
+      end
+    end
+
+    describe "#phone_number_identifier" do
+      it "returns the PhoneNumberIdentifier for the account" do
+        result = account_with_all_identifiers.phone_number_identifier
+        expect(result).to be_a(StandardId::PhoneNumberIdentifier)
+        expect(result.value).to eq(phone)
+      end
+    end
+
+    describe "#username_identifier" do
+      it "returns the UsernameIdentifier for the account" do
+        result = account_with_all_identifiers.username_identifier
+        expect(result).to be_a(StandardId::UsernameIdentifier)
+        expect(result.value).to eq(username)
+      end
+    end
+  end
 end

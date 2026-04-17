@@ -12,6 +12,31 @@ module StandardId
       accepts_nested_attributes_for :identifiers
     end
 
+    # Returns the account's StandardId::EmailIdentifier, if any.
+    #
+    # Uses the in-memory collection when identifiers is already loaded to
+    # avoid issuing an extra query (N+1 safety). Falls back to a scoped
+    # query otherwise.
+    #
+    # @return [StandardId::EmailIdentifier, nil]
+    def email_identifier
+      typed_identifier(StandardId::EmailIdentifier)
+    end
+
+    # Returns the account's StandardId::PhoneNumberIdentifier, if any.
+    #
+    # @return [StandardId::PhoneNumberIdentifier, nil]
+    def phone_number_identifier
+      typed_identifier(StandardId::PhoneNumberIdentifier)
+    end
+
+    # Returns the account's StandardId::UsernameIdentifier, if any.
+    #
+    # @return [StandardId::UsernameIdentifier, nil]
+    def username_identifier
+      typed_identifier(StandardId::UsernameIdentifier)
+    end
+
     class_methods do
       def find_or_create_by_verified_email!(email, **account_attributes)
         raise ArgumentError, "email is required" if email.blank?
@@ -52,6 +77,24 @@ module StandardId
         raise unless identifier
 
         identifier.account
+      end
+    end
+
+    private
+
+    # Fetch the first identifier of the given STI subclass.
+    #
+    # When the identifiers association is already loaded, filters in memory
+    # to avoid triggering an additional query. Otherwise issues a scoped
+    # query that returns at most one row.
+    #
+    # @param klass [Class] subclass of StandardId::Identifier
+    # @return [StandardId::Identifier, nil]
+    def typed_identifier(klass)
+      if association(:identifiers).loaded?
+        identifiers.detect { |i| i.is_a?(klass) }
+      else
+        identifiers.where(type: klass.sti_name).first
       end
     end
   end
