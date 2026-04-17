@@ -108,6 +108,21 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
 
       expect(output).to match(/StandardId engines already mounted/)
     end
+
+    it "still injects active mount lines when the routes file only contains a commented example" do
+      File.write(routes_path, <<~RB)
+        Rails.application.routes.draw do
+          # mount StandardId::WebEngine => "/"
+          root "home#index"
+        end
+      RB
+
+      run_generator
+
+      content = File.read(routes_path)
+      expect(content.scan(/^\s*mount StandardId::WebEngine => "\/"/).length).to eq(1)
+      expect(content.scan(/^\s*mount StandardId::ApiEngine => "\/api"/).length).to eq(1)
+    end
   end
 
   describe "flags" do

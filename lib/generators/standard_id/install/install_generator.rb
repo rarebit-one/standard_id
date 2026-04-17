@@ -133,7 +133,10 @@ module StandardId
 
         def engines_already_mounted?(routes_path)
           content = File.read(File.join(destination_root, routes_path))
-          content.include?("mount StandardId::")
+          # Anchor to an uncommented line — a substring match would trigger on
+          # a commented example copied from this generator's own template and
+          # silently skip the real mount, leading to 404 routes.
+          content.match?(/^\s*mount\s+StandardId::/)
         end
 
         def indent(text, spaces)
