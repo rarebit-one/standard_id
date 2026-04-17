@@ -529,6 +529,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `social.account.created` | `account`, `provider`, `social_info` | When a social login creates a new account |
 |  | `social.account.linked` | `account`, `provider`, `identifier` | When a social identity links to an existing account |
 |  | `social.auth.completed` | `account`, `provider`, `tokens` | After social login completes |
+|  | `social.auth.failed` | `provider`, `error`, `error_class`, `account` | When social login fails due to an infrastructure error (HTTP/DNS/SSL/timeout) |
 | Credential | `credential.password.created` | `credential`, `account` | After a password credential is created |
 |  | `credential.password.reset_initiated` | `credential`, `account`, `reset_token_expires_at` | After a password reset is initiated |
 |  | `credential.password.reset_completed` | `credential`, `account` | After a password reset is confirmed |

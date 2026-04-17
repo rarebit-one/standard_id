@@ -69,6 +69,39 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
       expect(response).to redirect_to(standard_id_web.login_path)
       expect(flash[:alert]).to eq("Authentication failed")
     end
+
+    context "when the provider raises an OAuthError (e.g. HTTP/DNS/SSL failure)" do
+      let(:oauth_error) { StandardId::OAuthError.new("Connection refused") }
+
+      before do
+        allow(StandardId::Providers::Google).to receive(:get_user_info).and_raise(oauth_error)
+      end
+
+      it "publishes a SOCIAL_AUTH_FAILED event with the provider, error, and error_class" do
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) do |event|
+          events << event
+        end
+
+        begin
+          http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+          expect(events.size).to eq(1)
+          expect(events.first[:provider]).to eq("google")
+          expect(events.first[:error]).to eq("Connection refused")
+          expect(events.first[:error_class]).to eq("StandardId::OAuthError")
+        ensure
+          StandardId::Events.unsubscribe(subscription)
+        end
+      end
+
+      it "still redirects to the login path with a user-facing alert" do
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+        expect(response).to redirect_to(standard_id_web.login_path(redirect_uri: redirect_uri))
+        expect(flash[:alert]).to include("Authentication failed: Connection refused")
+      end
+    end
   end
 
   describe "POST /auth/callback/apple" do

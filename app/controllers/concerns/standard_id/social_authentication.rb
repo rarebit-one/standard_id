@@ -200,5 +200,24 @@ module StandardId
         source: "social"
       )
     end
+
+    # Emit SOCIAL_AUTH_FAILED for infrastructure-level failures during the
+    # social authentication flow (HTTP errors, DNS/SSL/timeouts surfaced as
+    # OAuthError by provider implementations).
+    #
+    # Host apps can subscribe to this event to forward failures to Sentry or
+    # similar observability tools without monkey-patching the controller.
+    #
+    # @param error [StandardId::OAuthError] the captured failure
+    # @param account [Object, nil] the account if one was resolved before the failure
+    def emit_social_auth_failed(error, account: nil)
+      StandardId::Events.publish(
+        StandardId::Events::SOCIAL_AUTH_FAILED,
+        provider: provider&.provider_name,
+        error: error.message,
+        error_class: error.class.name,
+        account: account
+      )
+    end
   end
 end
