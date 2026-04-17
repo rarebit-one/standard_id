@@ -229,4 +229,59 @@ RSpec.describe StandardId::Api::TokenManager, type: :model do
       expect(found_service).to eq(service_session)
     end
   end
+
+  describe "session_type_resolver integration" do
+    after { StandardId.config.session.session_type_resolver = nil }
+
+    it "consults the resolver with flow :api_device_auth for #create_device_session" do
+      observed = nil
+      StandardId.config.session.session_type_resolver = lambda { |request:, account:, flow:|
+        observed = flow
+        :device
+      }
+
+      token_manager.create_device_session(account)
+
+      expect(observed).to eq(:api_device_auth)
+    end
+
+    it "consults the resolver with flow :api_service_auth for #create_service_session" do
+      observed = nil
+      StandardId.config.session.session_type_resolver = lambda { |request:, account:, flow:|
+        observed = flow
+        :service
+      }
+
+      token_manager.create_service_session(
+        account,
+        service_name: "svc",
+        service_version: "1.0.0",
+        owner: account
+      )
+
+      expect(observed).to eq(:api_service_auth)
+    end
+
+    it "allows the resolver to return BrowserSession from :api_device_auth" do
+      StandardId.config.session.session_type_resolver = ->(**) { :browser }
+
+      session = token_manager.create_device_session(account)
+
+      expect(session).to be_a(StandardId::BrowserSession)
+      expect(session.user_agent).to eq("TestApp/1.0")
+    end
+
+    it "raises ConfigurationError if resolver returns non-service class for :api_service_auth" do
+      StandardId.config.session.session_type_resolver = ->(**) { :device }
+
+      expect {
+        token_manager.create_service_session(
+          account,
+          service_name: "svc",
+          service_version: "1.0.0",
+          owner: account
+        )
+      }.to raise_error(StandardId::ConfigurationError, /service-session creation requires/)
+    end
+  end
 end

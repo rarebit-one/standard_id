@@ -49,8 +49,40 @@ module StandardId
 
         response[:scope] = token_scope if token_scope.present?
         response[:refresh_token] = generate_refresh_token if supports_refresh_token?
+        maybe_persist_session_for_token!
         emit_token_issued(expires_in)
         response.compact
+      end
+
+      # Give host apps a chance to persist a session for OAuth token grants
+      # via `config.session.session_type_resolver`. Default resolver returns
+      # nil for `:oauth_token_issued`, so this is a no-op unless the host
+      # app opts in. See `StandardId::SessionTypeResolver`.
+      def maybe_persist_session_for_token!
+        account = token_account
+        return if account.nil?
+
+        session_class = StandardId::SessionTypeResolver.resolve_optional(
+          request: request,
+          account: account,
+          flow: :oauth_token_issued
+        )
+        return if session_class.nil?
+
+        StandardId::Oauth::OauthSessionPersistence.persist!(
+          session_class: session_class,
+          account: account,
+          request: request,
+          audience: audience,
+          grant_type: grant_type
+        )
+      rescue StandardId::ConfigurationError
+        raise
+      rescue StandardError => e
+        StandardId.config.logger&.error(
+          "[StandardId] session_type_resolver raised during :oauth_token_issued: " \
+          "#{e.class} #{e.message}"
+        )
       end
 
       def build_jwt_payload(expires_in)
