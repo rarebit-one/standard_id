@@ -727,6 +727,19 @@ RSpec.describe StandardId::JwtService do
         decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
         expect(decoded["exp"]).to eq(explicit_exp)
       end
+
+      it "preserves caller-supplied string-keyed exp over expires_in" do
+        explicit_exp = (Time.now + 10).to_i
+        token = described_class.sign(
+          { "sub" => "svc", "exp" => explicit_exp },
+          algorithm: "HS256",
+          key: hs_key,
+          expires_in: 9999
+        )
+
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+        expect(decoded["exp"]).to eq(explicit_exp)
+      end
     end
 
     describe "wrong key" do

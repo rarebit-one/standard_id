@@ -225,7 +225,9 @@ module StandardId
     # @return [String] the encoded JWT token
     def self.sign(payload, algorithm:, key:, expires_in: nil, **extra_headers)
       payload = payload.dup
-      payload[:exp] ||= (Time.now + expires_in).to_i if expires_in
+      if expires_in && !payload.key?(:exp) && !payload.key?("exp")
+        payload[:exp] = (Time.now + expires_in).to_i
+      end
       JWT.encode(payload, key, algorithm.to_s, extra_headers)
     end
 
