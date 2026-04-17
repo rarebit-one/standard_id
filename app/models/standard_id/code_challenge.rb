@@ -2,10 +2,15 @@ module StandardId
   class CodeChallenge < ApplicationRecord
     self.table_name = "standard_id_code_challenges"
 
+    # Well-known realms used by the engine itself. Host apps may create
+    # challenges in any realm (see StandardId::Otp) — realm is a free-form
+    # string that partitions challenges by purpose (e.g. "authentication",
+    # "verification", "custom_widget"). Only presence is validated so
+    # consumers can define their own realms without the engine knowing.
     REALMS = %w[authentication verification].freeze
     CHANNELS = %w[email sms].freeze
 
-    validates :realm, presence: true, inclusion: { in: REALMS }
+    validates :realm, presence: true
     validates :channel, presence: true, inclusion: { in: CHANNELS }
     validates :target, presence: true
     validates :code, presence: true
