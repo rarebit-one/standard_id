@@ -32,6 +32,7 @@ module StandardId
       end
 
       StandardId::Engine.verify_host_cookie_encryption!(app)
+      StandardId::Engine.warn_if_allowed_audiences_empty_in_production!
     end
 
     # Defensive check: StandardId's Web::SessionManager stores session tokens
@@ -56,6 +57,23 @@ module StandardId
           "before running in production."
         )
       end
+    end
+
+    # Logs a production-only warning when no global audience allow-list is
+    # configured. With `allowed_audiences` empty, the API token manager
+    # skips decode-time aud enforcement, leaving cross-audience JWT replay
+    # mitigation dependent on per-controller `AudienceVerification`
+    # inclusion. Extracted to a module method so specs can exercise it
+    # directly without booting a second Rails app.
+    def self.warn_if_allowed_audiences_empty_in_production!
+      return unless Rails.env.production?
+      return if StandardId.config.oauth.allowed_audiences.present?
+
+      Rails.logger.warn(
+        "StandardId: config.oauth.allowed_audiences is empty in production — " \
+        "JWT audience is not enforced globally. Set this to your expected " \
+        "audiences (e.g., ['web', 'api']) to close cross-audience replay vectors."
+      )
     end
   end
 end

@@ -201,8 +201,8 @@ module StandardId
       nil
     end
 
-    def self.decode_session(token)
-      payload = decode(token)
+    def self.decode_session(token, allowed_audiences: nil)
+      payload = decode(token, allowed_audiences: allowed_audiences)
       return unless payload
 
       scopes = if payload[:scope].is_a?(String)

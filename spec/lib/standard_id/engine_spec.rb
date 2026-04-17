@@ -13,7 +13,7 @@ RSpec.describe StandardId::Engine do
   end
 
   describe ".verify_host_cookie_encryption!" do
-    let(:logger) { instance_double(Logger, warn: nil) }
+    let(:logger) { instance_double(ActiveSupport::Logger, warn: nil) }
 
     before do
       allow(Rails).to receive(:logger).and_return(logger)
@@ -38,6 +38,53 @@ RSpec.describe StandardId::Engine do
       expect(logger).not_to receive(:warn)
 
       described_class.verify_host_cookie_encryption!(app)
+    end
+  end
+
+  describe ".warn_if_allowed_audiences_empty_in_production!" do
+    let(:logger) { instance_double(ActiveSupport::Logger, warn: nil) }
+
+    before { allow(Rails).to receive(:logger).and_return(logger) }
+
+    context "in production with empty allowed_audiences" do
+      before do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+      end
+
+      it "emits a warning about unenforced global audience" do
+        expect(logger).to receive(:warn).with(/allowed_audiences is empty in production/)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
+
+      it "mentions the cross-audience replay risk" do
+        expect(logger).to receive(:warn).with(/cross-audience replay/)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
+    end
+
+    context "in production with allowed_audiences configured" do
+      before do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[web api])
+      end
+
+      it "does not emit a warning" do
+        expect(logger).not_to receive(:warn)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
+    end
+
+    context "in non-production environments with empty allowed_audiences" do
+      before do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("development"))
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+      end
+
+      it "stays silent" do
+        expect(logger).not_to receive(:warn)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
     end
   end
 end
