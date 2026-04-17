@@ -46,6 +46,14 @@ module StandardId
         if params[:redirect_uri].present? && !@client.valid_redirect_uri?(params[:redirect_uri])
           raise StandardId::InvalidRequestError, "Invalid redirect_uri"
         end
+
+        enforce_pkce_requirement!
+      end
+
+      # Hook for subclasses that participate in PKCE (authorization code
+      # flows). The default implementation is a no-op so flows that cannot
+      # carry a code_challenge (e.g. implicit flow) are unaffected.
+      def enforce_pkce_requirement!
       end
 
       def generate_authorization_response

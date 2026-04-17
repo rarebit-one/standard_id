@@ -1109,7 +1109,11 @@ bundle exec rspec spec/controllers/
 - CSRF protection enabled for web requests
 - Secure session management with proper expiry
 - Client secrets are rotatable with audit trail
-- PKCE support for public clients
+- PKCE is enforced whenever `ClientApplication#require_pkce?` is true (the
+  default). Public clients cannot disable it — a model-level validation
+  rejects any public client saved with `require_pkce: false`. Authorize
+  requests that omit `code_challenge` for a PKCE-required client are
+  rejected with `invalid_request`.
 - Rate limiting on authentication endpoints
 
 ## Contributing
