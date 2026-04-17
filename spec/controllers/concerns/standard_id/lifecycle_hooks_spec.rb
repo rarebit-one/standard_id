@@ -627,6 +627,52 @@ RSpec.describe StandardId::LifecycleHooks do
         expect(authorizer_invoked).to eq(false)
       end
     end
+
+    context "when the scope has an authorizer but no profile_types" do
+      let(:authorizer_only_scope) do
+        StandardId::ScopeConfig.new(:admin, {
+          no_profile_message: "Admin access denied.",
+          authorizer: authorizer
+        })
+      end
+
+      before do
+        allow(mock_request).to receive(:path_parameters).and_return({ scope: :admin })
+        allow(StandardId).to receive(:scope_for).with(:admin).and_return(authorizer_only_scope)
+      end
+
+      context "and the authorizer returns false" do
+        let(:authorizer) { ->(account:, profile:, scope:) { false } }
+
+        it "denies the sign-in" do
+          expect {
+            controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil })
+          }.to raise_error(StandardId::AuthenticationDenied, "Admin access denied.")
+        end
+      end
+
+      context "and the authorizer returns truthy" do
+        let(:authorizer) { ->(account:, profile:, scope:) { true } }
+
+        it "allows the sign-in and passes nil profile" do
+          captured = {}
+          allow(authorizer_only_scope).to receive(:authorizer).and_return(
+            ->(account:, profile:, scope:) {
+              captured[:account] = account
+              captured[:profile] = profile
+              captured[:scope] = scope
+              true
+            }
+          )
+
+          controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil })
+
+          expect(captured[:account]).to eq(account)
+          expect(captured[:profile]).to be_nil
+          expect(captured[:scope]).to eq(authorizer_only_scope)
+        end
+      end
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────────────

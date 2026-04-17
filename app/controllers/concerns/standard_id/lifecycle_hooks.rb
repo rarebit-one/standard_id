@@ -62,8 +62,14 @@ module StandardId
       if scope_config
         context = context.merge(scope_context(scope_config))
 
-        # Built-in profile check — runs before the app's custom hook
-        validate_scope_profile!(account, scope_config) if scope_config.requires_profile?
+        # Built-in profile check and/or authorizer — runs before the app's custom hook.
+        # A scope may configure :authorizer without :profile_types (e.g. policy-only
+        # gates), so we must still run validate_scope_profile! in that case —
+        # otherwise the authorizer would be silently skipped and every sign-in
+        # granted regardless of its decision.
+        if scope_config.requires_profile? || scope_config.authorizer?
+          validate_scope_profile!(account, scope_config)
+        end
       end
 
       context = context.merge(first_sign_in: first_sign_in?(account, session_created: false))
@@ -212,16 +218,19 @@ module StandardId
     #   - the :authorizer returns a falsey value.
     def validate_scope_profile!(account, scope_config)
       resolver = StandardId.config.profile_resolver || DEFAULT_PROFILE_RESOLVER
+      matched_type = nil
 
-      matched_type = scope_config.profile_types.find { |type| resolver.call(account, type) }
+      if scope_config.requires_profile?
+        matched_type = scope_config.profile_types.find { |type| resolver.call(account, type) }
 
-      unless matched_type
-        raise StandardId::AuthenticationDenied, scope_config.no_profile_message
+        unless matched_type
+          raise StandardId::AuthenticationDenied, scope_config.no_profile_message
+        end
       end
 
       return unless scope_config.authorizer?
 
-      profile = resolve_profile_for_authorizer(account, matched_type)
+      profile = matched_type ? resolve_profile_for_authorizer(account, matched_type) : nil
       result = scope_config.authorizer.call(
         account: account,
         profile: profile,
