@@ -12,8 +12,6 @@ module StandardId
     # @param reset_url_template [String] URL with a literal "{token}" placeholder
     #   that the job will substitute with the generated reset token
     def perform(email:, reset_url_template:)
-      return unless StandardId.config.reset_password.delivery == :built_in
-
       normalized = email.to_s.strip.downcase
       return if normalized.blank?
 
@@ -35,13 +33,10 @@ module StandardId
       StandardId::Events.publish(
         StandardId::Events::CREDENTIAL_PASSWORD_RESET_INITIATED,
         account: identifier.account,
-        identifier: normalized
-      )
-
-      StandardId::PasswordResetMailer.with(
-        email: normalized,
+        identifier: normalized,
+        token: token,
         reset_url: reset_url
-      ).reset_email.deliver_later
+      )
     end
   end
 end

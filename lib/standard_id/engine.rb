@@ -24,6 +24,7 @@ module StandardId
       StandardId::Events::Subscribers::AccountStatusSubscriber.attach
       StandardId::Events::Subscribers::AccountLockingSubscriber.attach
       StandardId::Events::Subscribers::PasswordlessDeliverySubscriber.attach
+      StandardId::Events::Subscribers::PasswordResetDeliverySubscriber.attach
 
       if StandardId.config.issuer.blank?
         Rails.logger.warn("[StandardId] No issuer configured. JWT tokens will not include or verify the 'iss' claim. " \
