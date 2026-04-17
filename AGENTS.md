@@ -24,6 +24,11 @@ bundle exec rake app:db:setup
 bundle exec rake app:db:migrate
 ```
 
+### Local Dev
+
+`bin/dev` boots the dummy app under `spec/dummy` — it provisions the SQLite DB on first run,
+then runs `spec/dummy/Procfile.dev` (web + tailwindcss watcher) via overmind/hivemind/foreman.
+
 ## Project Structure
 
 ```

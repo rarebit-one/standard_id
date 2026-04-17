@@ -1,0 +1,41 @@
+#!/usr/bin/env sh
+
+# Dev script for the StandardId engine's dummy app (spec/dummy).
+# Sets up the dummy DB if missing, then starts the Rails server
+# (plus any watchers defined in spec/dummy/Procfile.dev).
+
+set -e
+
+cd "$(dirname "$0")/.."
+
+# Default to port 3000 if not specified
+export PORT="${PORT:-3000}"
+
+# Ensure the dummy DB is set up (idempotent — skips if already present).
+if [ ! -f spec/dummy/storage/development.sqlite3 ]; then
+  echo "Setting up dummy app database..."
+  bundle exec rake app:db:setup
+fi
+
+if ! gem list foreman -i --silent; then
+  echo "Installing foreman..."
+  gem install foreman
+fi
+
+if command -v overmind 1> /dev/null 2>&1
+then
+  exec overmind start -f spec/dummy/Procfile.dev -d spec/dummy "$@"
+fi
+
+if command -v hivemind 1> /dev/null 2>&1
+then
+  echo "Hivemind is installed. Running the application with Hivemind..."
+  cd spec/dummy && exec hivemind Procfile.dev "$@"
+fi
+
+# Let the debug gem allow remote connections,
+# but avoid loading until `debugger` is called
+export RUBY_DEBUG_OPEN="true"
+export RUBY_DEBUG_LAZY="true"
+
+cd spec/dummy && exec foreman start -f Procfile.dev "$@"
