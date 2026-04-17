@@ -156,6 +156,51 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
       end
     end
 
+    context "when a SESSION_REVOKED subscriber raises" do
+      let!(:device_sessions) do
+        3.times.map do |i|
+          StandardId::DeviceSession.create!(
+            account: account,
+            device_id: "device-#{i}-#{SecureRandom.hex(4)}",
+            device_agent: "MyApp/1.0",
+            expires_at: 2.weeks.from_now
+          )
+        end
+      end
+
+      let(:token) do
+        StandardId::JwtService.encode({ sub: account.id, client_id: "test-client" })
+      end
+
+      it "still revokes all sessions and publishes OAUTH_TOKEN_REVOKED" do
+        logger = instance_double(Logger, error: nil, info: nil, warn: nil, debug: nil)
+        allow(StandardId).to receive(:logger).and_return(logger)
+
+        failing = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) do |_event|
+          raise "subscriber boom"
+        end
+
+        token_revoked_events = []
+        token_revoked_sub = StandardId::Events.subscribe(StandardId::Events::OAUTH_TOKEN_REVOKED) do |event|
+          token_revoked_events << event
+        end
+
+        begin
+          post "/api/oauth/revoke", params: { token: token }
+        ensure
+          StandardId::Events.unsubscribe(failing)
+          StandardId::Events.unsubscribe(token_revoked_sub)
+        end
+
+        expect(response).to have_http_status(:ok)
+        device_sessions.each { |s| expect(s.reload).to be_revoked }
+        expect(token_revoked_events.size).to eq(1)
+        expect(token_revoked_events.first.payload[:sessions_revoked]).to eq(3)
+        expect(logger).to have_received(:error)
+          .with(/Failed to publish SESSION_REVOKED/).at_least(:once)
+      end
+    end
+
     context "with already revoked sessions" do
       let!(:revoked_session) do
         session = StandardId::DeviceSession.create!(

@@ -49,21 +49,39 @@ module StandardId
                 .update_all(revoked_at: now)
             end
 
+            # DB state is already committed above; event publishing is best-effort
+            # audit emission. A failing subscriber must not short-circuit the loop
+            # and leave later sessions without their SESSION_REVOKED event, which
+            # would permanently desync audit-trail consumers from the DB.
             revoked_sessions.each do |session|
               session.revoked_at = now
-              StandardId::Events.publish(
-                StandardId::Events::SESSION_REVOKED,
-                session: session,
-                account: session.account,
-                reason: "token_revocation"
-              )
+              begin
+                StandardId::Events.publish(
+                  StandardId::Events::SESSION_REVOKED,
+                  session: session,
+                  account: session.account,
+                  reason: "token_revocation"
+                )
+              rescue StandardError => e
+                StandardId.logger.error(
+                  "[StandardId::Revocations] Failed to publish SESSION_REVOKED " \
+                  "for session #{session.id}: #{e.class}: #{e.message}"
+                )
+              end
             end
 
-            StandardId::Events.publish(
-              StandardId::Events::OAUTH_TOKEN_REVOKED,
-              account_id: account_id,
-              sessions_revoked: revoked_sessions.size
-            )
+            begin
+              StandardId::Events.publish(
+                StandardId::Events::OAUTH_TOKEN_REVOKED,
+                account_id: account_id,
+                sessions_revoked: revoked_sessions.size
+              )
+            rescue StandardError => e
+              StandardId.logger.error(
+                "[StandardId::Revocations] Failed to publish OAUTH_TOKEN_REVOKED " \
+                "for account #{account_id}: #{e.class}: #{e.message}"
+              )
+            end
           end
 
           head :ok
