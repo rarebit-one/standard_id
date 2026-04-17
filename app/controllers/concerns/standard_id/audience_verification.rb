@@ -162,17 +162,25 @@ module StandardId
     # Includes WWW-Authenticate header per spec, consistent with the gem's
     # 401 handling in Api::BaseController#render_bearer_unauthorized!.
     #
-    # The header uses a static description rather than interpolating
-    # error.message (which contains raw aud values from the JWT) to
-    # avoid header injection via crafted audience strings.
+    # Both the header AND the JSON body use a static description rather
+    # than interpolating error.message, which contains raw aud values
+    # from the JWT and internal profile type names. Exposing those lets
+    # an attacker probe valid tokens across audiences to enumerate the
+    # internal profile-type taxonomy. Details are published as an
+    # OAUTH_AUDIENCE_MISMATCH audit event for server-side inspection.
     #
     # Override in your controller for custom error formatting.
-    def handle_invalid_audience(error)
+    GENERIC_INSUFFICIENT_SCOPE_MESSAGE = "The access token audience is not permitted for this resource".freeze
+
+    def handle_invalid_audience(_error)
       response.set_header(
         "WWW-Authenticate",
-        'Bearer error="insufficient_scope", error_description="The access token audience is not permitted for this resource"'
+        %(Bearer error="insufficient_scope", error_description="#{GENERIC_INSUFFICIENT_SCOPE_MESSAGE}")
       )
-      render json: { error: "insufficient_scope", error_description: error.message }, status: :forbidden
+      render json: {
+        error: "insufficient_scope",
+        error_description: GENERIC_INSUFFICIENT_SCOPE_MESSAGE
+      }, status: :forbidden
     end
   end
 end

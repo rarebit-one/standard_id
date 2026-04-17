@@ -380,13 +380,16 @@ RSpec.describe StandardId::AudienceVerification do
       controller.handle_invalid_audience(error)
 
       expect(json_body[:error]).to eq("insufficient_scope")
-      expect(json_body[:error_description]).to include("admin")
+      expect(json_body[:error_description]).to eq(
+        "The access token audience is not permitted for this resource"
+      )
+      expect(json_body[:error_description]).not_to include("admin")
       expect(response_headers["WWW-Authenticate"]).to eq(
         'Bearer error="insufficient_scope", error_description="The access token audience is not permitted for this resource"'
       )
     end
 
-    it "also handles InvalidAudienceProfileError as a 403 insufficient_scope" do
+    it "also handles InvalidAudienceProfileError as a 403 insufficient_scope without leaking profile types" do
       error = StandardId::InvalidAudienceProfileError.new(
         audience: "admin_kit",
         expected_profile_types: "PlatformProfile",
@@ -407,8 +410,13 @@ RSpec.describe StandardId::AudienceVerification do
       controller.handle_invalid_audience(error)
 
       expect(json_body[:error]).to eq("insufficient_scope")
-      expect(json_body[:error_description]).to include("admin_kit")
-      expect(json_body[:error_description]).to include("PlatformProfile")
+      expect(json_body[:error_description]).to eq(
+        "The access token audience is not permitted for this resource"
+      )
+      # Internal profile-type names and raw aud values must not leak to the client.
+      expect(json_body[:error_description]).not_to include("admin_kit")
+      expect(json_body[:error_description]).not_to include("PlatformProfile")
+      expect(json_body[:error_description]).not_to include("DeviceUserProfile")
       expect(response_headers["WWW-Authenticate"]).to eq(
         'Bearer error="insufficient_scope", error_description="The access token audience is not permitted for this resource"'
       )

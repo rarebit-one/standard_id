@@ -8,7 +8,7 @@ require "rails_helper"
 #
 # Both without the host app needing its own JwtAudienceVerification concern
 # or custom ClaimResolver service.
-RSpec.describe "audience modeling (integration)", type: :request do
+RSpec.describe "audience modeling (integration)" do
   let(:account) { double("AccountLike", id: 42, email: "alice@example.com", profiles: []) }
   let(:platform_profile) { double("Profile", profileable_type: "PlatformProfile", active?: true) }
   let(:device_user_profile) { double("Profile", profileable_type: "DeviceUserProfile", active?: true) }

@@ -102,16 +102,13 @@ module StandardId
     end
   end
 
-  # Raised when the authenticated account's profile type does not match the
-  # profile type(s) configured for the matched audience in
-  # `StandardId.config.oauth.audience_profile_types`.
-  #
-  # Includes audit-friendly attributes (raw values from the JWT and config)
-  # that callers may log but must NOT interpolate into response headers
-  # without sanitization.
   # Raised when an access token's audience is permitted for the controller
   # but the account lacks a profile of the type configured for that audience
   # in `StandardId.config.oauth.audience_profile_types`.
+  #
+  # Includes audit-friendly attributes (raw values from the JWT and config)
+  # that callers may log but must NOT interpolate into response headers or
+  # API response bodies without sanitization.
   #
   # Deliberately a separate class (not a subclass of InvalidAudienceError)
   # so host apps can distinguish "audience not permitted" from "audience
