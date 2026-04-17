@@ -185,4 +185,35 @@ RSpec.describe StandardId::AccountStatus do
       end
     end
   end
+
+  describe "idempotent subscription registration" do
+    it "does not register a second subscription when AccountStatus is included twice" do
+      # Guard flag is already true after the initial Account include; re-including
+      # from another class should not add a new subscription.
+      expect(StandardId::AccountStatus.subscribed).to be true
+
+      before_count = account_status_listeners_count
+
+      second_class = Class.new(ApplicationRecord) do
+        self.table_name = Account.table_name
+        include StandardId::AccountStatus
+      end
+      # Reference to prevent removal by GC + warning noise
+      second_class.name
+
+      after_count = account_status_listeners_count
+
+      expect(after_count).to eq(before_count)
+    end
+  end
+
+  def account_status_listeners_count
+    # Count distinct ActiveSupport::Notifications subscribers that would be
+    # invoked when we publish a SESSION_CREATING event. This is the best
+    # practical proxy for "how many AccountStatus guard callbacks are wired
+    # up" — if we re-subscribed on re-include, this count would grow.
+    ActiveSupport::Notifications.notifier.listeners_for(
+      "standard_id.#{StandardId::Events::SESSION_CREATING}"
+    ).size
+  end
 end
