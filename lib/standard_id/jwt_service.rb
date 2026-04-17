@@ -208,6 +208,88 @@ module StandardId
       end
     end
 
+    # Low-level primitive: sign a payload into a JWT.
+    #
+    # Unlike .encode, this method does NOT consult StandardId config. The caller
+    # supplies the algorithm and key directly, and controls the full payload.
+    # No issuer, audience, or iat/exp is added automatically (except when
+    # expires_in is provided).
+    #
+    # @param payload [Hash] the JWT payload (claims)
+    # @param algorithm [String] JWT algorithm, e.g. "HS256", "RS256", "ES256"
+    # @param key [String, OpenSSL::PKey::PKey] signing key (String for HMAC,
+    #   OpenSSL private key for RSA/EC)
+    # @param expires_in [Integer, nil] seconds until expiration; sets the `exp`
+    #   claim if provided. Caller-supplied `exp` in payload is preserved.
+    # @param extra_headers [Hash] additional JWT header fields (e.g. kid:)
+    # @return [String] the encoded JWT token
+    def self.sign(payload, algorithm:, key:, expires_in: nil, **extra_headers)
+      payload = payload.dup
+      payload[:exp] ||= (Time.now + expires_in).to_i if expires_in
+      JWT.encode(payload, key, algorithm.to_s, extra_headers)
+    end
+
+    # Low-level primitive: verify a JWT and return its payload.
+    #
+    # Unlike .decode, this method does NOT consult StandardId config and does
+    # NOT return nil on failure — it raises StandardId::InvalidTokenError (or
+    # a subclass) so callers get specific failure info.
+    #
+    # @param token [String] the JWT token
+    # @param algorithm [String, Array<String>] allowed algorithm(s)
+    # @param key [String, OpenSSL::PKey::PKey, Array] verification key, or an
+    #   array of keys to try in order (for rotation scenarios)
+    # @param allowed_audiences [Array<String>, String, nil] if provided, the
+    #   `aud` claim is verified against this list
+    # @param verify_expiration [Boolean] verify the `exp` claim (default true)
+    # @param verify_not_before [Boolean] verify the `nbf` claim (default true)
+    # @return [Hash] the decoded payload (with indifferent access)
+    # @raise [StandardId::ExpiredTokenError] when the token has expired
+    # @raise [StandardId::InvalidAlgorithmError] when the token's algorithm
+    #   is not in the allowed list
+    # @raise [StandardId::InvalidAudienceTokenError] when the aud claim does
+    #   not match allowed_audiences
+    # @raise [StandardId::InvalidSignatureError] when the signature is invalid
+    # @raise [StandardId::InvalidTokenError] for any other decode failure
+    def self.verify(token, algorithm:, key:, allowed_audiences: nil, verify_expiration: true, verify_not_before: true)
+      algorithms = Array(algorithm).map(&:to_s)
+      keys = key.is_a?(Array) ? key : [key]
+      raise InvalidTokenError, "At least one verification key is required" if keys.empty?
+
+      options = {
+        algorithms: algorithms,
+        verify_expiration: verify_expiration,
+        verify_not_before: verify_not_before
+      }
+
+      if allowed_audiences
+        options[:aud] = Array(allowed_audiences)
+        options[:verify_aud] = true
+      end
+
+      last_error = nil
+      keys.each do |candidate|
+        begin
+          decoded = JWT.decode(token, candidate, true, options)
+          return decoded.first.with_indifferent_access
+        rescue JWT::ExpiredSignature => e
+          raise ExpiredTokenError, e.message
+        rescue JWT::IncorrectAlgorithm => e
+          raise InvalidAlgorithmError, e.message
+        rescue JWT::InvalidAudError => e
+          raise InvalidAudienceTokenError, e.message
+        rescue JWT::VerificationError => e
+          last_error = InvalidSignatureError.new(e.message)
+          next
+        rescue JWT::DecodeError => e
+          last_error = InvalidTokenError.new(e.message)
+          next
+        end
+      end
+
+      raise last_error || InvalidTokenError.new("Token verification failed")
+    end
+
     private
 
     # Parses a previous_signing_keys entry into { kid:, key:, algorithm: }

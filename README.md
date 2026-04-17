@@ -900,6 +900,60 @@ class Api::UsersController < ApiController
 end
 ```
 
+## Primitives
+
+StandardId also ships a couple of thin, config-free JWT primitives for use cases
+that have nothing to do with OAuth sessions — for example, service-to-service
+tokens between two of your own backends.
+
+### `JwtService.sign` / `JwtService.verify`
+
+These are low-level wrappers around `JWT.encode` / `JWT.decode`. They do **not**
+read `StandardId.config` — you supply the algorithm and key directly, and you
+control the full payload. No `iss`, `aud`, or `iat` is added for you.
+
+```ruby
+# Sign an HS256 service token
+token = StandardId::JwtService.sign(
+  { sub: "harness", aud: "sidekick", gid: "gid://..." },
+  algorithm: "HS256",
+  key: Rails.application.credentials.dig(:service_jwt, :secret),
+  expires_in: 5.minutes
+)
+
+# Verify it on the receiving side
+payload = StandardId::JwtService.verify(
+  token,
+  algorithm: "HS256",
+  key: Rails.application.credentials.dig(:service_jwt, :secret),
+  allowed_audiences: %w[sidekick]
+)
+payload["sub"]  # => "harness"
+```
+
+Supports:
+
+- HS256 / HS384 / HS512, RS256 / RS384 / RS512, ES256 / ES384 / ES512
+- `expires_in:` to auto-set `exp` (caller-supplied `exp` wins)
+- Arbitrary JWT headers via `**extra_headers` (e.g. `kid:`)
+- `allowed_audiences:` to enforce the `aud` claim
+- `key:` as a single value or an `Array` — keys are tried in order, so rotation
+  is a one-liner
+- Failure raises `StandardId::InvalidTokenError` (with subclasses
+  `ExpiredTokenError`, `InvalidSignatureError`, `InvalidAlgorithmError`,
+  `InvalidAudienceTokenError`) — no `nil` returns
+
+### When to use which
+
+| Use case | API |
+|---|---|
+| OAuth 2.0 / OIDC access and ID tokens, browser/device sessions | `JwtService.encode` / `.decode` / `.decode_session` |
+| Anything else (service-to-service, internal signed payloads, webhooks) | `JwtService.sign` / `.verify` |
+
+The OAuth/session methods consult `StandardId.config` (issuer, signing key,
+rotation, claim resolvers, etc.) and add standard claims automatically. The
+primitives deliberately do none of that.
+
 ## Database Schema
 
 StandardId creates the following tables:
