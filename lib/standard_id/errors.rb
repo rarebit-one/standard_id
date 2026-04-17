@@ -101,4 +101,33 @@ module StandardId
       super("Token audience [#{actual.join(', ')}] does not match required audiences: #{required.join(', ')}")
     end
   end
+
+  # Raised when the authenticated account's profile type does not match the
+  # profile type(s) configured for the matched audience in
+  # `StandardId.config.oauth.audience_profile_types`.
+  #
+  # Includes audit-friendly attributes (raw values from the JWT and config)
+  # that callers may log but must NOT interpolate into response headers
+  # without sanitization.
+  # Raised when an access token's audience is permitted for the controller
+  # but the account lacks a profile of the type configured for that audience
+  # in `StandardId.config.oauth.audience_profile_types`.
+  #
+  # Deliberately a separate class (not a subclass of InvalidAudienceError)
+  # so host apps can distinguish "audience not permitted" from "audience
+  # matched but profile binding failed" in their error handling. The
+  # `AudienceVerification` concern renders both as 403 insufficient_scope.
+  class InvalidAudienceProfileError < StandardError
+    attr_reader :audience, :expected_profile_types, :actual_profile_type, :required, :actual
+
+    def initialize(audience:, expected_profile_types:, actual_profile_type:, required: [], actual: [])
+      @audience = audience
+      @expected_profile_types = Array(expected_profile_types)
+      @actual_profile_type = actual_profile_type
+      @required = required
+      @actual = actual
+      expected = @expected_profile_types.join(", ")
+      super("Token audience '#{audience}' requires profile type [#{expected}] but account has '#{actual_profile_type || 'none'}'")
+    end
+  end
 end

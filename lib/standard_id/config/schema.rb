@@ -117,6 +117,37 @@ StandardConfig.schema.draw do
     field :claim_resolvers, type: :hash, default: -> { {} }
     field :allowed_audiences, type: :array, default: -> { [] } # Empty = no validation, any audience allowed
 
+    # Audience → profile type binding (first-class audience modeling).
+    #
+    # Maps each configured audience string to the profile type (or types)
+    # that an authenticated account must hold for that audience. When set,
+    # `StandardId::AudienceVerification` enforces — after the usual
+    # allowed-audiences check — that the account has a matching profile.
+    #
+    # Values may be a single String or an Array<String> for multi-type audiences.
+    #
+    # Example:
+    #   c.oauth.audience_profile_types = {
+    #     "admin_kit"     => "PlatformProfile",
+    #     "companion_kit" => "DeviceUserProfile",
+    #     "harness"       => ["PlatformProfile", "DeviceUserProfile"]
+    #   }
+    #
+    # When empty (default) or the matched audience is absent from the map,
+    # the profile-type check is skipped (back-compat with apps that do not
+    # model profiles or that enforce this invariant themselves).
+    field :audience_profile_types, type: :hash, default: -> { {} }
+
+    # Optional resolver for picking the profile an account uses for a given
+    # audience. Called with keyword arguments `(account:, audience:, profile_types:)`
+    # where `profile_types` is the `Array<String>` of acceptable profile types
+    # for the matched audience. Must return the profile record (or nil).
+    #
+    # When nil (default), the gem looks up
+    #   account.profiles.detect { |p| profile_types.include?(p.profileable_type) }
+    # and prefers an `active?`-responding record if multiple match.
+    field :audience_profile_resolver, type: :any, default: nil
+
     # JWT signing configuration (for asymmetric algorithms)
     # If nil, uses HS256 with Rails.application.secret_key_base
     field :signing_key, type: :any, default: nil

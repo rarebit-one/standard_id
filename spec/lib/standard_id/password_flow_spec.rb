@@ -164,6 +164,80 @@ RSpec.describe StandardId::Oauth::PasswordFlow do
       expect(result[:access_token]).to eq("jwt-token")
       expect(encoded_payloads.first[:tenant_id]).to eq("#{client_application.object_id}-#{account_with_status.id}")
     end
+
+    it "passes audience: to resolvers whose signature accepts it" do
+      captured_audience = nil
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
+        tenant_id: ->(account:, audience:) {
+          captured_audience = audience
+          "tenant-for-#{audience}"
+        }
+      })
+
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account_with_status)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new(params.merge(audience: "harness"), request).execute
+
+      expect(captured_audience).to eq("harness")
+      expect(encoded_payloads.first[:tenant_id]).to eq("tenant-for-harness")
+    end
+
+    it "still invokes resolvers with the old (audience-agnostic) signature" do
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
+        tenant_id: ->(account:) { "tenant-#{account.id}" }
+      })
+
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account_with_status)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new(params.merge(audience: "harness"), request).execute
+
+      expect(encoded_payloads.first[:tenant_id]).to eq("tenant-#{account_with_status.id}")
+    end
+
+    it "passes audience to keyrest resolvers via the full context" do
+      captured_context = nil
+      allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({
+        tenant_id: ->(**kwargs) {
+          captured_context = kwargs
+          "tenant-#{kwargs[:audience]}"
+        }
+      })
+
+      allow_any_instance_of(described_class)
+        .to receive(:authenticate_account)
+        .with(username, password)
+        .and_return(account_with_status)
+
+      encoded_payloads = []
+      allow(StandardId::JwtService).to receive(:encode) do |payload, _|
+        encoded_payloads << payload
+        "jwt-token"
+      end
+
+      described_class.new(params.merge(audience: "admin_kit"), request).execute
+
+      expect(captured_context[:audience]).to eq("admin_kit")
+      expect(captured_context[:account]).to eq(account_with_status)
+      expect(encoded_payloads.first[:tenant_id]).to eq("tenant-admin_kit")
+    end
   end
 
   describe "custom_claims config" do
