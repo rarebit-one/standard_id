@@ -259,6 +259,11 @@ RSpec.describe StandardId::ClientApplication, type: :model do
           expect(client.supports_pkce_method?(:plain)).to be true
         end
 
+        it "is case-insensitive (accepts lowercase variants)" do
+          expect(client.supports_pkce_method?("s256")).to be true
+          expect(client.supports_pkce_method?("PLAIN")).to be true
+        end
+
         it "returns false for unsupported PKCE methods" do
           expect(client.supports_pkce_method?("invalid")).to be false
         end

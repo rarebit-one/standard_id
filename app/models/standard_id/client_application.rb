@@ -81,7 +81,8 @@ module StandardId
 
     def supports_pkce_method?(method)
       return false unless require_pkce?
-      code_challenge_methods_array.include?(method.to_s)
+      normalized = method.to_s.downcase
+      code_challenge_methods_array.any? { |m| m.downcase == normalized }
     end
 
     # Validates a redirect_uri presented in an OAuth request against this
