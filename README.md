@@ -1116,6 +1116,10 @@ bundle exec rspec spec/controllers/
   rejected with `invalid_request`.
 - Rate limiting on authentication endpoints
 
+## Scheduled Maintenance
+
+StandardId ships cleanup jobs (`StandardId::CleanupExpiredSessionsJob`, `StandardId::CleanupExpiredRefreshTokensJob`) and rake wrappers (`standard_id:cleanup:all`, `:sessions`, `:refresh_tokens`) to prune expired rows. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for SolidQueue, sidekiq-cron, whenever, and system-cron scheduling examples.
+
 ## Contributing
 
 1. Fork the repository
