@@ -239,14 +239,30 @@ module StandardId
       # NOTE: The update! here can raise ActiveRecord::RecordInvalid, which is
       # rescued alongside account-creation errors. This is intentional — both
       # represent unexpected persistence failures and warrant the same response.
+      #
+      # The SELECT...FOR UPDATE is load-bearing: without it, two concurrent
+      # wrong-code submissions would both read attempts=N and both write
+      # attempts=N+1, losing a failure and letting an attacker guess past the
+      # max_attempts ceiling. We serialize the read-modify-write under a row
+      # lock (portable across pg/sqlite) rather than a Postgres-only
+      # `jsonb_set(...) update_all` so the test suite still runs on sqlite.
       def record_failed_attempt(challenge, code_matches)
         return 0 if code_matches
 
-        attempts = (challenge.metadata["attempts"] || 0) + 1
-        challenge.update!(metadata: challenge.metadata.merge("attempts" => attempts))
-
         max_attempts = StandardId.config.passwordless.max_attempts
-        challenge.use! if attempts >= max_attempts
+        attempts = 0
+
+        ActiveRecord::Base.transaction do
+          locked = StandardId::CodeChallenge.lock.find(challenge.id)
+          attempts = (locked.metadata["attempts"] || 0) + 1
+          new_metadata = locked.metadata.merge("attempts" => attempts)
+
+          if attempts >= max_attempts && locked.used_at.nil?
+            locked.update!(metadata: new_metadata, used_at: Time.current)
+          else
+            locked.update!(metadata: new_metadata)
+          end
+        end
 
         attempts
       end

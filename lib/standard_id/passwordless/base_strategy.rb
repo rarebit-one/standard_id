@@ -147,7 +147,8 @@ module StandardId
         StandardId::Events.publish(
           StandardId::Events::PASSWORDLESS_CODE_REQUESTED,
           identifier: username,
-          channel: connection_type
+          channel: connection_type,
+          realm: @realm
         )
       end
 
@@ -157,6 +158,7 @@ module StandardId
           code_challenge: challenge,
           identifier: username,
           channel: connection_type,
+          realm: @realm,
           expires_at: challenge.expires_at
         )
       end
@@ -166,6 +168,7 @@ module StandardId
           StandardId::Events::PASSWORDLESS_CODE_SENT,
           identifier: username,
           channel: connection_type,
+          realm: @realm,
           delivery_status: "sent"
         )
       end

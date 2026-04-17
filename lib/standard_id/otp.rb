@@ -101,7 +101,9 @@ module StandardId
           raise StandardId::InvalidRequestError, "Unsupported delivery: #{delivery.inspect} (must be :built_in, :custom, or :manual)"
         end
         if realm_s.blank?
-          return failure_issue_result(:invalid_request, "realm: is required")
+          # Raised (not returned as a failure result) because a blank realm is
+          # a programmer error — mirrors Otp.verify for API consistency.
+          raise StandardId::InvalidRequestError, "realm: is required"
         end
         if target.to_s.strip.blank?
           return failure_issue_result(:invalid_request, "target: is required")

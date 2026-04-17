@@ -142,13 +142,13 @@ RSpec.describe StandardId::Otp do
     end
 
     context "validation" do
-      it "rejects blank realm" do
-        result = described_class.issue(
-          realm: "", target: email, channel: :email,
-          request: request, delivery: :manual
-        )
-        expect(result.success?).to be false
-        expect(result.error_code).to eq(:invalid_request)
+      it "raises InvalidRequestError for blank realm (matches Otp.verify)" do
+        expect {
+          described_class.issue(
+            realm: "", target: email, channel: :email,
+            request: request, delivery: :manual
+          )
+        }.to raise_error(StandardId::InvalidRequestError, /realm: is required/)
       end
 
       it "rejects unsupported channel" do
