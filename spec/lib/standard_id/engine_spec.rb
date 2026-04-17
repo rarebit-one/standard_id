@@ -87,4 +87,50 @@ RSpec.describe StandardId::Engine do
       end
     end
   end
+
+  describe "error hierarchy availability at engine load time" do
+    # Host apps reference StandardId error classes at controller class-body
+    # load time (e.g. `rescue_from StandardId::SocialLinkError, with: ...`).
+    # If the errors file isn't required before the engine boots, they have
+    # to fall back to string literals. All engine files require errors.rb
+    # to guarantee the constants are defined once the engine is loaded.
+    it "defines StandardId::SocialLinkError at engine load time" do
+      expect(defined?(StandardId::SocialLinkError)).to eq("constant")
+      expect(StandardId::SocialLinkError.ancestors).to include(StandardId::OAuthError)
+    end
+
+    it "defines the full error hierarchy at engine load time" do
+      %w[
+        NotAuthenticatedError
+        InvalidSessionError
+        AccountDeactivatedError
+        AccountLockedError
+        OAuthError
+        AuthenticationDenied
+        SocialLinkError
+        InvalidAudienceError
+      ].each do |klass_name|
+        expect(StandardId.const_defined?(klass_name, false)).to be(true),
+          "Expected StandardId::#{klass_name} to be defined at engine load time"
+      end
+    end
+
+    it "allows rescue_from to resolve StandardId::SocialLinkError as a constant in a controller class body" do
+      # Simulate a host app's application_controller.rb referring to
+      # StandardId::SocialLinkError directly (not as a string literal).
+      controller_class = Class.new(ActionController::Base) do
+        rescue_from StandardId::SocialLinkError, with: :handle_social_link_error
+
+        private
+
+        def handle_social_link_error(_exception)
+          # no-op
+        end
+      end
+
+      # If the constant weren't available, Class.new would raise NameError above.
+      handlers = controller_class.rescue_handlers
+      expect(handlers.map(&:first)).to include("StandardId::SocialLinkError")
+    end
+  end
 end

@@ -1,5 +1,10 @@
 require "standard_id/config/callable_validator"
 require "standard_id/config/scope_claims_validator"
+# Ensure the StandardId error hierarchy is loaded at engine boot time so that
+# host apps can reference constants like `StandardId::SocialLinkError` at
+# class-body load time (e.g. `rescue_from StandardId::SocialLinkError`) without
+# relying on Zeitwerk autoload ordering or falling back to string literals.
+require "standard_id/errors"
 
 module StandardId
   class Engine < ::Rails::Engine
