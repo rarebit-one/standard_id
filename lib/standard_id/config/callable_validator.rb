@@ -80,15 +80,42 @@ module StandardId
           expected = spec[:arity]
           actual = callable.arity
 
-          # Lambdas with all-required positional args have a positive arity;
-          # must match exactly. Otherwise (optional/splat/kwargs) arity is
-          # negative — accept it since the callable can absorb the call.
-          return if actual == expected
-          return if actual < 0
+          # Lambdas enforce strict arity: `|a, b=1|` has arity -2 but can only
+          # take 1 or 2 args, so the engine's 3-arg call would ArgumentError.
+          # Check parameters to derive the actual acceptable arity range.
+          if lambda_callable?(callable)
+            min, max = positional_range(callable)
+            return if min && max && expected >= min && expected <= max
+          else
+            # Non-lambda Procs auto-pad/truncate positional args, so any
+            # negative arity is genuinely callable with `expected` args.
+            return if actual == expected
+            return if actual < 0
+          end
 
           raise StandardId::ConfigurationError,
             "StandardId config: `#{path}` expects signature #{spec[:signature]} " \
             "(arity #{expected}), got arity #{actual}"
+        end
+
+        def lambda_callable?(callable)
+          return callable.lambda? if callable.is_a?(Proc)
+          return true if callable.is_a?(Method) || callable.is_a?(UnboundMethod)
+
+          false
+        end
+
+        def positional_range(callable)
+          params = extract_parameters(callable)
+          return [nil, nil] if params.nil?
+
+          req = params.count { |type, _| type == :req }
+          opt = params.count { |type, _| type == :opt }
+          has_rest = params.any? { |type, _| type == :rest }
+
+          min = req
+          max = has_rest ? Float::INFINITY : req + opt
+          [min, max]
         end
 
         def validate_keyword!(path, callable, allowed_keywords, signature)

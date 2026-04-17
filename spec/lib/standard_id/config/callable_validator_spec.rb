@@ -45,9 +45,22 @@ RSpec.describe StandardId::Config::CallableValidator do
         expect { described_class.validate! }.not_to raise_error
       end
 
-      it "accepts a lambda with optional/splat params (arity < 0)" do
+      it "accepts a lambda with a splat (arity < 0)" do
         StandardId.config.after_sign_in = ->(*_args) { nil }
         expect { described_class.validate! }.not_to raise_error
+      end
+
+      it "accepts a lambda with optional params that can still absorb the expected call" do
+        StandardId.config.after_sign_in = ->(_account, _request, _context = nil) { nil }
+        expect { described_class.validate! }.not_to raise_error
+      end
+
+      it "rejects a lambda whose optional params cannot absorb the expected arity" do
+        StandardId.config.after_sign_in = ->(_account, _request = nil) { nil }
+        expect { described_class.validate! }.to raise_error(
+          StandardId::ConfigurationError,
+          /`after_sign_in` expects signature \(account, request, context\) \(arity 3\)/
+        )
       end
 
       it "raises when a lambda has the wrong positional arity" do
