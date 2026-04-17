@@ -120,4 +120,20 @@ RSpec.describe "OAuth session_type_resolver integration" do
       StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
     }.to raise_error(StandardId::ConfigurationError, /only :browser and :device are supported/)
   end
+
+  it "rolls back the refresh token row when session persistence raises ConfigurationError" do
+    setup_account_for_admin_kit
+
+    StandardId.config.session.session_type_resolver = ->(**) { :service }
+
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+    expect {
+      begin
+        StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+      rescue StandardId::ConfigurationError
+        # Expected — verify side-effects below.
+      end
+    }.not_to change(StandardId::RefreshToken, :count)
+  end
 end

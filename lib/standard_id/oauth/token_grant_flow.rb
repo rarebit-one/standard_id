@@ -48,8 +48,16 @@ module StandardId
         }
 
         response[:scope] = token_scope if token_scope.present?
-        response[:refresh_token] = generate_refresh_token if supports_refresh_token?
-        maybe_persist_session_for_token!
+
+        # Wrap both DB writes in a single transaction: a ConfigurationError
+        # from session persistence (or any error during the session side-effect)
+        # must roll back the refresh-token row inserted above, otherwise we
+        # leave an orphaned, unusable refresh token that the client never saw.
+        ActiveRecord::Base.transaction do
+          response[:refresh_token] = generate_refresh_token if supports_refresh_token?
+          maybe_persist_session_for_token!
+        end
+
         emit_token_issued(expires_in)
         response.compact
       end
