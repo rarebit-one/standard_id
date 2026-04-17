@@ -177,7 +177,7 @@ module StandardId
         begin
           decoded = JWT.decode(token, nil, true, options)
           return decoded.first.with_indifferent_access
-        rescue JWT::InvalidAudError => e
+        rescue JWT::InvalidAudError
           # InvalidAudError is a JWT::DecodeError subclass — catch it first
           # and surface as the engine's audience error so callers can
           # distinguish aud failures from generic decode failures.
@@ -192,7 +192,7 @@ module StandardId
 
       decoded = JWT.decode(token, verification_key, true, options)
       decoded.first.with_indifferent_access
-    rescue JWT::InvalidAudError => e
+    rescue JWT::InvalidAudError
       raise StandardId::InvalidAudienceError.new(
         required: Array(allowed_audiences).map(&:to_s),
         actual: extract_unverified_audience(token)
