@@ -742,6 +742,72 @@ RSpec.describe StandardId::JwtService do
       end
     end
 
+    describe "not_before" do
+      it "rejects tokens with a future nbf" do
+        token = described_class.sign(
+          { sub: "svc", nbf: (Time.now + 300).to_i },
+          algorithm: "HS256", key: hs_key
+        )
+
+        expect {
+          described_class.verify(token, algorithm: "HS256", key: hs_key)
+        }.to raise_error(StandardId::InvalidTokenError)
+      end
+
+      it "can skip nbf verification via verify_not_before: false" do
+        token = described_class.sign(
+          { sub: "svc", nbf: (Time.now + 300).to_i },
+          algorithm: "HS256", key: hs_key
+        )
+
+        decoded = described_class.verify(
+          token, algorithm: "HS256", key: hs_key, verify_not_before: false
+        )
+        expect(decoded["sub"]).to eq("svc")
+      end
+
+      it "does not retry every rotation key on a future-nbf token" do
+        token = described_class.sign(
+          { sub: "svc", nbf: (Time.now + 300).to_i },
+          algorithm: "HS256", key: hs_key
+        )
+
+        # If the ImmatureSignature rescue didn't early-exit, each key in the
+        # rotation list would be attempted. We assert that the token bails
+        # as soon as nbf fails by stubbing a tripwire on a later key: a
+        # "wrong-key" that would raise a different error class if we reached it.
+        tripwire_key = "wrong-" + "x" * 60
+
+        expect {
+          described_class.verify(
+            token,
+            algorithm: "HS256",
+            key: [hs_key, tripwire_key]
+          )
+        }.to raise_error(StandardId::InvalidTokenError) { |err|
+          expect(err).not_to be_a(StandardId::InvalidSignatureError)
+        }
+      end
+    end
+
+    describe "algorithm 'none' footgun" do
+      it "refuses to sign with algorithm 'none'" do
+        expect {
+          described_class.sign({ sub: "svc" }, algorithm: "none", key: hs_key)
+        }.to raise_error(ArgumentError, /'none' is not permitted/)
+      end
+
+      it "refuses case variants of 'none' (uppercase/mixed)" do
+        expect {
+          described_class.sign({ sub: "svc" }, algorithm: "NONE", key: hs_key)
+        }.to raise_error(ArgumentError, /'none' is not permitted/)
+
+        expect {
+          described_class.sign({ sub: "svc" }, algorithm: "None", key: hs_key)
+        }.to raise_error(ArgumentError, /'none' is not permitted/)
+      end
+    end
+
     describe "wrong key" do
       it "raises InvalidSignatureError when HS256 key does not match" do
         token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)

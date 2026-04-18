@@ -224,11 +224,20 @@ module StandardId
     # @param extra_headers [Hash] additional JWT header fields (e.g. kid:)
     # @return [String] the encoded JWT token
     def self.sign(payload, algorithm:, key:, expires_in: nil, **extra_headers)
+      alg = algorithm.to_s
+      # Reject the "none" alg explicitly. Without this guard, a caller who
+      # passes algorithm: "none" (or "NONE") would produce an unsigned token
+      # with the expected structure, turning this primitive into a footgun
+      # for downstream verify paths that trust any successfully-decoded JWT.
+      if alg.casecmp?("none")
+        raise ArgumentError, "Algorithm 'none' is not permitted — unsigned tokens cannot be verified"
+      end
+
       payload = payload.dup
       if expires_in && !payload.key?(:exp) && !payload.key?("exp")
         payload[:exp] = (Time.now + expires_in).to_i
       end
-      JWT.encode(payload, key, algorithm.to_s, extra_headers)
+      JWT.encode(payload, key, alg, extra_headers)
     end
 
     # Low-level primitive: verify a JWT and return its payload.
@@ -280,6 +289,11 @@ module StandardId
           raise InvalidAlgorithmError, e.message
         rescue JWT::InvalidAudError => e
           raise InvalidAudienceTokenError, e.message
+        rescue JWT::ImmatureSignature => e
+          # nbf is a property of the token, not the key — trying other keys
+          # cannot rehabilitate a not-yet-valid token, so early-exit rather
+          # than iterating through the remaining rotation keys.
+          raise InvalidTokenError, e.message
         rescue JWT::VerificationError => e
           last_error = InvalidSignatureError.new(e.message)
           next
