@@ -62,6 +62,10 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
       content = File.read(routes_path)
       expect(content).to include('mount StandardId::WebEngine => "/"')
       expect(content).to include('mount StandardId::ApiEngine => "/api"')
+      # The mount lines should be indented two spaces so they sit inside
+      # the `Rails.application.routes.draw do` block, not flush-left.
+      expect(content).to match(/^ {2}mount StandardId::WebEngine => "\/"/)
+      expect(content).to match(/^ {2}mount StandardId::ApiEngine => "\/api"/)
       # The commented-out scoped mount example should be present
       expect(content).to include("scope \"/api/:api_version\"")
       # And the original content is preserved
@@ -148,6 +152,26 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
       FileUtils.rm(routes_path)
       output = run_generator
       expect(output).to match(/config\/routes\.rb not found/)
+    end
+  end
+
+  describe "routes.rb with non-standard draw block" do
+    it "warns (and leaves the file untouched) when inject_into_file can't match" do
+      # Trailing comment on the `draw do` line — Thor's inject_into_file
+      # won't match the exact `after:` string and silently does nothing.
+      File.write(routes_path, <<~RB)
+        Rails.application.routes.draw do # rubocop:disable Style/FrozenStringLiteralComment
+          root "home#index"
+        end
+      RB
+
+      output = run_generator
+
+      content = File.read(routes_path)
+      expect(content).not_to include("mount StandardId::WebEngine")
+      expect(output).to match(/Could not auto-mount StandardId engines/)
+      expect(output).to include("mount StandardId::WebEngine")
+      expect(output).to include("mount StandardId::ApiEngine")
     end
   end
 end

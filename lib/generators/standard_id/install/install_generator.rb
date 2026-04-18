@@ -52,6 +52,22 @@ module StandardId
         end
 
         inject_into_file routes_path, indent(engine_mount_snippet, 2), after: "Rails.application.routes.draw do\n"
+
+        # inject_into_file silently no-ops when the `after:` string doesn't
+        # match exactly (e.g. the host has a trailing comment or a rubocop
+        # directive on the `draw do` line, or the file uses CRLF line
+        # endings). Re-read and warn so the user isn't left with an
+        # un-mounted engine.
+        unless engines_already_mounted?(routes_path)
+          say_status(
+            "warn",
+            "Could not auto-mount StandardId engines in #{routes_path}. " \
+              "Add the following inside `Rails.application.routes.draw do` manually:\n" \
+              "  mount StandardId::WebEngine => \"/\"\n" \
+              "  mount StandardId::ApiEngine => \"/api\"",
+            :red
+          )
+        end
       end
 
       def copy_migrations
