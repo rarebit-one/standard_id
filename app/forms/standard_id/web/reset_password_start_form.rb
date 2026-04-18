@@ -9,9 +9,10 @@ module StandardId
       validates :email, presence: { message: "Please enter your email address" }, format: { with: URI::MailTo::EMAIL_REGEXP }
 
       # Constructor accepts the reset URL template so the form is decoupled
-      # from routing. Controller supplies `reset_password_confirm_url(token: "{token}")`
-      # which contains a literal "{token}" placeholder that the delivery job
-      # substitutes with the actual token after account lookup.
+      # from routing. The controller builds a URL from `reset_password_confirm_url`
+      # (or a request-derived fallback) and appends a literal `?token={token}` (or
+      # `&token={token}`) marker via string concatenation. The delivery job
+      # substitutes that placeholder with the actual token after account lookup.
       def initialize(attributes = {})
         @reset_url_template = attributes.delete(:reset_url_template) if attributes.is_a?(Hash)
         super

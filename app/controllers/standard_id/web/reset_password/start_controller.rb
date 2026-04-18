@@ -35,8 +35,17 @@ module StandardId
         # the generated token once the account lookup completes. We build this
         # here (rather than in the job) so the URL reflects the request's
         # scheme/host/port — the job has no access to the HTTP request.
+        #
+        # The route helper may be absent if the host app mounts the engine
+        # without the `:password_reset` mechanism, or raise UrlGenerationError
+        # if required params are missing; fall back to a request-derived URL
+        # in those cases. Any other exception should surface normally.
         def build_reset_url_template
-          base = reset_password_confirm_url rescue nil
+          base = begin
+            reset_password_confirm_url
+          rescue NameError, NoMethodError, ActionController::UrlGenerationError
+            nil
+          end
           base ||= "#{request.base_url}/reset_password/confirm"
           separator = base.include?("?") ? "&" : "?"
           "#{base}#{separator}token={token}"
