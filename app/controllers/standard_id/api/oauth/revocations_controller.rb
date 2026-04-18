@@ -53,13 +53,18 @@ module StandardId
             # audit emission. A failing subscriber must not short-circuit the loop
             # and leave later sessions without their SESSION_REVOKED event, which
             # would permanently desync audit-trail consumers from the DB.
+            #
+            # All revoked_sessions share the same account_id (we filtered by it
+            # at line 25), so we load the account once rather than calling
+            # session.account per row, which would issue N extra SELECTs.
+            shared_account = revoked_sessions.first.account
             revoked_sessions.each do |session|
               session.revoked_at = now
               begin
                 StandardId::Events.publish(
                   StandardId::Events::SESSION_REVOKED,
                   session: session,
-                  account: session.account,
+                  account: shared_account,
                   reason: "token_revocation"
                 )
               rescue StandardError => e

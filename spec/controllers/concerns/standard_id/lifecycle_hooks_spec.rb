@@ -559,7 +559,7 @@ RSpec.describe StandardId::LifecycleHooks do
   describe "per-scope :authorizer" do
     let(:profiles_relation) { double("profiles") }
     let(:matched_profile) { double("OrganisationProfile") }
-    let(:sessions_relation) { double("sessions", where: double(active: double(count: 0))) }
+    let(:sessions_relation) { double("sessions", where: double(active: double(exists?: false))) }
     let(:account) do
       double("Account",
              profiles: profiles_relation,

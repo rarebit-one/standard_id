@@ -154,6 +154,26 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
           expect(session).to be_revoked
         end
       end
+
+      it "publishes one SESSION_REVOKED event per revoked session" do
+        events = []
+        subscriber = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) do |event|
+          events << event
+        end
+
+        begin
+          post "/api/oauth/revoke", params: { token: token }
+        ensure
+          StandardId::Events.unsubscribe(subscriber)
+        end
+
+        expect(events.size).to eq(3)
+        expect(events.map { |e| e.payload[:session].id }).to match_array(device_sessions.map(&:id))
+        events.each do |event|
+          expect(event.payload[:account]).to eq(account)
+          expect(event.payload[:reason]).to eq("token_revocation")
+        end
+      end
     end
 
     context "when a SESSION_REVOKED subscriber raises" do

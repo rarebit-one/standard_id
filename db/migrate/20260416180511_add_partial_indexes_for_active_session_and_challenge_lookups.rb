@@ -9,9 +9,15 @@ class AddPartialIndexesForActiveSessionAndChallengeLookups < ActiveRecord::Migra
   # (e.g. SQLite dummies) don't error. StrongMigrations considers partial-
   # index-add and remove_index safe when concurrently + if_exists are used, so
   # no ignore comment is needed.
+  #
+  # Split into def up / def down because `remove_index :table, name: "..."`
+  # (name-only, no column list) is not auto-reversible via def change — Rails
+  # raises ActiveRecord::IrreversibleMigration on rollback. The explicit down
+  # path re-adds the GIN index using the same column + opclass the creating
+  # migration used (t.index :metadata, using: :gin).
   disable_ddl_transaction!
 
-  def change
+  def up
     pg = connection.adapter_name.downcase.include?("postgres")
     concurrent = pg ? { algorithm: :concurrently } : {}
 
@@ -75,5 +81,37 @@ class AddPartialIndexesForActiveSessionAndChallengeLookups < ActiveRecord::Migra
     # always know the credentialable_type because Credential uses
     # delegated_type). Adding a single-column credentialable_id index would
     # only add write overhead with no matching read pattern, so we skip it.
+  end
+
+  def down
+    pg = connection.adapter_name.downcase.include?("postgres")
+    concurrent = pg ? { algorithm: :concurrently } : {}
+
+    # Re-create the GIN metadata index first (mirrors the creating migration:
+    # `t.index :metadata, using: :gin` on standard_id_code_challenges).
+    # SQLite never had a GIN index, so this is Postgres-only.
+    if pg
+      add_index :standard_id_code_challenges,
+        :metadata,
+        using: :gin,
+        name: "index_standard_id_code_challenges_on_metadata",
+        if_not_exists: true,
+        **concurrent
+    end
+
+    remove_index :standard_id_code_challenges,
+      name: "index_code_challenges_on_active_target_created_at",
+      if_exists: true,
+      **concurrent
+
+    remove_index :standard_id_refresh_tokens,
+      name: "index_standard_id_refresh_tokens_on_expires_at_where_active",
+      if_exists: true,
+      **concurrent
+
+    remove_index :standard_id_sessions,
+      name: "index_standard_id_sessions_on_expires_at_where_active",
+      if_exists: true,
+      **concurrent
   end
 end
