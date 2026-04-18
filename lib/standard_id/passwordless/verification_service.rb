@@ -11,7 +11,7 @@ module StandardId
       # - challenge: the consumed CodeChallenge (nil on failure)
       # - error: human-readable error message string (nil on success)
       # - error_code: machine-readable symbol (nil on success)
-      #   One of :invalid_code, :expired, :max_attempts, :not_found, :blank_code,
+      #   One of :invalid_code, :max_attempts, :not_found, :blank_code,
       #   :account_not_found, :server_error
       # - attempts: nil on success, 0 when no challenge was found (fabricated
       #   target), or 1+ for wrong-code failures against an active challenge
@@ -115,9 +115,16 @@ module StandardId
           challenge = lock_active_challenge
 
           unless challenge
-            # No challenge (not-found / expired / already-used). No event —
-            # matches prior behavior: we do not publish failure events for
-            # probes that never triggered a real challenge.
+            # Constant-time compare even when no challenge exists to prevent
+            # timing-based enumeration of valid target+realm pairs. We compare
+            # the submitted code against a random value of the same digit
+            # length so an observer cannot distinguish "no challenge" from
+            # "wrong code" by response time.
+            padded_length = @code.length.clamp(4, 10)
+            fabricated_code = SecureRandom.random_number(10**padded_length).to_s.rjust(padded_length, "0")
+            secure_compare(fabricated_code, @code)
+            # No event — matches prior behavior: we do not publish failure
+            # events for probes that never triggered a real challenge.
             result = failure("Invalid or expired verification code", error_code: :not_found, attempts: 0)
             next
           end

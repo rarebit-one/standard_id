@@ -32,7 +32,7 @@ module StandardId
             realm: "verification",
             channel: "sms",
             target: phone,
-            code: generate_otp_code,
+            code: StandardId::Passwordless.generate_otp_code,
             expires_at: 10.minutes.from_now,
             ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
             user_agent: request.user_agent
@@ -41,13 +41,6 @@ module StandardId
           StandardId.config.passwordless_sms_sender&.call(phone, challenge.code)
 
           redirect_to standard_id_web.login_path, notice: "Verification code sent via SMS", status: :see_other
-        end
-
-        private
-
-        def generate_otp_code
-          length = StandardId::Passwordless.otp_code_length
-          SecureRandom.random_number(10**length).to_s.rjust(length, "0")
         end
       end
     end

@@ -498,19 +498,24 @@ RSpec.describe StandardId::Passwordless::VerificationService do
         create_email_account(email)
         challenge = create_challenge(channel: "email", target: email)
 
-        original_find_by = StandardId::CodeChallenge.method(:find_by)
+        # Intercept `find_by` only on the specific relation returned by
+        # CodeChallenge.lock so we don't accidentally stub unrelated find_by
+        # calls made during account resolution or elsewhere in the stack.
+        original_lock = StandardId::CodeChallenge.method(:lock)
         hijacked = false
-        allow_any_instance_of(ActiveRecord::Relation).to receive(:find_by).and_wrap_original do |m, *args|
-          # Only hijack once, and only when the verifier is calling find_by
-          # under the pessimistic lock scope.
-          result = m.call(*args)
-          if !hijacked && result.is_a?(StandardId::CodeChallenge)
-            hijacked = true
-            # A concurrent transaction consumes the challenge in the gap.
-            StandardId::CodeChallenge.where(id: result.id).update_all(used_at: Time.current)
-            result.reload
+        allow(StandardId::CodeChallenge).to receive(:lock).and_wrap_original do |m, *args|
+          relation = m.call(*args)
+          allow(relation).to receive(:find_by).and_wrap_original do |inner, *inner_args|
+            result = inner.call(*inner_args)
+            if !hijacked && result.is_a?(StandardId::CodeChallenge)
+              hijacked = true
+              # A concurrent transaction consumes the challenge in the gap.
+              StandardId::CodeChallenge.where(id: result.id).update_all(used_at: Time.current)
+              result.reload
+            end
+            result
           end
-          result
+          relation
         end
 
         result = described_class.verify(email: email, code: otp_code, request: request)

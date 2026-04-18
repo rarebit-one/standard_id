@@ -50,6 +50,13 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
       expect(challenge.code).to match(/\A\d{6}\z/)
     end
 
+    it "clamps code_length up to the 4-digit floor for small positive values" do
+      allow(StandardId.config.passwordless).to receive(:code_length).and_return(2)
+
+      challenge = strategy.start!(connection: "email", username: "user@example.com")
+      expect(challenge.code).to match(/\A\d{4}\z/)
+    end
+
     it "clamps code_length into a sane range (ignores absurdly large values)" do
       allow(StandardId.config.passwordless).to receive(:code_length).and_return(50)
 

@@ -61,6 +61,18 @@ module StandardId
         length.clamp(4, 10)
       end
 
+      # Generate a zero-padded numeric OTP code at the configured length.
+      # Single source of truth — used by BaseStrategy and by the verify_email
+      # / verify_phone start controllers so a change to the generation formula
+      # only needs to happen here.
+      #
+      # Codes may begin with leading zeros (e.g. "000123"). Host apps that
+      # display or round-trip codes should treat them as strings.
+      def generate_otp_code
+        length = otp_code_length
+        SecureRandom.random_number(10**length).to_s.rjust(length, "0")
+      end
+
       # Resolve the per-challenge attempt ceiling, preferring the newer
       # :max_attempts_per_challenge setting but falling back to :max_attempts
       # for backwards compatibility with apps that configured the older name.

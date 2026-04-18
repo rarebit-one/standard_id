@@ -68,22 +68,16 @@ module StandardId
       end
 
       # Generate a zero-padded numeric OTP code. When `code_length:` is
-      # provided (explicit per-call override used by Otp.issue callers) it is
-      # validated to be between 4 and 10. Otherwise the length falls back to
-      # StandardId::Passwordless.otp_code_length, which reads
-      # config.passwordless.code_length (default 6, clamped to 4..10).
-      #
-      # Uses SecureRandom.random_number for cryptographically strong entropy
-      # then left-pads with zeros so short values (e.g. 42 -> "000042") keep
-      # the full code space — codes may therefore start with leading zeros.
+      # provided (explicit per-call override used by Otp.issue callers) it
+      # must be between 4 and 10 and overrides the configured default.
+      # Otherwise delegates to StandardId::Passwordless.generate_otp_code,
+      # which reads config.passwordless.code_length (default 6, clamped
+      # to 4..10).
       def generate_otp_code(code_length: nil)
-        length = if code_length
-          parsed = code_length.to_i
-          raise StandardId::InvalidRequestError, "code_length must be between 4 and 10" unless parsed.between?(4, 10)
-          parsed
-        else
-          StandardId::Passwordless.otp_code_length
-        end
+        return StandardId::Passwordless.generate_otp_code if code_length.nil?
+
+        length = code_length.to_i
+        raise StandardId::InvalidRequestError, "code_length must be between 4 and 10" unless length.between?(4, 10)
 
         SecureRandom.random_number(10**length).to_s.rjust(length, "0")
       end
