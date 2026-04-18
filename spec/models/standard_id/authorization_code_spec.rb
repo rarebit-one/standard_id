@@ -227,6 +227,29 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
         }.not_to raise_error
       end
 
+      it "accepts case-insensitive method via client.supports_pkce_method?" do
+        # Directly exercises the case-insensitive comparison in
+        # supports_pkce_method? against a real ClientApplication record
+        # (rather than falling through to the S256-only fallback).
+        client = StandardId::ClientApplication.create!(
+          owner: owner,
+          name: "Client With Uppercase S256",
+          redirect_uris: redirect_uri,
+          require_pkce: true,
+          code_challenge_methods: "S256"
+        )
+
+        expect {
+          described_class.issue!(
+            plaintext_code: plaintext_code,
+            client_id: client.client_id,
+            redirect_uri: redirect_uri,
+            code_challenge: s256,
+            code_challenge_method: "s256"
+          )
+        }.not_to raise_error
+      end
+
       it "falls back to S256-only when client record is missing" do
         expect {
           described_class.issue!(
