@@ -26,6 +26,18 @@ RSpec.describe "StandardId config schema" do
     end
   end
 
+  describe "scope_resolver field" do
+    it "defaults to nil (built-in fallback reads request.path_parameters[:scope])" do
+      expect(StandardId.config.scope_resolver).to be_nil
+    end
+
+    it "round-trips a custom callable" do
+      resolver = ->(request:, session:) { :custom_scope }
+      allow(StandardId.config).to receive(:scope_resolver).and_return(resolver)
+      expect(StandardId.config.scope_resolver).to eq(resolver)
+    end
+  end
+
   describe "StandardId.scope_for" do
     around do |example|
       original_scopes = StandardId.config.scopes

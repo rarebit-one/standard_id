@@ -33,6 +33,10 @@ module StandardId
     # Default profile resolver when StandardId.config.profile_resolver is nil.
     DEFAULT_PROFILE_RESOLVER = ->(acct, pt) { acct.profiles.exists?(profileable_type: pt) }
 
+    # Default scope resolver when StandardId.config.scope_resolver is nil.
+    # Preserves the historical behaviour of reading :scope from route defaults.
+    DEFAULT_SCOPE_RESOLVER = ->(request:, session:) { request.path_parameters[:scope]&.to_sym }
+
     private
 
     # Invoke the before_sign_in hook if configured.
@@ -48,25 +52,23 @@ module StandardId
     #   - :provider [String, nil] e.g. "google", "apple", or nil
     #   - :first_sign_in [Boolean] whether this is the account's first browser session
     #   - :scope [Symbol, nil] scope name when scoped authentication is active
-    #   - :profile_type [String, nil] required profile type for the scope
+    #   - :profile_type [String, nil] first configured profile type for the scope (back-compat)
+    #   - :profile_types [Array<String>, nil] all configured profile types for the scope
     #   - :after_sign_in_path [String, nil] default redirect path for the scope
     # @return [void]
     # @raise [StandardId::AuthenticationDenied] when profile check fails or hook returns { error: "..." }
     def invoke_before_sign_in(account, context)
       scope_config = current_scope_config
       if scope_config
-        context = context.merge(
-          scope: scope_config.name,
-          profile_type: scope_config.profile_type,
-          after_sign_in_path: scope_config.after_sign_in_path
-        )
+        context = context.merge(scope_context(scope_config))
 
-        # Built-in profile check — runs before the app's custom hook
-        if scope_config.requires_profile?
-          resolver = StandardId.config.profile_resolver || DEFAULT_PROFILE_RESOLVER
-          unless resolver.call(account, scope_config.profile_type)
-            raise StandardId::AuthenticationDenied, scope_config.no_profile_message
-          end
+        # Built-in profile check and/or authorizer — runs before the app's custom hook.
+        # A scope may configure :authorizer without :profile_types (e.g. policy-only
+        # gates), so we must still run validate_scope_profile! in that case —
+        # otherwise the authorizer would be silently skipped and every sign-in
+        # granted regardless of its decision.
+        if scope_config.requires_profile? || scope_config.authorizer?
+          validate_scope_profile!(account, scope_config)
         end
       end
 
@@ -95,19 +97,14 @@ module StandardId
     #   - :first_sign_in [Boolean] whether this is the account's first browser session
     #   - :session [StandardId::Session] the session that was just created
     #   - :scope [Symbol, nil] scope name when scoped authentication is active
-    #   - :profile_type [String, nil] required profile type for the scope
+    #   - :profile_type [String, nil] first configured profile type for the scope (back-compat)
+    #   - :profile_types [Array<String>, nil] all configured profile types for the scope
     #   - :after_sign_in_path [String, nil] default redirect path for the scope
     # @return [String, nil] redirect path override, or nil for default
     # @raise [StandardId::AuthenticationDenied] to reject the sign-in
     def invoke_after_sign_in(account, context)
       scope_config = current_scope_config
-      if scope_config
-        context = context.merge(
-          scope: scope_config.name,
-          profile_type: scope_config.profile_type,
-          after_sign_in_path: scope_config.after_sign_in_path
-        )
-      end
+      context = context.merge(scope_context(scope_config)) if scope_config
 
       hook = StandardId.config.after_sign_in
       context = context.merge(
@@ -132,18 +129,13 @@ module StandardId
     #   - :mechanism [String] "passwordless", "social", or "signup"
     #   - :provider [String, nil] e.g. "google", "apple", or nil
     #   - :scope [Symbol, nil] scope name when scoped authentication is active
-    #   - :profile_type [String, nil] required profile type for the scope
+    #   - :profile_type [String, nil] first configured profile type for the scope (back-compat)
+    #   - :profile_types [Array<String>, nil] all configured profile types for the scope
     #   - :after_sign_in_path [String, nil] default redirect path for the scope
     # @return [void]
     def invoke_after_account_created(account, context)
       scope_config = current_scope_config
-      if scope_config
-        context = context.merge(
-          scope: scope_config.name,
-          profile_type: scope_config.profile_type,
-          after_sign_in_path: scope_config.after_sign_in_path
-        )
-      end
+      context = context.merge(scope_context(scope_config)) if scope_config
 
       hook = StandardId.config.after_account_created
       return unless hook.respond_to?(:call)
@@ -198,13 +190,87 @@ module StandardId
       end
     end
 
+    # Resolve the active scope name for the current request.
+    # Delegates to the app-configured :scope_resolver callable so apps can source
+    # the scope from subdomains, session state, or custom path params without
+    # overriding this concern.
+    # Memoized per request.
+    def current_scope_name
+      return @current_scope_name if defined?(@current_scope_name)
+      resolver = StandardId.config.scope_resolver
+      resolver = DEFAULT_SCOPE_RESOLVER unless resolver.respond_to?(:call)
+      session = session_manager.respond_to?(:current_session) ? session_manager.current_session : nil
+      @current_scope_name = resolver.call(request: request, session: session)
+    end
+
     # Look up the scope config for the current request.
-    # Reads :scope from route defaults (set by scoped route constraints).
     # Returns nil when no scope is active, preserving backward compatibility.
     # Memoized per request to avoid redundant ScopeConfig allocations.
     def current_scope_config
       return @current_scope_config if defined?(@current_scope_config)
-      @current_scope_config = StandardId.scope_for(request.path_parameters[:scope])
+      @current_scope_config = StandardId.scope_for(current_scope_name)
+    end
+
+    # Validate that the account has a profile matching one of the scope's configured
+    # profile_types, then (when configured) run the scope's custom :authorizer callable.
+    #
+    # Raises StandardId::AuthenticationDenied using the scope's no_profile_message when:
+    #   - no profile of any configured type exists, or
+    #   - the :authorizer returns a falsey value.
+    def validate_scope_profile!(account, scope_config)
+      resolver = StandardId.config.profile_resolver || DEFAULT_PROFILE_RESOLVER
+      matched_type = nil
+
+      if scope_config.requires_profile?
+        matched_type = scope_config.profile_types.find { |type| resolver.call(account, type) }
+
+        unless matched_type
+          raise StandardId::AuthenticationDenied, scope_config.no_profile_message
+        end
+      end
+
+      return unless scope_config.authorizer?
+
+      profile = matched_type ? resolve_profile_for_authorizer(account, matched_type) : nil
+      result = scope_config.authorizer.call(
+        account: account,
+        profile: profile,
+        scope: scope_config
+      )
+
+      unless result
+        raise StandardId::AuthenticationDenied, scope_config.no_profile_message
+      end
+    end
+
+    # Best-effort lookup of the matched profile record to pass into the :authorizer.
+    # Returns nil when the account does not expose a :profiles association of the
+    # expected shape — authorizers that need richer context can re-query from the
+    # account keyword arg.
+    #
+    # Rescue is narrowed to the structural cases we actually want to tolerate
+    # (missing methods / wrong types on a shape-mismatched association). DB-level
+    # errors are intentionally allowed to propagate so a transient outage isn't
+    # silently converted into "no profile found" and a denied sign-in.
+    def resolve_profile_for_authorizer(account, profile_type)
+      return nil unless account.respond_to?(:profiles)
+      relation = account.profiles
+      return nil unless relation.respond_to?(:find_by)
+      relation.find_by(profileable_type: profile_type)
+    rescue NoMethodError, TypeError
+      nil
+    end
+
+    # Build the hash of scope fields merged into lifecycle hook context.
+    # Includes the legacy :profile_type (singular) alongside :profile_types (plural)
+    # so existing hooks keep reading the same key.
+    def scope_context(scope_config)
+      {
+        scope: scope_config.name,
+        profile_type: scope_config.profile_type,
+        profile_types: scope_config.profile_types,
+        after_sign_in_path: scope_config.after_sign_in_path
+      }
     end
   end
 end

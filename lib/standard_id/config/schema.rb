@@ -20,12 +20,25 @@ StandardConfig.schema.draw do
     field :alias_current_user, type: :boolean, default: false
 
     # Scope-aware authentication: maps scope names to profile-based access config.
-    # Each scope is a hash with keys: :profile_type, :after_sign_in_path,
-    # :no_profile_message, :label, :allow_registration.
+    # Each scope is a hash with keys: :profile_types (Array<String>), :after_sign_in_path,
+    # :no_profile_message, :label, :allow_registration, :authorizer.
+    # The legacy :profile_type (singular String) key is still accepted for backward
+    # compatibility and coerced into a single-element :profile_types array (deprecation
+    # warning fires on use).
     field :scopes, type: :any, default: {}
 
+    # Callable that resolves the active scope name for a given request/session.
+    # Receives keyword args (request:, session:) and must return a Symbol (or nil).
+    # Default (nil) reads :scope from route defaults — preserving the original behaviour.
+    # Override to derive the scope from subdomains, session state, custom path
+    # parameters (e.g. :control_plane), or any other app-specific mechanism.
+    # See StandardId::LifecycleHooks::DEFAULT_SCOPE_RESOLVER for the built-in fallback.
+    field :scope_resolver, type: :any, default: nil
+
     # Callable that resolves whether an account has a profile for a given scope.
-    # Receives (account, profile_type) and returns true/false.
+    # Receives (account, profile_type) and returns true/false — for single-type scopes
+    # this keeps the historical signature; for multi-type scopes, the resolver is
+    # invoked once per configured profile_type and any truthy return satisfies the check.
     # Override to customise profile lookup logic.
     # Default (nil) uses: account.profiles.exists?(profileable_type: profile_type)
     field :profile_resolver, type: :any, default: nil
