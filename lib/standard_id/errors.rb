@@ -136,4 +136,9 @@ module StandardId
   class InvalidSignatureError < InvalidTokenError; end
   class InvalidAlgorithmError < InvalidTokenError; end
   class InvalidAudienceTokenError < InvalidTokenError; end
+
+  # Raised for engine misconfiguration — a required config value is missing,
+  # malformed, or points at a non-callable. Always indicates a host-app bug
+  # at boot or first-use; never surfaced to end users.
+  class ConfigurationError < StandardError; end
 end

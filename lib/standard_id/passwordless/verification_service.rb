@@ -1,5 +1,9 @@
 module StandardId
   module Passwordless
+    # Shared canonical realm used by the authentication flow. Kept in one
+    # place so BaseStrategy, VerificationService, and Otp can't drift.
+    DEFAULT_REALM = "authentication".freeze
+
     class VerificationService
       # Result object returned by .verify.
       # - success?: true/false
@@ -57,7 +61,7 @@ module StandardId
         #     render_error(result.error)
         #   end
         #
-        def verify(email: nil, phone: nil, code:, request:, connection: nil, username: nil, allow_registration: true, realm: "authentication", resolve_account: true)
+        def verify(email: nil, phone: nil, code:, request:, connection: nil, username: nil, allow_registration: true, realm: DEFAULT_REALM, resolve_account: true)
           # Allow callers to use connection:/username: instead of email:/phone:
           if connection.present?
             if username.blank?
@@ -75,7 +79,7 @@ module StandardId
         end
       end
 
-      def initialize(email: nil, phone: nil, code:, request:, allow_registration: true, realm: "authentication", resolve_account: true)
+      def initialize(email: nil, phone: nil, code:, request:, allow_registration: true, realm: DEFAULT_REALM, resolve_account: true)
         @code = code.to_s.strip
         @request = request
         @allow_registration = allow_registration

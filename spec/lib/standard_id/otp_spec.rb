@@ -178,6 +178,47 @@ RSpec.describe StandardId::Otp do
         expect(result.error_code).to eq(:invalid_request)
         expect(result.error_message).to match(/email/i)
       end
+
+      it "returns :invalid_request for a blank target" do
+        result = described_class.issue(
+          realm: realm, target: "   ", channel: :email,
+          request: request, delivery: :manual
+        )
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:invalid_request)
+        expect(result.error_message).to match(/target: is required/)
+      end
+
+      it "returns :invalid_request for a nil target" do
+        result = described_class.issue(
+          realm: realm, target: nil, channel: :email,
+          request: request, delivery: :manual
+        )
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:invalid_request)
+      end
+
+      it "raises ConfigurationError when :custom delivery is chosen without an email sender" do
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
+
+        expect {
+          described_class.issue(
+            realm: realm, target: email, channel: :email,
+            request: request, delivery: :custom
+          )
+        }.to raise_error(StandardId::ConfigurationError, /passwordless_email_sender/)
+      end
+
+      it "raises ConfigurationError when :custom delivery is chosen without an SMS sender" do
+        allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
+
+        expect {
+          described_class.issue(
+            realm: realm, target: "+15551234567", channel: :sms,
+            request: request, delivery: :custom
+          )
+        }.to raise_error(StandardId::ConfigurationError, /passwordless_sms_sender/)
+      end
     end
 
     context "without a request" do
@@ -237,7 +278,7 @@ RSpec.describe StandardId::Otp do
       expect(result.error_code).to eq(:not_found)
     end
 
-    it "returns :expired for expired challenges" do
+    it "returns :not_found for expired challenges (filtered out by .active scope)" do
       StandardId::CodeChallenge.create!(
         realm: realm, channel: "email", target: email,
         code: "123456", expires_at: 1.minute.ago
@@ -250,7 +291,7 @@ RSpec.describe StandardId::Otp do
 
       expect(result.success?).to be false
       # When the challenge is expired, VerificationService's .active scope
-      # filters it out so the result is :not_found.
+      # filters it out so the result is :not_found, not :expired.
       expect(result.error_code).to eq(:not_found)
     end
 
@@ -284,6 +325,52 @@ RSpec.describe StandardId::Otp do
 
       expect(result.success?).to be false
       expect(result.error_code).to eq(:blank_code)
+    end
+
+    context "sms channel" do
+      let(:phone) { "+15551234567" }
+
+      it "verifies a freshly issued manual-delivery SMS code" do
+        issued = described_class.issue(
+          realm: realm, target: phone, channel: :sms,
+          request: request, delivery: :manual
+        )
+
+        result = described_class.verify(
+          realm: realm, target: phone, channel: :sms,
+          code: issued.code, request: request
+        )
+
+        expect(result.success?).to be true
+        expect(result.challenge).to be_used
+      end
+
+      it "returns :not_found for a missing SMS challenge" do
+        result = described_class.verify(
+          realm: realm, target: phone, channel: :sms,
+          code: "000000", request: request
+        )
+
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:not_found)
+      end
+
+      it "does not cross realms across SMS / email for the same target" do
+        issued_email = described_class.issue(
+          realm: realm, target: "mix@example.com", channel: :email,
+          request: request, delivery: :manual
+        )
+
+        # A phone-channel verify with the same code must not match the
+        # email-channel challenge.
+        result = described_class.verify(
+          realm: realm, target: phone, channel: :sms,
+          code: issued_email.code, request: request
+        )
+
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:not_found)
+      end
     end
   end
 

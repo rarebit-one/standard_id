@@ -3,7 +3,7 @@ module StandardId
     class BaseStrategy
       attr_reader :request, :realm
 
-      def initialize(request, realm: "authentication")
+      def initialize(request, realm: StandardId::Passwordless::DEFAULT_REALM)
         @request = request
         @realm = realm.to_s
       end

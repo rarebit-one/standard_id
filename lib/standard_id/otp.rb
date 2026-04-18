@@ -56,7 +56,9 @@ module StandardId
   module Otp
     VALID_CHANNELS  = %w[email sms].freeze
     VALID_DELIVERIES = %i[built_in custom manual].freeze
-    DEFAULT_REALM    = "authentication".freeze
+    # Canonical realm for authentication flows. Aliased to the Passwordless
+    # constant so the string lives in exactly one place.
+    DEFAULT_REALM    = StandardId::Passwordless::DEFAULT_REALM
 
     # Result returned by .issue.
     #
@@ -66,8 +68,9 @@ module StandardId
     # - error_code: machine-readable symbol on failure
     # - error_message: human-readable message on failure
     IssueResult = Data.define(:success?, :challenge, :code, :error_code, :error_message) do
-      # Back-compat alias so callers can write +result.error+ like the
-      # VerificationService Result.
+      # Parallel naming with VerificationService::Result, which exposes the
+      # human-readable message as #error. Kept as an alias so callers can mix
+      # issue/verify results without remembering which accessor is which.
       def error = error_message
     end
 
@@ -90,14 +93,14 @@ module StandardId
       # @param delivery [Symbol] :built_in, :custom, or :manual (see above).
       # @return [IssueResult]
       def issue(realm:, target:, channel: :email, request: nil, code_length: nil, expires_in: nil, metadata: {}, delivery: :built_in)
-        channel_s  = channel.to_s
-        realm_s    = realm.to_s
-        delivery_s = delivery.to_sym
+        channel_s    = channel.to_s
+        realm_s      = realm.to_s
+        delivery_sym = delivery.to_sym
 
         unless VALID_CHANNELS.include?(channel_s)
           raise StandardId::InvalidRequestError, "Unsupported channel: #{channel.inspect} (must be :email or :sms)"
         end
-        unless VALID_DELIVERIES.include?(delivery_s)
+        unless VALID_DELIVERIES.include?(delivery_sym)
           raise StandardId::InvalidRequestError, "Unsupported delivery: #{delivery.inspect} (must be :built_in, :custom, or :manual)"
         end
         if realm_s.blank?
@@ -109,6 +112,13 @@ module StandardId
           return failure_issue_result(:invalid_request, "target: is required")
         end
 
+        # Fail loud when the caller asked for :custom delivery but has not
+        # configured the corresponding sender callback. Without this guard
+        # BaseStrategy#start! would silently skip delivery (the sender_callback
+        # is nil and `&.call` no-ops) while Otp.issue still returned a success
+        # result — making host apps believe the OTP was sent when it was not.
+        assert_custom_sender_configured!(channel_s) if delivery_sym == :custom
+
         strategy = build_strategy(channel_s, request, realm: realm_s)
 
         begin
@@ -117,7 +127,7 @@ module StandardId
             code_length: code_length,
             expires_in: normalize_expires_in(expires_in),
             metadata: metadata,
-            skip_sender: delivery_s == :manual
+            skip_sender: delivery_sym == :manual
           )
         rescue StandardId::InvalidRequestError => e
           # Validation failures from the strategy (invalid email/phone format,
@@ -130,7 +140,7 @@ module StandardId
         IssueResult.new(
           success?: true,
           challenge: challenge,
-          code: delivery_s == :manual ? challenge.code : nil,
+          code: delivery_sym == :manual ? challenge.code : nil,
           error_code: nil,
           error_message: nil
         )
@@ -215,6 +225,17 @@ module StandardId
           error_code: error_code,
           error_message: error_message
         )
+      end
+
+      def assert_custom_sender_configured!(channel)
+        attr = channel == "email" ? :passwordless_email_sender : :passwordless_sms_sender
+        sender = StandardId.config.public_send(attr)
+        return if sender.respond_to?(:call)
+
+        raise StandardId::ConfigurationError,
+          "Otp.issue(delivery: :custom) requires StandardId.config.#{attr} to be a callable " \
+          "(got #{sender.inspect}). Configure it in an initializer, or use delivery: :built_in " \
+          "to let the engine's event subscriber deliver, or delivery: :manual to receive the raw code."
       end
     end
 
