@@ -1,4 +1,7 @@
 module StandardId
+  # Configuration errors
+  class ConfigurationError < StandardError; end
+
   # Session errors
   class NotAuthenticatedError < StandardError; end
 

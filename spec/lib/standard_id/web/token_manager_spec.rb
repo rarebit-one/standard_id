@@ -9,6 +9,8 @@ RSpec.describe StandardId::Web::TokenManager do
   let(:password_credential) { double("PasswordCredential", generate_token_for: "remember_token") }
   let(:cookies) { {} }
 
+  after { StandardId.config.session.session_type_resolver = nil }
+
   describe "#create_browser_session" do
     before do
       allow(StandardId::BrowserSession).to receive(:create!).and_return(browser_session)
@@ -30,6 +32,44 @@ RSpec.describe StandardId::Web::TokenManager do
         result = token_manager.create_browser_session(account)
         expect(result).to eq(browser_session)
       end
+    end
+  end
+
+  describe "#create_browser_session with session_type_resolver override" do
+    let(:real_account) { Account.create!(name: "User", email: "user@example.com") }
+    let(:real_request) do
+      instance_double(
+        ActionDispatch::Request,
+        remote_ip: "127.0.0.1",
+        user_agent: "AdminKit/1.0 Android",
+        ssl?: false
+      )
+    end
+    let(:real_token_manager) { described_class.new(real_request) }
+
+    it "defaults to BrowserSession when the resolver is not configured" do
+      session = real_token_manager.create_browser_session(real_account)
+      expect(session).to be_a(StandardId::BrowserSession)
+      expect(session.user_agent).to eq("AdminKit/1.0 Android")
+    end
+
+    it "creates a DeviceSession when the resolver returns :device for :web_sign_in" do
+      StandardId.config.session.session_type_resolver = lambda { |request:, account:, flow:|
+        flow == :web_sign_in && request.user_agent.to_s.include?("AdminKit") ? :device : :browser
+      }
+
+      session = real_token_manager.create_browser_session(real_account)
+
+      expect(session).to be_a(StandardId::DeviceSession)
+      expect(session.device_agent).to eq("AdminKit/1.0 Android")
+      expect(session.device_id).to be_present
+    end
+
+    it "raises ConfigurationError if resolver returns a session class with incompatible attrs (e.g. :service)" do
+      StandardId.config.session.session_type_resolver = ->(**) { :service }
+
+      expect { real_token_manager.create_browser_session(real_account) }
+        .to raise_error(StandardId::ConfigurationError, /web sign-in cannot infer the attributes/)
     end
   end
 

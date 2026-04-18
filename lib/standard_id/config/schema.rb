@@ -123,6 +123,30 @@ StandardConfig.schema.draw do
     field :browser_session_remember_me_lifetime, type: :integer, default: 2592000 # 30 days in seconds
     field :device_session_lifetime, type: :integer, default: 2592000 # 30 days in seconds
     field :service_session_lifetime, type: :integer, default: 7776000 # 90 days in seconds
+
+    # Callable that resolves the session class to create for a given auth flow.
+    # Receives keyword arguments (request:, account:, flow:) and must return one of:
+    #   StandardId::BrowserSession, StandardId::DeviceSession, StandardId::ServiceSession,
+    #   the symbols :browser / :device / :service (mapped to the classes above),
+    #   or nil/false to skip session creation (only honoured for flows where the
+    #   gem does not currently persist a session — see default resolver below).
+    #
+    # Flow symbols currently emitted by the gem:
+    #   :web_sign_in         — Web sign-in (password / passwordless / social).
+    #                          Default: :browser
+    #   :api_device_auth     — Api::TokenManager#create_device_session.
+    #                          Default: :device
+    #   :api_service_auth    — Api::TokenManager#create_service_session.
+    #                          Default: :service
+    #   :oauth_token_issued  — OAuth token grant just issued a JWT. Default
+    #                          behaviour is to NOT persist a session (the gem
+    #                          historically only returned a JWT). Override this
+    #                          flow to have the gem persist a session (e.g.
+    #                          DeviceSession) for native mobile OAuth flows.
+    #
+    # When nil (default), the gem uses a built-in resolver that mirrors the
+    # gem's historical behaviour for each flow.
+    field :session_type_resolver, type: :any, default: nil
   end
 
   scope :oauth do
