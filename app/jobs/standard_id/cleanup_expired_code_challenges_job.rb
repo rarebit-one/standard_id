@@ -22,9 +22,18 @@ module StandardId
       expired_cutoff = grace_period_seconds.seconds.ago
       used_cutoff = used_grace_period_seconds.seconds.ago
 
+      # See CleanupExpiredAuthorizationCodesJob for the rationale — the two
+      # windows govern disjoint sets of rows and a naive OR lets the expired
+      # arm prune recently-used challenges out from under the used grace
+      # window. Unused challenges follow `expires_at`; used challenges follow
+      # `used_at`.
       deleted = StandardId::CodeChallenge
-        .where("expires_at < :expired_cutoff OR used_at < :used_cutoff",
-               expired_cutoff: expired_cutoff, used_cutoff: used_cutoff)
+        .where(
+          "(expires_at < :expired_cutoff AND used_at IS NULL) " \
+            "OR used_at < :used_cutoff",
+          expired_cutoff: expired_cutoff,
+          used_cutoff: used_cutoff
+        )
         .delete_all
 
       Rails.logger.info(

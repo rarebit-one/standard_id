@@ -24,9 +24,22 @@ module StandardId
       expired_cutoff = grace_period_seconds.seconds.ago
       consumed_cutoff = consumed_grace_period_seconds.seconds.ago
 
+      # The two windows govern disjoint sets of rows:
+      #   - Unconsumed codes: ruled by `expires_at < expired_cutoff`.
+      #   - Consumed codes:   ruled by `consumed_at < consumed_cutoff`.
+      #
+      # A naive `expires_at < :expired_cutoff OR consumed_at < :consumed_cutoff`
+      # would let the expired arm delete a consumed-12-hours-ago row whose
+      # `expires_at` sits 8 days in the past — defeating the consumed grace
+      # window's whole purpose. Scoping the expired clause to `consumed_at IS
+      # NULL` keeps consumed rows under the consumed window exclusively.
       deleted = StandardId::AuthorizationCode
-        .where("expires_at < :expired_cutoff OR consumed_at < :consumed_cutoff",
-               expired_cutoff: expired_cutoff, consumed_cutoff: consumed_cutoff)
+        .where(
+          "(expires_at < :expired_cutoff AND consumed_at IS NULL) " \
+            "OR consumed_at < :consumed_cutoff",
+          expired_cutoff: expired_cutoff,
+          consumed_cutoff: consumed_cutoff
+        )
         .delete_all
 
       Rails.logger.info(

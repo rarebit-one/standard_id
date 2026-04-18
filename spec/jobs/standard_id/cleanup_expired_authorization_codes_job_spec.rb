@@ -47,6 +47,22 @@ RSpec.describe StandardId::CleanupExpiredAuthorizationCodesJob, type: :job do
       expect(StandardId::AuthorizationCode.exists?(recent_consumed.id)).to be true
     end
 
+    it "preserves codes consumed within the consumed window even if expires_at is past the expired window" do
+      # Regression for the expired-arm-of-OR bug: a code consumed 1 hour
+      # ago (well inside the 1-day consumed window) but issued 30 days ago
+      # (expires_at far past the 7-day expired window). The old query
+      # deleted this row because the expired arm fired independently; the
+      # fixed query scopes the expired arm to unconsumed rows.
+      recently_consumed_old_code = create_code(
+        expires_at: 30.days.ago,
+        consumed_at: 1.hour.ago
+      )
+
+      described_class.new.perform
+
+      expect(StandardId::AuthorizationCode.exists?(recently_consumed_old_code.id)).to be true
+    end
+
     it "preserves active codes" do
       active_code = create_code(expires_at: 5.minutes.from_now)
 

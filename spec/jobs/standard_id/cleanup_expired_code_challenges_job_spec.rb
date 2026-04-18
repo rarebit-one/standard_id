@@ -46,6 +46,22 @@ RSpec.describe StandardId::CleanupExpiredCodeChallengesJob, type: :job do
       expect(StandardId::CodeChallenge.exists?(recent_used.id)).to be true
     end
 
+    it "preserves challenges used within the used window even if expires_at is past the expired window" do
+      # Regression for the expired-arm-of-OR bug: a challenge used 1 hour
+      # ago (inside the 1-day used window) but with expires_at set 30
+      # days ago (past the 7-day expired window). The old query deleted
+      # this row because the expired arm fired independently; the fixed
+      # query scopes the expired arm to rows where used_at IS NULL.
+      recently_used_old_challenge = create_challenge(
+        expires_at: 30.days.ago,
+        used_at: 1.hour.ago
+      )
+
+      described_class.new.perform
+
+      expect(StandardId::CodeChallenge.exists?(recently_used_old_challenge.id)).to be true
+    end
+
     it "preserves active challenges" do
       active_challenge = create_challenge(expires_at: 5.minutes.from_now)
 
