@@ -42,6 +42,17 @@ module StandardId
         device_id = stable_device_id(account: account, user_agent: user_agent, audience: audience)
         ip_address = StandardId::Utils::IpNormalizer.normalize(request.remote_ip)
 
+        # Serialize concurrent upserts for the same account. There's no
+        # DB-level unique constraint on (account_id, device_id), so a raw
+        # find_by + create! would TOCTOU-race two concurrent token requests
+        # for the same device into two duplicate rows. We acquire a SELECT
+        # ... FOR UPDATE on the account row to serialize — account.with_lock
+        # is unavailable because StandardId::AccountLocking overrides lock!
+        # with a business-level method that takes a :reason kwarg.
+        # The outer transaction (opened by TokenGrantFlow#generate_token_response)
+        # releases the lock on commit/rollback.
+        account.class.where(id: account.id).lock.first
+
         existing = StandardId::DeviceSession.find_by(account: account, device_id: device_id)
         if existing
           existing.update!(

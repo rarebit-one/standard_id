@@ -26,9 +26,15 @@ module StandardId
       when :api_service_auth then :service
       when :oauth_token_issued then nil # gem historically persists no session here
       else
-        # Unknown flow — conservative default of :browser so third-party callers
-        # adding new flows don't crash. Specific callsites override via resolve!.
-        :browser
+        # Unknown flow — raise loudly rather than silently defaulting to :browser.
+        # A misspelled flow symbol or a newly-added flow that forgot to register
+        # here would otherwise mint a BrowserSession with no indication anything
+        # was wrong. Host apps that add custom flows are expected to supply
+        # their own resolver.
+        raise StandardId::ConfigurationError,
+          "session_type_resolver: unknown flow #{flow.inspect}. " \
+          "Configure StandardId.config.session.session_type_resolver to handle it, " \
+          "or use one of: :web_sign_in, :api_device_auth, :api_service_auth, :oauth_token_issued."
       end
     }
 

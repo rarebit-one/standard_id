@@ -136,4 +136,47 @@ RSpec.describe "OAuth session_type_resolver integration" do
       end
     }.not_to change(StandardId::RefreshToken, :count)
   end
+
+  it "rolls back the refresh token row when session persistence raises a DB error" do
+    setup_account_for_admin_kit
+
+    StandardId.config.session.session_type_resolver = ->(**) { :device }
+
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+    # Simulate an unexpected DB failure during session persistence. Previously
+    # the outer `rescue StandardError` would swallow this, leaving the DB
+    # transaction aborted and the commit path raising StatementInvalid. Now
+    # the persistence exception propagates and rolls back the refresh token.
+    allow(StandardId::Oauth::OauthSessionPersistence).to receive(:persist!)
+      .and_raise(ActiveRecord::StatementInvalid.new("boom"))
+
+    expect {
+      begin
+        StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+      rescue ActiveRecord::StatementInvalid
+        # Expected — verify side-effects below.
+      end
+    }.not_to change(StandardId::RefreshToken, :count)
+  end
+
+  it "logs and continues (still returns tokens) when a resolver lambda raises a non-config error" do
+    setup_account_for_admin_kit
+
+    raised = false
+    StandardId.config.session.session_type_resolver = lambda { |request:, account:, flow:|
+      raised = true
+      raise "buggy host-app resolver" if flow == :oauth_token_issued
+      nil
+    }
+
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+    logger = instance_double(Logger, error: nil)
+    allow(StandardId.config).to receive(:logger).and_return(logger)
+
+    response = StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+
+    expect(raised).to be true
+    expect(response[:access_token]).to eq("jwt-token")
+    expect(logger).to have_received(:error).with(/session_type_resolver raised/)
+  end
 end

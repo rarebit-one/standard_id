@@ -30,6 +30,12 @@ RSpec.describe StandardId::SessionTypeResolver do
           described_class.resolve!(request: request, account: account, flow: :oauth_token_issued)
         }.to raise_error(StandardId::ConfigurationError, /returned nil for flow :oauth_token_issued/)
       end
+
+      it "raises ConfigurationError for an unknown flow symbol (no silent :browser fallback)" do
+        expect {
+          described_class.resolve!(request: request, account: account, flow: :some_typo)
+        }.to raise_error(StandardId::ConfigurationError, /unknown flow :some_typo/)
+      end
     end
 
     context "with a custom resolver" do

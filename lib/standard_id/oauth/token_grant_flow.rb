@@ -49,10 +49,15 @@ module StandardId
 
         response[:scope] = token_scope if token_scope.present?
 
-        # Wrap both DB writes in a single transaction: a ConfigurationError
-        # from session persistence (or any error during the session side-effect)
-        # must roll back the refresh-token row inserted above, otherwise we
-        # leave an orphaned, unusable refresh token that the client never saw.
+        # Wrap both DB writes in a single transaction so that any error
+        # propagated out of maybe_persist_session_for_token! — a
+        # ConfigurationError from the resolver, or a DB error from the
+        # persistence layer — rolls back the refresh-token row inserted
+        # above. Otherwise we'd leave an orphaned, unusable refresh token
+        # the client never saw. A resolver that itself raises a non-config
+        # StandardError is still logged-and-swallowed inside the helper
+        # (see there for why) — that path is safe because the swallowed
+        # exception fires before any DB work in this block.
         ActiveRecord::Base.transaction do
           response[:refresh_token] = generate_refresh_token if supports_refresh_token?
           maybe_persist_session_for_token!
@@ -70,11 +75,29 @@ module StandardId
         account = token_account
         return if account.nil?
 
-        session_class = StandardId::SessionTypeResolver.resolve_optional(
-          request: request,
-          account: account,
-          flow: :oauth_token_issued
-        )
+        # Only the resolver call is guarded: a buggy host-app resolver lambda
+        # shouldn't torpedo the token response. Persistence errors must NOT
+        # be swallowed here — we're inside an outer DB transaction, and a
+        # swallowed ActiveRecord error would leave the connection's
+        # transaction in an aborted state. Rails would then try to COMMIT,
+        # Postgres would reject it, and the caller would receive a confusing
+        # StatementInvalid instead of either a token or a clear error.
+        session_class =
+          begin
+            StandardId::SessionTypeResolver.resolve_optional(
+              request: request,
+              account: account,
+              flow: :oauth_token_issued
+            )
+          rescue StandardId::ConfigurationError
+            raise
+          rescue StandardError => e
+            StandardId.config.logger&.error(
+              "[StandardId] session_type_resolver raised during :oauth_token_issued: " \
+              "#{e.class} #{e.message}"
+            )
+            return
+          end
         return if session_class.nil?
 
         StandardId::Oauth::OauthSessionPersistence.persist!(
@@ -83,13 +106,6 @@ module StandardId
           request: request,
           audience: audience,
           grant_type: grant_type
-        )
-      rescue StandardId::ConfigurationError
-        raise
-      rescue StandardError => e
-        StandardId.config.logger&.error(
-          "[StandardId] session_type_resolver raised during :oauth_token_issued: " \
-          "#{e.class} #{e.message}"
         )
       end
 
