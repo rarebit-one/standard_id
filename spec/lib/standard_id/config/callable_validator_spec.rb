@@ -1,22 +1,27 @@
 require "rails_helper"
 
 RSpec.describe StandardId::Config::CallableValidator do
-  FIELDS_TO_SNAPSHOT = %w[
-    profile_resolver
-    sentry_context
-    after_account_created
-    before_sign_in
-    after_sign_in
-    passwordless.username_validator
-    passwordless.account_factory
-    oauth.custom_claims
-    oauth.claim_resolvers
-  ].freeze
+  # Defined as `let` rather than a constant inside `describe` — Ruby hoists
+  # constants inside `RSpec.describe` to the top level, which collides with
+  # any other spec defining the same name.
+  let(:fields_to_snapshot) do
+    %w[
+      profile_resolver
+      sentry_context
+      after_account_created
+      before_sign_in
+      after_sign_in
+      passwordless.username_validator
+      passwordless.account_factory
+      oauth.custom_claims
+      oauth.claim_resolvers
+    ].freeze
+  end
 
   # Snapshot each configured field and restore it afterwards so mutations
   # inside one example do not leak into the next.
   around do |example|
-    snapshot = FIELDS_TO_SNAPSHOT.to_h { |path| [path, read_field(path)] }
+    snapshot = fields_to_snapshot.to_h { |path| [path, read_field(path)] }
     example.run
   ensure
     snapshot.each { |path, value| write_field(path, value) }

@@ -17,10 +17,12 @@ if [ ! -f spec/dummy/storage/development.sqlite3 ]; then
   bundle exec rake app:db:setup
 fi
 
-if ! gem list foreman -i --silent; then
-  echo "Installing foreman..."
-  gem install foreman
-fi
+# Let the debug gem allow remote connections,
+# but avoid loading until `debugger` is called.
+# Exported before the process-manager selection so overmind/hivemind/foreman
+# paths all inherit the configuration.
+export RUBY_DEBUG_OPEN="true"
+export RUBY_DEBUG_LAZY="true"
 
 if command -v overmind 1> /dev/null 2>&1
 then
@@ -33,9 +35,4 @@ then
   cd spec/dummy && exec hivemind Procfile.dev "$@"
 fi
 
-# Let the debug gem allow remote connections,
-# but avoid loading until `debugger` is called
-export RUBY_DEBUG_OPEN="true"
-export RUBY_DEBUG_LAZY="true"
-
-cd spec/dummy && exec foreman start -f Procfile.dev "$@"
+cd spec/dummy && exec bundle exec foreman start -f Procfile.dev "$@"
