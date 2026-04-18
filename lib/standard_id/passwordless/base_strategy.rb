@@ -1,10 +1,11 @@
 module StandardId
   module Passwordless
     class BaseStrategy
-      attr_reader :request
+      attr_reader :request, :realm
 
-      def initialize(request)
+      def initialize(request, realm: StandardId::Passwordless::DEFAULT_REALM)
         @request = request
+        @realm = realm.to_s
       end
 
       def connection_type
@@ -12,35 +13,47 @@ module StandardId
       end
 
       # Start flow: validate recipient, create challenge, and trigger sender
-      # attrs: { connection:, username: }
+      # attrs: { connection:, username:, code_length:, expires_in:, metadata:, skip_sender: }
       def start!(attrs)
         username = attrs[:username]
+        code_length = attrs[:code_length]
+        expires_in = attrs[:expires_in]
+        metadata = attrs[:metadata] || {}
+        skip_sender = attrs[:skip_sender] == true
+
         validate_username!(username)
         run_username_validator!(username)
         emit_code_requested(username)
-        challenge = create_challenge!(username)
+        challenge = create_challenge!(
+          username,
+          code_length: code_length,
+          expires_in: expires_in,
+          metadata: metadata
+        )
         emit_code_generated(challenge, username)
-        sender_callback&.call(username, challenge.code)
-        emit_code_sent(username)
+        sender_callback&.call(username, challenge.code) unless skip_sender
+        emit_code_sent(username) unless skip_sender
         challenge
       end
 
       protected
 
-      def create_challenge!(username)
+      def create_challenge!(username, code_length: nil, expires_in: nil, metadata: {})
         ActiveRecord::Base.transaction do
           invalidate_active_challenges!(username)
 
-          code = generate_otp_code
+          code = generate_otp_code(code_length: code_length)
+          ttl  = expires_in || StandardId.config.passwordless.code_ttl.seconds
 
           StandardId::CodeChallenge.create!(
-            realm: "authentication",
+            realm: @realm,
             channel: connection_type,
             target: username,
             code: code,
-            expires_at: StandardId.config.passwordless.code_ttl.seconds.from_now,
+            expires_at: ttl.from_now,
             ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
-            user_agent: request.user_agent
+            user_agent: request.user_agent,
+            metadata: metadata
           )
         end
       end
@@ -50,12 +63,17 @@ module StandardId
       # hooks today. If callbacks are added to CodeChallenge#use!, revisit this.
       def invalidate_active_challenges!(username)
         StandardId::CodeChallenge.active
-          .where(realm: "authentication", channel: connection_type, target: username)
+          .where(realm: @realm, channel: connection_type, target: username)
           .update_all(used_at: Time.current)
       end
 
-      def generate_otp_code
-        (SecureRandom.random_number(900_000) + 100_000).to_s
+      def generate_otp_code(code_length: nil)
+        length = (code_length || 6).to_i
+        raise StandardId::InvalidRequestError, "code_length must be between 4 and 10" unless length.between?(4, 10)
+
+        # Left-pad with zeros so all codes are exactly `length` digits, even
+        # when SecureRandom returns a small value (e.g. 42 -> "000042").
+        SecureRandom.random_number(10**length).to_s.rjust(length, "0")
       end
 
       def validate_username!(_username)
@@ -129,7 +147,8 @@ module StandardId
         StandardId::Events.publish(
           StandardId::Events::PASSWORDLESS_CODE_REQUESTED,
           identifier: username,
-          channel: connection_type
+          channel: connection_type,
+          realm: @realm
         )
       end
 
@@ -139,6 +158,7 @@ module StandardId
           code_challenge: challenge,
           identifier: username,
           channel: connection_type,
+          realm: @realm,
           expires_at: challenge.expires_at
         )
       end
@@ -148,6 +168,7 @@ module StandardId
           StandardId::Events::PASSWORDLESS_CODE_SENT,
           identifier: username,
           channel: connection_type,
+          realm: @realm,
           delivery_status: "sent"
         )
       end

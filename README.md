@@ -404,6 +404,56 @@ Event payload includes:
 
 > **Note**: If you're using the deprecated `passwordless_email_sender` or `passwordless_sms_sender` callbacks, see the [Migration Guide](docs/MIGRATION_GUIDE.md) for upgrade instructions.
 
+### Using OTP for non-authentication flows
+
+The same hardened OTP machinery (enumeration defense, atomic attempt tracking, pessimistic locking, bypass_code hook) is exposed as a public primitive via `StandardId::Otp`. Use it when you need one-time codes for purposes *other* than authentication — contact verification widgets, step-up challenges, custom confirmation flows, etc.
+
+```ruby
+# Issue a code — caller handles delivery
+result = StandardId::Otp.issue(
+  realm: "widget_contact_verification",
+  target: "user@example.com",
+  channel: :email,
+  request: request,
+  delivery: :manual
+)
+
+MyMailer.widget_otp(result.challenge.target, result.code).deliver_later
+
+# Verify the code
+result = StandardId::Otp.verify(
+  realm: "widget_contact_verification",
+  target: params[:email],
+  channel: :email,
+  code: params[:otp],
+  request: request
+)
+
+if result.success?
+  # Code is valid — proceed with the action.
+else
+  case result.error_code
+  when :not_found, :invalid_code then render_error("Invalid code")
+  when :expired                  then render_error("Code expired")
+  when :max_attempts             then render_error("Too many attempts")
+  end
+end
+```
+
+**Delivery modes for `Otp.issue`:**
+
+| Mode        | Behavior                                                                 |
+|-------------|--------------------------------------------------------------------------|
+| `:built_in` | Uses the engine's bundled `PasswordlessMailer` (email only).             |
+| `:custom`   | Invokes `passwordless_email_sender` / `passwordless_sms_sender` callback.|
+| `:manual`   | Skips delivery; returns the raw `code` on the result for caller to deliver. |
+
+**Realm isolation.** `realm:` is a free-form string that partitions challenges by purpose. A code issued for realm `"widget_contact_verification"` cannot be used to verify against realm `"authentication"` (or any other realm) — even for the same `target`. Choose a stable string per flow.
+
+**Bypass code (E2E testing).** When `StandardId.config.passwordless.bypass_code` is set (and `Rails.env` is not `"production"`), `Otp.verify` accepts the bypass code for **any realm**. This replaces per-app bypass ENV checks and works consistently across `Otp.verify` and the built-in passwordless login flow. Never set `bypass_code` in production — it will raise if you try.
+
+**Back-compat.** The existing passwordless authentication flow continues to work unchanged. `Otp.issue`/`Otp.verify` are a new addition — you can migrate direct `CodeChallenge.create!` calls at your own pace.
+
 ## Event System
 
 StandardId emits events throughout the authentication lifecycle using `ActiveSupport::Notifications`. This enables decoupled handling of cross-cutting concerns like logging, analytics, audit trails, and webhooks.

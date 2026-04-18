@@ -82,7 +82,12 @@ StandardConfig.schema.draw do
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
     field :max_attempts, type: :integer, default: 3
     field :retry_delay, type: :integer, default: 30 # 30 seconds
-    field :bypass_code, type: :string, default: nil # E2E testing only — NEVER set in production
+    # Bypass code for E2E testing — NEVER set in production (raises).
+    # When set and Rails.env != "production", this code is accepted by
+    # both the built-in passwordless login and by StandardId::Otp.verify
+    # for *any* realm. Use a long, non-guessable value and unset it
+    # outside test environments.
+    field :bypass_code, type: :string, default: nil
 
     # Custom username validator for passwordless flows.
     # When set, called before OTP generation to validate the recipient address.
