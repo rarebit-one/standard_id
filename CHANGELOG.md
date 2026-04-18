@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-04-18
+
+### Added
+
+- **`StandardId::Otp` public primitive** — New realm-parameterized module (`Otp.issue` / `Otp.verify`) that wraps the hardened passwordless `VerificationService`. Enables OTP flows outside authentication (e.g. contact-verification widgets) without reimplementing enumeration defense, atomic failed-attempt tracking, or the `bypass_code` E2E hook. Supports `:built_in`, `:custom`, and `:manual` delivery modes. (#181)
+- **`JwtService.sign` / `.verify` primitives** — Low-level JWT encode/decode that don't consult config, useful for HS256 service-to-service tokens and similar use cases. Existing `encode` / `decode` / `decode_session` methods unchanged — use those for OAuth flows. Typed error hierarchy under `StandardId::InvalidTokenError` (`ExpiredTokenError`, `InvalidSignatureError`, `InvalidAlgorithmError`, `InvalidAudienceTokenError`). (#177)
+- **`session_type_resolver` callback** — New `config.session.session_type_resolver` decides whether web/API/OAuth sign-ins produce a `BrowserSession`, `DeviceSession`, or `ServiceSession`. Default mirrors current selection. OAuth token grants can now optionally persist a session row (opt-in via the resolver). (#182)
+- **`audience_profile_types` map + audience-aware claim resolvers** — New `config.oauth.audience_profile_types` maps each audience to an allowed profile type (or array), enforced automatically in `AudienceVerification`. `claim_resolvers` now receive `audience:` in their context (via `CallableParameterFilter`), so resolvers can branch per audience. New `OAUTH_AUDIENCE_MISMATCH` event and `InvalidAudienceProfileError`. (#179)
+- **Multi-profile-type scopes + per-scope `authorizer` + `scope_resolver` callback** — Scope config accepts `profile_types:` (plural array) in addition to legacy `profile_type:` singular (deprecated but still works). Each scope may declare an `authorizer:` callable for role-based / wildcard logic that runs after the profile-type check. New `config.scope_resolver` detaches scope resolution from the URL convention — apps using alternate URL schemes (e.g. `control_plane` param) no longer need to override `current_scope_config`. (#178)
+- **Cleanup jobs for authorization codes + code challenges** — `CleanupExpiredAuthorizationCodesJob` and `CleanupExpiredCodeChallengesJob` with dual grace windows (7-day for expired, 1-day for consumed/used — replay-forensics only). Full `standard_id:cleanup:{sessions,refresh_tokens,authorization_codes,code_challenges,all}` rake task set. (#183)
+- **Multi-step install generator** — `rails g standard_id:install` now writes the initializer with grouped sections, appends `mount StandardId::WebEngine` / `ApiEngine` to `config/routes.rb`, auto-runs `rake standard_id:install:migrations`, and prints a post-install checklist pointing at `AccountAssociations`, `WebAuthentication`/`ApiAuthentication`, and cleanup jobs. Flags: `--skip-initializer`, `--skip-routes`, `--skip-migrations`. Idempotent on re-run. (#176)
+
+### Deprecated
+
+- **`ScopeConfig#profile_type` singular** — Use `profile_types:` (plural) instead. Singular still accepted, emits an `ActiveSupport::Deprecation` warning. Planned for removal in 2.0. (#178)
+
 ## [0.14.4] - 2026-04-14
 
 ### Fixed
