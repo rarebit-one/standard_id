@@ -127,4 +127,13 @@ module StandardId
       super("Token audience '#{audience}' requires profile type [#{expected}] but account has '#{actual_profile_type || 'none'}'")
     end
   end
+
+  # JWT primitive errors raised by JwtService.verify.
+  # These are distinct from the OAuth/session decode path, which returns nil
+  # on failure — callers of the primitive API get rich error info.
+  class InvalidTokenError < StandardError; end
+  class ExpiredTokenError < InvalidTokenError; end
+  class InvalidSignatureError < InvalidTokenError; end
+  class InvalidAlgorithmError < InvalidTokenError; end
+  class InvalidAudienceTokenError < InvalidTokenError; end
 end

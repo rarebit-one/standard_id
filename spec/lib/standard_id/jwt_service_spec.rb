@@ -634,6 +634,335 @@ RSpec.describe StandardId::JwtService do
     end
   end
 
+  describe ".sign and .verify primitives" do
+    let(:hs_key) { "a" * 64 }
+
+    describe "round-trip" do
+      it "round-trips with HS256" do
+        payload = { sub: "svc-1", scope: "tools:invoke" }
+        token = described_class.sign(payload, algorithm: "HS256", key: hs_key)
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+
+        expect(decoded["sub"]).to eq("svc-1")
+        expect(decoded["scope"]).to eq("tools:invoke")
+      end
+
+      it "round-trips with RS256" do
+        payload = { sub: "svc-2" }
+        token = described_class.sign(payload, algorithm: "RS256", key: rsa_private_key)
+        decoded = described_class.verify(token, algorithm: "RS256", key: rsa_private_key.public_key)
+
+        expect(decoded["sub"]).to eq("svc-2")
+      end
+
+      it "round-trips with ES256" do
+        payload = { sub: "svc-3" }
+        token = described_class.sign(payload, algorithm: "ES256", key: ec_private_key)
+        decoded = described_class.verify(token, algorithm: "ES256", key: ec_private_key)
+
+        expect(decoded["sub"]).to eq("svc-3")
+      end
+    end
+
+    describe "does not consult StandardId config" do
+      it "ignores configured issuer" do
+        allow(StandardId.config).to receive(:issuer).and_return("https://configured.example")
+
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+
+        expect(decoded).not_to have_key("iss")
+      end
+
+      it "does not auto-add iat" do
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+
+        expect(decoded).not_to have_key("iat")
+      end
+    end
+
+    describe "expires_in" do
+      it "auto-adds an exp claim" do
+        freeze_time = Time.at(1_700_000_000)
+        allow(Time).to receive(:now).and_return(freeze_time)
+
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key, expires_in: 60)
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+
+        expect(decoded["exp"]).to eq((freeze_time + 60).to_i)
+      end
+
+      it "rejects expired tokens" do
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key, expires_in: -60)
+
+        expect {
+          described_class.verify(token, algorithm: "HS256", key: hs_key)
+        }.to raise_error(StandardId::ExpiredTokenError)
+      end
+
+      it "can skip expiration verification" do
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key, expires_in: -60)
+
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key, verify_expiration: false)
+        expect(decoded["sub"]).to eq("svc")
+      end
+
+      it "does not add exp when expires_in is nil" do
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+
+        expect(decoded).not_to have_key("exp")
+      end
+
+      it "preserves caller-supplied exp over expires_in" do
+        explicit_exp = (Time.now + 10).to_i
+        token = described_class.sign(
+          { sub: "svc", exp: explicit_exp },
+          algorithm: "HS256",
+          key: hs_key,
+          expires_in: 9999
+        )
+
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+        expect(decoded["exp"]).to eq(explicit_exp)
+      end
+
+      it "preserves caller-supplied string-keyed exp over expires_in" do
+        explicit_exp = (Time.now + 10).to_i
+        token = described_class.sign(
+          { "sub" => "svc", "exp" => explicit_exp },
+          algorithm: "HS256",
+          key: hs_key,
+          expires_in: 9999
+        )
+
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+        expect(decoded["exp"]).to eq(explicit_exp)
+      end
+    end
+
+    describe "not_before" do
+      it "rejects tokens with a future nbf" do
+        token = described_class.sign(
+          { sub: "svc", nbf: (Time.now + 300).to_i },
+          algorithm: "HS256", key: hs_key
+        )
+
+        expect {
+          described_class.verify(token, algorithm: "HS256", key: hs_key)
+        }.to raise_error(StandardId::InvalidTokenError)
+      end
+
+      it "can skip nbf verification via verify_not_before: false" do
+        token = described_class.sign(
+          { sub: "svc", nbf: (Time.now + 300).to_i },
+          algorithm: "HS256", key: hs_key
+        )
+
+        decoded = described_class.verify(
+          token, algorithm: "HS256", key: hs_key, verify_not_before: false
+        )
+        expect(decoded["sub"]).to eq("svc")
+      end
+
+      it "does not retry every rotation key on a future-nbf token" do
+        token = described_class.sign(
+          { sub: "svc", nbf: (Time.now + 300).to_i },
+          algorithm: "HS256", key: hs_key
+        )
+
+        # If the ImmatureSignature rescue didn't early-exit, each key in the
+        # rotation list would be attempted. We assert that the token bails
+        # as soon as nbf fails by stubbing a tripwire on a later key: a
+        # "wrong-key" that would raise a different error class if we reached it.
+        tripwire_key = "wrong-" + "x" * 60
+
+        expect {
+          described_class.verify(
+            token,
+            algorithm: "HS256",
+            key: [hs_key, tripwire_key]
+          )
+        }.to raise_error(StandardId::InvalidTokenError) { |err|
+          expect(err).not_to be_a(StandardId::InvalidSignatureError)
+        }
+      end
+    end
+
+    describe "algorithm 'none' footgun" do
+      it "refuses to sign with algorithm 'none'" do
+        expect {
+          described_class.sign({ sub: "svc" }, algorithm: "none", key: hs_key)
+        }.to raise_error(ArgumentError, /'none' is not permitted/)
+      end
+
+      it "refuses case variants of 'none' (uppercase/mixed)" do
+        expect {
+          described_class.sign({ sub: "svc" }, algorithm: "NONE", key: hs_key)
+        }.to raise_error(ArgumentError, /'none' is not permitted/)
+
+        expect {
+          described_class.sign({ sub: "svc" }, algorithm: "None", key: hs_key)
+        }.to raise_error(ArgumentError, /'none' is not permitted/)
+      end
+    end
+
+    describe "wrong key" do
+      it "raises InvalidSignatureError when HS256 key does not match" do
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)
+
+        expect {
+          described_class.verify(token, algorithm: "HS256", key: "wrong-key-" + "x" * 60)
+        }.to raise_error(StandardId::InvalidSignatureError)
+      end
+
+      it "raises InvalidSignatureError when RS256 public key does not match" do
+        other_key = OpenSSL::PKey::RSA.generate(2048)
+        token = described_class.sign({ sub: "svc" }, algorithm: "RS256", key: rsa_private_key)
+
+        expect {
+          described_class.verify(token, algorithm: "RS256", key: other_key.public_key)
+        }.to raise_error(StandardId::InvalidSignatureError)
+      end
+    end
+
+    describe "algorithm mismatch" do
+      it "raises InvalidAlgorithmError when token alg is not in allowed list" do
+        # Token signed with HS256, but caller expects RS256
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)
+
+        expect {
+          described_class.verify(token, algorithm: "RS256", key: rsa_private_key.public_key)
+        }.to raise_error(StandardId::InvalidAlgorithmError)
+      end
+
+      it "accepts any algorithm from a list of allowed algorithms" do
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)
+
+        decoded = described_class.verify(token, algorithm: %w[HS256 HS512], key: hs_key)
+        expect(decoded["sub"]).to eq("svc")
+      end
+    end
+
+    describe "allowed_audiences" do
+      it "accepts token when aud matches one of the allowed audiences" do
+        token = described_class.sign({ sub: "svc", aud: "sidekick" }, algorithm: "HS256", key: hs_key)
+
+        decoded = described_class.verify(
+          token,
+          algorithm: "HS256",
+          key: hs_key,
+          allowed_audiences: %w[sidekick other]
+        )
+        expect(decoded["aud"]).to eq("sidekick")
+      end
+
+      it "rejects token when aud does not match" do
+        token = described_class.sign({ sub: "svc", aud: "other" }, algorithm: "HS256", key: hs_key)
+
+        expect {
+          described_class.verify(
+            token,
+            algorithm: "HS256",
+            key: hs_key,
+            allowed_audiences: %w[sidekick]
+          )
+        }.to raise_error(StandardId::InvalidAudienceTokenError)
+      end
+
+      it "does not enforce aud when allowed_audiences is nil" do
+        token = described_class.sign({ sub: "svc", aud: "anything" }, algorithm: "HS256", key: hs_key)
+
+        decoded = described_class.verify(token, algorithm: "HS256", key: hs_key)
+        expect(decoded["aud"]).to eq("anything")
+      end
+
+      it "accepts a single string audience" do
+        token = described_class.sign({ sub: "svc", aud: "sidekick" }, algorithm: "HS256", key: hs_key)
+
+        decoded = described_class.verify(
+          token,
+          algorithm: "HS256",
+          key: hs_key,
+          allowed_audiences: "sidekick"
+        )
+        expect(decoded["sub"]).to eq("svc")
+      end
+    end
+
+    describe "key rotation via array of keys" do
+      it "accepts a token when any of the candidate keys match" do
+        old_key = "old-secret-" + "x" * 54
+        new_key = "new-secret-" + "y" * 54
+
+        # Signed with the new key, caller tries new first then old
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: new_key)
+        decoded = described_class.verify(
+          token,
+          algorithm: "HS256",
+          key: [new_key, old_key]
+        )
+        expect(decoded["sub"]).to eq("svc")
+      end
+
+      it "accepts a token when the matching key is not first in the array" do
+        old_key = "old-secret-" + "x" * 54
+        new_key = "new-secret-" + "y" * 54
+
+        # Signed with old, but old is second in the list
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: old_key)
+        decoded = described_class.verify(
+          token,
+          algorithm: "HS256",
+          key: [new_key, old_key]
+        )
+        expect(decoded["sub"]).to eq("svc")
+      end
+
+      it "raises InvalidSignatureError when no key matches" do
+        wrong_a = "wrong-a-" + "x" * 56
+        wrong_b = "wrong-b-" + "y" * 56
+
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: "real-secret-" + "z" * 54)
+
+        expect {
+          described_class.verify(token, algorithm: "HS256", key: [wrong_a, wrong_b])
+        }.to raise_error(StandardId::InvalidSignatureError)
+      end
+
+      it "raises when the keys array is empty" do
+        token = described_class.sign({ sub: "svc" }, algorithm: "HS256", key: hs_key)
+
+        expect {
+          described_class.verify(token, algorithm: "HS256", key: [])
+        }.to raise_error(StandardId::InvalidTokenError, /At least one verification key/)
+      end
+    end
+
+    describe "extra_headers" do
+      it "passes through arbitrary header fields like kid" do
+        token = described_class.sign(
+          { sub: "svc" },
+          algorithm: "HS256",
+          key: hs_key,
+          kid: "service-key-1"
+        )
+
+        header = JWT.decode(token, nil, false).last
+        expect(header["kid"]).to eq("service-key-1")
+      end
+    end
+
+    describe "garbage token" do
+      it "raises InvalidTokenError on malformed input" do
+        expect {
+          described_class.verify("not.a.token", algorithm: "HS256", key: hs_key)
+        }.to raise_error(StandardId::InvalidTokenError)
+      end
+    end
+  end
+
   describe "signing key from file path" do
     before do
       allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:rs256)
