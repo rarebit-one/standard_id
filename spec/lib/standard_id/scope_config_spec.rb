@@ -96,18 +96,15 @@ RSpec.describe StandardId::ScopeConfig do
 
   describe "deprecation warning for :profile_type (singular)" do
     it "fires an ActiveSupport::Deprecation warning when :profile_type is used" do
-      deprecator = ActiveSupport::Deprecation.new("2.0", "StandardId")
-      allow(ActiveSupport::Deprecation).to receive(:new).with("2.0", "StandardId").and_return(deprecator)
-
-      expect(deprecator).to receive(:warn).with(/:profile_type is deprecated/)
+      expect(described_class::DEPRECATOR).to receive(:warn).with(/:profile_type is deprecated/)
 
       described_class.new(:borrower, { profile_type: "BorrowerProfile" })
     end
 
     it "does NOT warn when :profile_types (plural) is used" do
-      expect {
-        described_class.new(:borrower, { profile_types: ["BorrowerProfile"] })
-      }.not_to output(/deprecated/).to_stderr
+      expect(described_class::DEPRECATOR).not_to receive(:warn)
+
+      described_class.new(:borrower, { profile_types: ["BorrowerProfile"] })
     end
   end
 

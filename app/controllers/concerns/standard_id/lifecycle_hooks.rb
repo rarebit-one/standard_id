@@ -197,7 +197,8 @@ module StandardId
     # Memoized per request.
     def current_scope_name
       return @current_scope_name if defined?(@current_scope_name)
-      resolver = StandardId.config.scope_resolver || DEFAULT_SCOPE_RESOLVER
+      resolver = StandardId.config.scope_resolver
+      resolver = DEFAULT_SCOPE_RESOLVER unless resolver.respond_to?(:call)
       session = session_manager.respond_to?(:current_session) ? session_manager.current_session : nil
       @current_scope_name = resolver.call(request: request, session: session)
     end
@@ -246,12 +247,17 @@ module StandardId
     # Returns nil when the account does not expose a :profiles association of the
     # expected shape — authorizers that need richer context can re-query from the
     # account keyword arg.
+    #
+    # Rescue is narrowed to the structural cases we actually want to tolerate
+    # (missing methods / wrong types on a shape-mismatched association). DB-level
+    # errors are intentionally allowed to propagate so a transient outage isn't
+    # silently converted into "no profile found" and a denied sign-in.
     def resolve_profile_for_authorizer(account, profile_type)
       return nil unless account.respond_to?(:profiles)
       relation = account.profiles
       return nil unless relation.respond_to?(:find_by)
       relation.find_by(profileable_type: profile_type)
-    rescue StandardError
+    rescue NoMethodError, TypeError
       nil
     end
 

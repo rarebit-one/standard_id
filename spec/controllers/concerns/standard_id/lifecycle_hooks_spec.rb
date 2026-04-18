@@ -12,7 +12,7 @@ RSpec.describe StandardId::LifecycleHooks do
 
       # Expose private methods for testing
       public :invoke_before_sign_in, :invoke_after_sign_in, :invoke_after_account_created,
-             :current_scope_config, :current_scope_name
+             :current_scope_config, :current_scope_name, :resolve_profile_for_authorizer
 
       def request
         mock_request || OpenStruct.new(path_parameters: {})
@@ -61,7 +61,9 @@ RSpec.describe StandardId::LifecycleHooks do
     end
 
     it "returns the ScopeConfig when scope is configured" do
-      scope_config = StandardId::ScopeConfig.new(:borrower, { profile_type: "BorrowerProfile" })
+      scope_config = StandardId::ScopeConfig::DEPRECATOR.silence do
+        StandardId::ScopeConfig.new(:borrower, { profile_type: "BorrowerProfile" })
+      end
       allow(mock_request).to receive(:path_parameters).and_return({ scope: :borrower })
       allow(StandardId).to receive(:scope_for).with(:borrower).and_return(scope_config)
 
@@ -482,6 +484,14 @@ RSpec.describe StandardId::LifecycleHooks do
       expect(controller.current_scope_name).to be_nil
       expect(controller.current_scope_config).to be_nil
     end
+
+    it "falls back to the default resolver when config.scope_resolver is set to a non-callable" do
+      allow(StandardId.config).to receive(:scope_resolver).and_return(:not_callable)
+      allow(mock_request).to receive(:path_parameters).and_return({ scope: :admin })
+
+      expect { controller.current_scope_name }.not_to raise_error
+      expect(controller.current_scope_name).to eq(:admin)
+    end
   end
 
   # ─────────────────────────────────────────────────────────────────────────
@@ -680,7 +690,7 @@ RSpec.describe StandardId::LifecycleHooks do
   # ─────────────────────────────────────────────────────────────────────────
   describe "backward compatibility — legacy :profile_type schema" do
     let(:scope_config) do
-      ActiveSupport::Deprecation.new("2.0", "StandardId").silence do
+      StandardId::ScopeConfig::DEPRECATOR.silence do
         StandardId::ScopeConfig.new(:borrower, {
           profile_type: "BorrowerProfile",
           after_sign_in_path: "/borrower",
@@ -726,6 +736,56 @@ RSpec.describe StandardId::LifecycleHooks do
     it "still returns the legacy scope config via current_scope_config when no scope_resolver is set" do
       allow(StandardId.config).to receive(:scope_resolver).and_return(nil)
       expect(controller.current_scope_config).to eq(scope_config)
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # resolve_profile_for_authorizer — direct unit coverage
+  # ─────────────────────────────────────────────────────────────────────────
+  describe "#resolve_profile_for_authorizer" do
+    it "returns nil when the account does not respond to :profiles" do
+      stranger = Object.new
+      expect(controller.resolve_profile_for_authorizer(stranger, "AnyProfile")).to be_nil
+    end
+
+    it "returns nil when account.profiles does not respond to :find_by" do
+      acct = double("Account", profiles: [])
+      expect(controller.resolve_profile_for_authorizer(acct, "AnyProfile")).to be_nil
+    end
+
+    it "returns the matched profile from account.profiles.find_by" do
+      profile = double("Profile")
+      relation = double("ProfilesRelation")
+      allow(relation).to receive(:find_by).with(profileable_type: "Platform").and_return(profile)
+      acct = double("Account", profiles: relation)
+
+      expect(controller.resolve_profile_for_authorizer(acct, "Platform")).to eq(profile)
+    end
+
+    it "returns nil when find_by returns nil" do
+      relation = double("ProfilesRelation")
+      allow(relation).to receive(:find_by).and_return(nil)
+      acct = double("Account", profiles: relation)
+
+      expect(controller.resolve_profile_for_authorizer(acct, "Platform")).to be_nil
+    end
+
+    it "swallows NoMethodError from a shape-mismatched association and returns nil" do
+      relation = double("ProfilesRelation")
+      allow(relation).to receive(:find_by).and_raise(NoMethodError, "undefined method `profileable_type'")
+      acct = double("Account", profiles: relation)
+
+      expect(controller.resolve_profile_for_authorizer(acct, "Platform")).to be_nil
+    end
+
+    it "lets ActiveRecord::StatementInvalid propagate rather than silently deny sign-in" do
+      relation = double("ProfilesRelation")
+      allow(relation).to receive(:find_by).and_raise(ActiveRecord::StatementInvalid, "connection lost")
+      acct = double("Account", profiles: relation)
+
+      expect {
+        controller.resolve_profile_for_authorizer(acct, "Platform")
+      }.to raise_error(ActiveRecord::StatementInvalid)
     end
   end
 end
