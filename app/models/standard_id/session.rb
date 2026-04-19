@@ -53,7 +53,14 @@ module StandardId
     end
 
     def generate_token_digest
-      self.token_digest = BCrypt::Password.create(token)
+      configured_cost = StandardId.config.session.token_digest_cost
+      self.token_digest =
+        if configured_cost.nil?
+          BCrypt::Password.create(token)
+        else
+          cost = configured_cost.clamp(BCrypt::Engine::MIN_COST, BCrypt::Engine::MAX_COST)
+          BCrypt::Password.create(token, cost: cost)
+        end
     end
 
     def generate_lookup_hash

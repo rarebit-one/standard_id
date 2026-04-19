@@ -8,14 +8,14 @@ module StandardId
         if api_session.blank?
           raise StandardId::NotAuthenticatedError, "Invalid or missing access token"
         elsif api_session.respond_to?(:expired?) && api_session.expired?
-          emit_session_expired(api_session)
+          emit_session_expired(api_session, session_manager: session_manager)
           raise StandardId::ExpiredSessionError, "Session has expired"
         elsif api_session.respond_to?(:revoked?) && api_session.revoked?
           session_manager.clear_session!
           raise StandardId::RevokedSessionError, "Session has been revoked"
         end
 
-        emit_session_validated(api_session)
+        emit_session_validated(api_session, session_manager: session_manager)
         api_session
       end
 
@@ -62,33 +62,41 @@ module StandardId
         )
       end
 
-      def emit_session_validated(api_session)
-        account = if api_session.respond_to?(:account)
-                    api_session.account
-        elsif api_session.respond_to?(:account_id)
-                    StandardId.account_class.find_by(id: api_session.account_id)
-        end
-
+      def emit_session_validated(api_session, session_manager: nil)
         StandardId::Events.publish(
           StandardId::Events::SESSION_VALIDATED,
           session: api_session,
-          account: account
+          account: resolve_account(api_session, session_manager)
         )
       end
 
-      def emit_session_expired(api_session)
-        account = if api_session.respond_to?(:account)
-                    api_session.account
-        elsif api_session.respond_to?(:account_id)
-                    StandardId.account_class.find_by(id: api_session.account_id)
-        end
-
+      def emit_session_expired(api_session, session_manager: nil)
         StandardId::Events.publish(
           StandardId::Events::SESSION_EXPIRED,
           session: api_session,
-          account: account,
+          account: resolve_account(api_session, session_manager),
           expired_at: api_session.respond_to?(:expires_at) ? api_session.expires_at : nil
         )
+      end
+
+      # Prefer the session_manager's memoized #current_account (resolved once
+      # per request). Fall back to a direct lookup only when a session_manager
+      # isn't available (e.g. older call sites) or the session lacks an
+      # account_id — the cost is kept to a single query per request instead
+      # of one per event.
+      #
+      # NOTE on the fallback: callers that pass no session_manager still pay
+      # the pre-optimization cost — either one AR association load per event
+      # (via `api_session.account`) or one `find_by` query. The in-gem call
+      # site in `require_session!` always passes the session_manager, so the
+      # optimization fires for it. The fallback exists for any external
+      # caller that invokes emit_session_* directly without a session_manager.
+      def resolve_account(api_session, session_manager)
+        return session_manager.current_account if session_manager&.respond_to?(:current_account)
+        return api_session.account if api_session.respond_to?(:account)
+        return unless api_session.respond_to?(:account_id)
+
+        StandardId.account_class.find_by(id: api_session.account_id)
       end
     end
   end

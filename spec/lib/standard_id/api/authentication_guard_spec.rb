@@ -117,4 +117,43 @@ RSpec.describe StandardId::Api::AuthenticationGuard, type: :model do
       }.to raise_error(StandardId::InvalidScopeError, /admin:users/)
     end
   end
+
+  describe "event account resolution" do
+    # The guard emits SESSION_VALIDATED / SESSION_EXPIRED events with an
+    # `account:` payload. Previously each emission did its own account
+    # lookup (find_by by account_id), which for two events per request
+    # meant two duplicate queries in addition to the session_manager's
+    # already-memoized current_account. The guard now prefers
+    # session_manager.current_account when available.
+    let(:active_session) do
+      StandardId::ServiceSession.create!(
+        account: account,
+        service_name: "validated-service",
+        service_version: "1.0.0",
+        owner: account,
+        expires_at: 30.days.from_now
+      )
+    end
+
+    it "uses session_manager.current_account for the event payload and does not hit the DB on its own" do
+      allow(api_session_manager).to receive(:current_session).and_return(active_session)
+      allow(api_session_manager).to receive(:current_account).and_return(account)
+
+      received_payload = nil
+      subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_VALIDATED) do |payload|
+        received_payload = payload
+      end
+
+      # Assert account_class.find_by is NOT called — the guard should delegate
+      # to the session_manager's memoized current_account.
+      expect(StandardId.account_class).not_to receive(:find_by)
+
+      guard.require_session!(api_session_manager)
+
+      expect(received_payload).to be_present
+      expect(received_payload[:account]).to eq(account)
+    ensure
+      StandardId::Events.unsubscribe(subscription) if subscription
+    end
+  end
 end

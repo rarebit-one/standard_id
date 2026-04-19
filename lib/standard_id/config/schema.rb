@@ -159,6 +159,20 @@ StandardConfig.schema.draw do
     field :device_session_lifetime, type: :integer, default: 2592000 # 30 days in seconds
     field :service_session_lifetime, type: :integer, default: 7776000 # 90 days in seconds
 
+    # BCrypt cost factor for the session token digest. Default `nil` means
+    # use bcrypt-ruby's built-in default (cost 12 in production, MIN_COST
+    # in the test env). Since session tokens are 256-bit random
+    # (`SecureRandom.urlsafe_base64(32)`), any cost >= 10 is well beyond
+    # realistic brute-force, and dropping from 12 to 10 saves ~200ms of
+    # CPU per session creation. Host apps with many logins-per-second can
+    # set this to `10`; apps that value hash work over login latency can
+    # leave it alone or raise it.
+    #
+    # When set, value is clamped to BCrypt::Engine::MIN_COST..MAX_COST.
+    # Applies only to newly-created sessions; existing token_digests keep
+    # their original cost.
+    field :token_digest_cost, type: :integer, default: nil
+
     # Callable that resolves the session class to create for a given auth flow.
     # Receives keyword arguments (request:, account:, flow:) and must return one of:
     #   StandardId::BrowserSession, StandardId::DeviceSession, StandardId::ServiceSession,

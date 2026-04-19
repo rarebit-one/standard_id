@@ -152,4 +152,71 @@ RSpec.describe StandardId::Session, type: :model do
       end
     end
   end
+
+  describe "#generate_token_digest" do
+    let(:account) { Account.create!(name: "Digest Cost Test", email: "digest@example.com") }
+
+    after { StandardId.config.session.token_digest_cost = nil }
+
+    it "uses BCrypt's built-in default when token_digest_cost is nil" do
+      StandardId.config.session.token_digest_cost = nil
+
+      # Reference cost for BCrypt's built-in default in the current env.
+      # In test env BCrypt sets this to MIN_COST for speed; in prod it's 12.
+      reference_cost = BCrypt::Password.create("probe").cost
+
+      session = StandardId::BrowserSession.create!(
+        account: account,
+        user_agent: "Chrome/120.0",
+        expires_at: 30.days.from_now
+      )
+
+      expect(BCrypt::Password.new(session.token_digest).cost).to eq(reference_cost)
+    end
+
+    it "respects a configured cost when set" do
+      StandardId.config.session.token_digest_cost = BCrypt::Engine::MIN_COST
+
+      session = StandardId::BrowserSession.create!(
+        account: account,
+        user_agent: "Chrome/120.0",
+        expires_at: 30.days.from_now
+      )
+
+      expect(BCrypt::Password.new(session.token_digest).cost).to eq(BCrypt::Engine::MIN_COST)
+    end
+
+    it "clamps below-minimum costs to MIN_COST" do
+      StandardId.config.session.token_digest_cost = 1
+
+      session = StandardId::BrowserSession.create!(
+        account: account,
+        user_agent: "Chrome/120.0",
+        expires_at: 30.days.from_now
+      )
+
+      expect(BCrypt::Password.new(session.token_digest).cost).to eq(BCrypt::Engine::MIN_COST)
+    end
+
+    it "clamps above-maximum costs to MAX_COST" do
+      # BCrypt's MAX_COST is 31; a `create` at that cost takes ~10 minutes,
+      # so we stub create to capture the effective cost without hashing.
+      StandardId.config.session.token_digest_cost = BCrypt::Engine::MAX_COST + 10
+
+      captured_cost = nil
+      allow(BCrypt::Password).to receive(:create).and_wrap_original do |original, token, **opts|
+        captured_cost = opts[:cost]
+        # Call through at MIN_COST so the create is fast enough for the spec.
+        original.call(token, cost: BCrypt::Engine::MIN_COST)
+      end
+
+      StandardId::BrowserSession.create!(
+        account: account,
+        user_agent: "Chrome/120.0",
+        expires_at: 30.days.from_now
+      )
+
+      expect(captured_cost).to eq(BCrypt::Engine::MAX_COST)
+    end
+  end
 end
