@@ -139,6 +139,117 @@ RSpec.describe StandardId::JwtService do
       end
     end
 
+    context "with audience verification" do
+      before do
+        allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:hs256)
+        allow(StandardId.config.oauth).to receive(:signing_key).and_return(nil)
+        allow(StandardId.config).to receive(:issuer).and_return(nil)
+      end
+
+      it "decodes successfully when aud matches allowed_audiences" do
+        token = described_class.encode({ sub: "user-123", aud: "web" })
+
+        decoded = described_class.decode(token, allowed_audiences: ["web"])
+
+        expect(decoded["sub"]).to eq("user-123")
+        expect(decoded["aud"]).to eq("web")
+      end
+
+      it "decodes successfully when aud is in a multi-audience allow list" do
+        token = described_class.encode({ sub: "user-123", aud: "mobile" })
+
+        decoded = described_class.decode(token, allowed_audiences: %w[web mobile admin])
+
+        expect(decoded["sub"]).to eq("user-123")
+      end
+
+      it "accepts an array aud when one element matches" do
+        token = described_class.encode({ sub: "user-123", aud: %w[web mobile] })
+
+        decoded = described_class.decode(token, allowed_audiences: ["mobile"])
+
+        expect(decoded["sub"]).to eq("user-123")
+      end
+
+      it "raises InvalidAudienceError when aud does not match allowed_audiences" do
+        token = described_class.encode({ sub: "user-123", aud: "admin" })
+
+        expect {
+          described_class.decode(token, allowed_audiences: ["web"])
+        }.to raise_error(StandardId::InvalidAudienceError) do |error|
+          expect(error.required).to eq(["web"])
+          expect(error.actual).to eq(["admin"])
+        end
+      end
+
+      it "raises InvalidAudienceError when token has no aud claim" do
+        token = described_class.encode({ sub: "user-123" })
+
+        expect {
+          described_class.decode(token, allowed_audiences: ["web"])
+        }.to raise_error(StandardId::InvalidAudienceError)
+      end
+
+      it "does not enforce audience when allowed_audiences is nil (default)" do
+        token = described_class.encode({ sub: "user-123", aud: "admin" })
+
+        decoded = described_class.decode(token)
+
+        expect(decoded["sub"]).to eq("user-123")
+        expect(decoded["aud"]).to eq("admin")
+      end
+
+      it "does not enforce audience when allowed_audiences is an empty array" do
+        token = described_class.encode({ sub: "user-123", aud: "admin" })
+
+        decoded = described_class.decode(token, allowed_audiences: [])
+
+        expect(decoded["sub"]).to eq("user-123")
+      end
+
+      it "still returns nil for invalid signature even when allowed_audiences is set" do
+        tampered = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ4In0.invalid"
+
+        expect(described_class.decode(tampered, allowed_audiences: ["web"])).to be_nil
+      end
+
+      it "still returns nil for expired tokens" do
+        token = described_class.encode({ sub: "user-123", aud: "web" }, expires_in: -1.hour)
+
+        expect(described_class.decode(token, allowed_audiences: ["web"])).to be_nil
+      end
+
+      context "with asymmetric algorithm and key rotation (JWKS path)" do
+        let(:old_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
+        let(:new_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
+
+        before do
+          allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:rs256)
+          allow(StandardId.config.oauth).to receive(:signing_key).and_return(new_rsa_key.to_pem)
+          allow(StandardId.config.oauth).to receive(:previous_signing_keys).and_return([old_rsa_key.to_pem])
+        end
+
+        it "decodes successfully when aud matches" do
+          token = described_class.encode({ sub: "user-123", aud: "web" })
+
+          decoded = described_class.decode(token, allowed_audiences: ["web"])
+
+          expect(decoded["sub"]).to eq("user-123")
+        end
+
+        it "raises InvalidAudienceError when aud does not match" do
+          token = described_class.encode({ sub: "user-123", aud: "admin" })
+
+          expect {
+            described_class.decode(token, allowed_audiences: ["web"])
+          }.to raise_error(StandardId::InvalidAudienceError) do |error|
+            expect(error.required).to eq(["web"])
+            expect(error.actual).to eq(["admin"])
+          end
+        end
+      end
+    end
+
     context "with issuer configured" do
       before do
         allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:hs256)

@@ -137,12 +137,29 @@ module StandardId
       JWT.encode(payload, signing_key, algorithm, headers)
     end
 
-    def self.decode(token)
+    # Decodes and verifies a JWT.
+    #
+    # When `allowed_audiences` is provided, the token's `aud` claim is
+    # verified against the list; a mismatch raises
+    # StandardId::InvalidAudienceError. Without the argument, audience is
+    # not checked at decode time (many decode call sites legitimately do
+    # not care about aud — e.g. revocation, refresh rotation — and rely on
+    # the AudienceVerification concern at the controller layer for
+    # endpoint-specific enforcement).
+    #
+    # Other decode failures (bad signature, expired, wrong issuer) return
+    # nil, as before.
+    def self.decode(token, allowed_audiences: nil)
       options = { algorithms: [algorithm] }
 
       if StandardId.config.issuer.present?
         options[:iss] = StandardId.config.issuer
         options[:verify_iss] = true
+      end
+
+      if allowed_audiences.present?
+        options[:aud] = Array(allowed_audiences).map(&:to_s)
+        options[:verify_aud] = true
       end
 
       if asymmetric? && previous_keys.any?
@@ -160,6 +177,14 @@ module StandardId
         begin
           decoded = JWT.decode(token, nil, true, options)
           return decoded.first.with_indifferent_access
+        rescue JWT::InvalidAudError
+          # InvalidAudError is a JWT::DecodeError subclass — catch it first
+          # and surface as the engine's audience error so callers can
+          # distinguish aud failures from generic decode failures.
+          raise StandardId::InvalidAudienceError.new(
+            required: Array(allowed_audiences).map(&:to_s),
+            actual: extract_unverified_audience(token)
+          )
         rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::InvalidIatError, JWT::InvalidIssuerError
           return nil
         end
@@ -167,6 +192,11 @@ module StandardId
 
       decoded = JWT.decode(token, verification_key, true, options)
       decoded.first.with_indifferent_access
+    rescue JWT::InvalidAudError
+      raise StandardId::InvalidAudienceError.new(
+        required: Array(allowed_audiences).map(&:to_s),
+        actual: extract_unverified_audience(token)
+      )
     rescue JWT::DecodeError, JWT::ExpiredSignature, JWT::InvalidIatError, JWT::InvalidIssuerError
       nil
     end
@@ -304,6 +334,16 @@ module StandardId
       end
 
       raise last_error || InvalidTokenError.new("Token verification failed")
+    end
+
+    # Extracts the `aud` claim without signature verification, for use in
+    # error messages only. Returns an array of strings; empty array if the
+    # token is unparseable or has no aud claim. Never raises.
+    def self.extract_unverified_audience(token)
+      payload, = JWT.decode(token, nil, false)
+      Array(payload&.dig("aud")).map(&:to_s)
+    rescue StandardError
+      []
     end
 
     private

@@ -3,9 +3,19 @@
 module StandardId
   # Per-controller audience verification for API endpoints.
   #
-  # While StandardId validates that the JWT `aud` claim is in the global
-  # `allowed_audiences` list, this concern provides additional defense-in-depth
-  # by restricting which audiences are accepted by each controller.
+  # StandardId enforces audience in two layers:
+  #
+  #   1. At encode time (`Oauth::TokenGrantFlow#validate_audience!`):
+  #      rejects issuance of tokens with an audience outside the global
+  #      `StandardId.config.oauth.allowed_audiences` list.
+  #   2. At decode time (`JwtService.decode(..., allowed_audiences:)`):
+  #      rejects tokens whose `aud` claim does not match the caller-supplied
+  #      list, raising `StandardId::InvalidAudienceError`. The default
+  #      `decode` call does not check aud — callers opt in.
+  #
+  # This concern layers on top as per-controller defense-in-depth, so
+  # forgetting to pass `allowed_audiences:` at the auth layer still results
+  # in a 403 at the controller instead of an accepted cross-audience replay.
   #
   # In addition, when `StandardId.config.oauth.audience_profile_types` is set,
   # this concern enforces the audience → profile-type binding: after the
