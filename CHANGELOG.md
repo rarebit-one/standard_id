@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-04-19
+
+### Performance
+
+- **API authentication guard reuses `session_manager.current_account`** — `Api::AuthenticationGuard` previously ran its own `find_by(id: api_session.account_id)` twice per bearer-authenticated request (once each for `SESSION_VALIDATED` and `SESSION_EXPIRED`), on top of the session_manager's already-memoized `current_account`. The guard now threads `session_manager` through to the event emitters and delegates account resolution to it. Eliminates 1-2 redundant queries per API request. (#188)
+- **`RefreshToken#revoke_family!` uses a recursive CTE** — family chain traversal was a Ruby loop doing `.pluck(:id)` per generation (O(depth) queries). Now a single recursive CTE collects every ancestor and descendant in one round trip. `UNION` (not `UNION ALL`) deduplicates against the full accumulator to prevent infinite loops on cyclic data. Supported by PostgreSQL, SQLite 3.8+, and MySQL 8+. (#188)
+- **`Api::SessionsController#serialize_session` drops redundant `respond_to?` guards** — all `Session` subclasses share the STI table, so per-field `respond_to?` checks were defensive overhead with no missing method to defend against. Direct column access is both cheaper and clearer. (#188)
+
+### Added
+
+- **`config.session.token_digest_cost`** — opt-in BCrypt cost factor for session `token_digest`. Default `nil` preserves current behavior (bcrypt-ruby's built-in default — cost 12 in production). Since session tokens are 256-bit random (`SecureRandom.urlsafe_base64(32)`), any cost `>= 10` is well beyond brute-force, and setting `10` saves ~200ms of CPU per session creation. Clamped to `BCrypt::Engine::MIN_COST..MAX_COST`. (#188)
+- **Current request details mirrored into `Rails.event` context** — host apps observing structured logs/events see the same `request_id`, `remote_ip`, and `user_agent` values that StandardId records on sessions, without needing to duplicate the wiring. (#187)
+
 ## [0.16.0] - 2026-04-19
 
 ### Security
