@@ -188,13 +188,100 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
       expect(rec.pkce_valid?("wrong")).to be false
     end
 
-    it "skips PKCE when no challenge present" do
+    it "skips PKCE verification when no challenge was stored" do
+      # When a client legitimately opts out (require_pkce: false) and no
+      # code_challenge was issued, pkce_valid? returns true regardless of
+      # the verifier argument. This preserves the escape hatch for
+      # confidential clients that choose not to participate in PKCE.
       rec = described_class.issue!(
         plaintext_code: plaintext_code,
         client_id: client_id,
         redirect_uri: redirect_uri
       )
+      expect(rec.code_challenge).to be_nil
       expect(rec.pkce_valid?(nil)).to be true
+    end
+
+    describe "per-client PKCE method support" do
+      let(:owner) { Account.create!(name: "Owner", email: "owner-#{SecureRandom.hex(4)}@example.com") }
+      let(:verifier) { "a-very-long-random-verifier-#{SecureRandom.hex(16)}" }
+      let(:s256) { Base64.urlsafe_encode64(Digest::SHA256.digest(verifier)).delete("=") }
+
+      it "defers to client.supports_pkce_method? when the client requires PKCE" do
+        client = StandardId::ClientApplication.create!(
+          owner: owner,
+          name: "Client With PKCE",
+          redirect_uris: redirect_uri,
+          require_pkce: true,
+          code_challenge_methods: "S256"
+        )
+
+        expect {
+          described_class.issue!(
+            plaintext_code: plaintext_code,
+            client_id: client.client_id,
+            redirect_uri: redirect_uri,
+            code_challenge: s256,
+            code_challenge_method: "S256"
+          )
+        }.not_to raise_error
+      end
+
+      it "accepts case-insensitive method via client.supports_pkce_method?" do
+        # Directly exercises the case-insensitive comparison in
+        # supports_pkce_method? against a real ClientApplication record
+        # (rather than falling through to the S256-only fallback).
+        client = StandardId::ClientApplication.create!(
+          owner: owner,
+          name: "Client With Uppercase S256",
+          redirect_uris: redirect_uri,
+          require_pkce: true,
+          code_challenge_methods: "S256"
+        )
+
+        expect {
+          described_class.issue!(
+            plaintext_code: plaintext_code,
+            client_id: client.client_id,
+            redirect_uri: redirect_uri,
+            code_challenge: s256,
+            code_challenge_method: "s256"
+          )
+        }.not_to raise_error
+      end
+
+      it "falls back to S256-only when client record is missing" do
+        expect {
+          described_class.issue!(
+            plaintext_code: plaintext_code,
+            client_id: "unknown_client_id",
+            redirect_uri: redirect_uri,
+            code_challenge: s256,
+            code_challenge_method: "plain"
+          )
+        }.to raise_error(StandardId::InvalidRequestError, /only S256/)
+      end
+
+      it "falls back to S256-only when client opts out of PKCE but still sends a challenge" do
+        client = StandardId::ClientApplication.create!(
+          owner: owner,
+          name: "Confidential Opt Out",
+          redirect_uris: redirect_uri,
+          client_type: "confidential",
+          require_pkce: false,
+          code_challenge_methods: nil
+        )
+
+        expect {
+          described_class.issue!(
+            plaintext_code: plaintext_code,
+            client_id: client.client_id,
+            redirect_uri: redirect_uri,
+            code_challenge: s256,
+            code_challenge_method: "plain"
+          )
+        }.to raise_error(StandardId::InvalidRequestError, /only S256/)
+      end
     end
   end
 end

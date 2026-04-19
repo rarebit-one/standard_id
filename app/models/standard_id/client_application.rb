@@ -23,6 +23,11 @@ module StandardId
     validates :access_token_lifetime, :refresh_token_lifetime, :authorization_code_lifetime,
               presence: true, numericality: { greater_than: 0 }
 
+    # Security: public clients cannot opt out of PKCE. Public clients run in
+    # environments where a client secret cannot be kept confidential, so PKCE
+    # is the only protection against authorization code interception.
+    validate :public_clients_must_require_pkce
+
     # Scopes
     scope :active, -> { where(active: true) }
     scope :confidential, -> { where(client_type: "confidential") }
@@ -76,7 +81,8 @@ module StandardId
 
     def supports_pkce_method?(method)
       return false unless require_pkce?
-      code_challenge_methods_array.include?(method.to_s)
+      normalized = method.to_s.downcase
+      code_challenge_methods_array.any? { |m| m.downcase == normalized }
     end
 
     # Validates a redirect_uri presented in an OAuth request against this
@@ -187,6 +193,13 @@ module StandardId
           errors.add(:redirect_uris, "must not contain a fragment (#{value.inspect})")
         end
       end
+    end
+
+    def public_clients_must_require_pkce
+      return unless client_type == "public"
+      return if require_pkce?
+
+      errors.add(:require_pkce, "public clients must have require_pkce enabled")
     end
 
     def generate_client_id

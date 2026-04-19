@@ -6,6 +6,16 @@ module StandardId
 
       private
 
+      # Enforce per-client PKCE policy for authorization code flows. When the
+      # client's require_pkce flag is enabled (the default, and always true
+      # for public clients), the request must carry a code_challenge.
+      def enforce_pkce_requirement!
+        return unless @client&.require_pkce?
+        return if params[:code_challenge].present?
+
+        raise StandardId::InvalidRequestError, "code_challenge is required for this client"
+      end
+
       def generate_authorization_response
         subflow_for(params).call
       end

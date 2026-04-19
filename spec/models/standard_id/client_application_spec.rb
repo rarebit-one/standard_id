@@ -33,6 +33,46 @@ RSpec.describe StandardId::ClientApplication, type: :model do
       before { subject.require_pkce = false }
       it { should_not validate_presence_of(:code_challenge_methods) }
     end
+
+    describe "public clients cannot opt out of PKCE" do
+      it "rejects a public client that sets require_pkce: false" do
+        client = described_class.new(
+          owner: account,
+          name: "Public Opt-Out",
+          redirect_uris: "https://example.com/cb",
+          client_type: "public",
+          require_pkce: false
+        )
+
+        expect(client).not_to be_valid
+        expect(client.errors[:require_pkce]).to include("public clients must have require_pkce enabled")
+      end
+
+      it "accepts a public client that keeps require_pkce enabled" do
+        client = described_class.new(
+          owner: account,
+          name: "Public OK",
+          redirect_uris: "https://example.com/cb",
+          client_type: "public",
+          require_pkce: true
+        )
+
+        expect(client).to be_valid
+      end
+
+      it "allows a confidential client to disable require_pkce" do
+        client = described_class.new(
+          owner: account,
+          name: "Confidential Opt-Out",
+          redirect_uris: "https://example.com/cb",
+          client_type: "confidential",
+          require_pkce: false,
+          code_challenge_methods: nil
+        )
+
+        expect(client).to be_valid
+      end
+    end
   end
 
   describe "scopes" do
@@ -217,6 +257,11 @@ RSpec.describe StandardId::ClientApplication, type: :model do
         it "returns true for supported PKCE methods when PKCE is required" do
           expect(client.supports_pkce_method?("S256")).to be true
           expect(client.supports_pkce_method?(:plain)).to be true
+        end
+
+        it "is case-insensitive (accepts lowercase variants)" do
+          expect(client.supports_pkce_method?("s256")).to be true
+          expect(client.supports_pkce_method?("PLAIN")).to be true
         end
 
         it "returns false for unsupported PKCE methods" do

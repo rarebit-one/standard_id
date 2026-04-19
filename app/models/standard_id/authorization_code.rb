@@ -18,9 +18,22 @@ module StandardId
 
     def self.issue!(plaintext_code:, client_id:, redirect_uri:, scope: nil, audience: nil, account: nil, code_challenge: nil, code_challenge_method: nil, nonce: nil, metadata: {})
       # Fail fast: reject unsupported PKCE methods at issuance rather than
-      # storing a code that will always fail at redemption time.
+      # storing a code that will always fail at redemption time. When the
+      # client record has PKCE required, defer to the client's configured
+      # `code_challenge_methods`. In all other cases (client lookup missing,
+      # or client opted out of PKCE but still sent a challenge) fall back
+      # to an S256-only belt-and-suspenders check so we never silently
+      # accept a weaker method.
       if code_challenge.present?
-        unless code_challenge_method.to_s.downcase == "s256"
+        client = StandardId::ClientApplication.find_by(client_id: client_id)
+        method_supported =
+          if client&.require_pkce?
+            client.supports_pkce_method?(code_challenge_method)
+          else
+            code_challenge_method.to_s.downcase == "s256"
+          end
+
+        unless method_supported
           raise StandardId::InvalidRequestError, "Unsupported code_challenge_method: only S256 is allowed"
         end
       end
