@@ -20,6 +20,7 @@ group :development, :test do
   gem "simplecov", require: false
   gem "brakeman", require: false
   gem "bundler-audit", require: false
+  gem "foreman", require: false
 end
 
 # Omakase Ruby styling [https://github.com/rails/rubocop-rails-omakase/]
