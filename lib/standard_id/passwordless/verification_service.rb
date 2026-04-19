@@ -11,7 +11,7 @@ module StandardId
       # - challenge: the consumed CodeChallenge (nil on failure)
       # - error: human-readable error message string (nil on success)
       # - error_code: machine-readable symbol (nil on success)
-      #   One of :invalid_code, :expired, :max_attempts, :not_found, :blank_code,
+      #   One of :invalid_code, :max_attempts, :not_found, :blank_code,
       #   :account_not_found, :server_error
       # - attempts: nil on success, 0 when no challenge was found (fabricated
       #   target), or 1+ for wrong-code failures against an active challenge
@@ -96,44 +96,65 @@ module StandardId
         bypass_result = try_bypass
         return bypass_result if bypass_result
 
-        challenge = find_active_challenge
-
-        unless challenge.present?
-          # Constant-time compare even when no challenge exists to prevent
-          # timing-based enumeration of valid target+realm pairs. We compare
-          # the submitted code against a random value of the same digit
-          # length so an observer cannot distinguish "no challenge" from
-          # "wrong code" by response time.
-          fabricated_code = SecureRandom.random_number(10**@code.length.clamp(4, 10)).to_s.rjust(@code.length.clamp(4, 10), "0")
-          secure_compare(fabricated_code, @code)
-          return failure("Invalid or expired verification code", error_code: :not_found, attempts: 0)
-        end
-
-        code_matches = secure_compare(challenge.code, @code)
-        attempts = record_failed_attempt(challenge, code_matches)
-
-        unless code_matches
-          emit_otp_validation_failed(attempts)
-
-          if attempts >= StandardId.config.passwordless.max_attempts
-            return failure("Too many failed attempts. Please request a new code.", error_code: :max_attempts, attempts: attempts)
-          end
-
-          return failure("Invalid or expired verification code", error_code: :invalid_code, attempts: attempts)
-        end
-
-        # Re-fetch with lock inside a transaction to prevent concurrent use.
+        # Lookup -> lock -> verify -> record-attempt -> consume all happen
+        # inside a single transaction with a pessimistic row lock on the
+        # CodeChallenge. This closes two race windows that existed previously:
+        #   1. Two concurrent verifications selecting the same active challenge
+        #      before either had locked it.
+        #   2. Concurrent updates to challenge.metadata["attempts"] losing
+        #      increments (last-writer-wins) and letting attackers exceed the
+        #      per-challenge ceiling.
+        #
+        # Events are captured inside the transaction but emitted only after
+        # the transaction commits, so subscribers never observe rolled-back
+        # state.
         result = nil
+        pending_events = []
+
         ActiveRecord::Base.transaction do
-          locked_challenge = StandardId::CodeChallenge.lock.find(challenge.id)
-          unless locked_challenge.active?
-            # No OTP_VALIDATION_FAILED event here: the code was correct but the
-            # challenge was consumed by a concurrent request — not an attacker
-            # guessing codes. Emitting a failure event would be misleading.
-            result = failure("Invalid or expired verification code", error_code: :expired, attempts: attempts)
-            raise ActiveRecord::Rollback
+          challenge = lock_active_challenge
+
+          unless challenge
+            # Constant-time compare even when no challenge exists to prevent
+            # timing-based enumeration of valid target+realm pairs. We compare
+            # the submitted code against a random value of the same digit
+            # length so an observer cannot distinguish "no challenge" from
+            # "wrong code" by response time.
+            padded_length = @code.length.clamp(4, 10)
+            fabricated_code = SecureRandom.random_number(10**padded_length).to_s.rjust(padded_length, "0")
+            secure_compare(fabricated_code, @code)
+            # No event — matches prior behavior: we do not publish failure
+            # events for probes that never triggered a real challenge.
+            result = failure("Invalid or expired verification code", error_code: :not_found, attempts: 0)
+            next
           end
 
+          code_matches = secure_compare(challenge.code, @code)
+
+          unless code_matches
+            attempts = record_failed_attempt!(challenge)
+            pending_events << [:otp_validation_failed, attempts]
+
+            if attempts >= StandardId::Passwordless.max_attempts_per_challenge
+              # Ceiling hit: burn the challenge so further submissions fail
+              # fast (including from different IPs). Protects against
+              # distributed brute-force on the same challenge. The row lock
+              # is held from lock_active_challenge above, so no other
+              # transaction can flip `used?` between our reads and this call.
+              challenge.use!
+              result = failure("Too many failed attempts. Please request a new code.", error_code: :max_attempts, attempts: attempts)
+            else
+              result = failure("Invalid or expired verification code", error_code: :invalid_code, attempts: attempts)
+            end
+
+            next
+          end
+
+          # Correct code. Resolve the account under the still-held lock so
+          # account-resolution failures don't leak the challenge to a racing
+          # verification. When @resolve_account is false (non-auth realms via
+          # Otp.verify) we skip account resolution entirely and just consume
+          # the challenge.
           account = nil
           if @resolve_account
             strategy = strategy_for(@channel)
@@ -146,23 +167,27 @@ module StandardId
             end
           end
 
-          locked_challenge.use!
+          challenge.use!
 
-          result = success(account: account, challenge: locked_challenge)
+          pending_events << [:otp_validated, account, challenge]
+          result = success(account: account, challenge: challenge)
         end
 
         raise "BUG: transaction block failed to set result" if result.nil?
 
-        # Emit events after the transaction commits so subscribers never see
-        # events for rolled-back state. Skip auth-oriented events when the
-        # caller opted out of account resolution (non-auth realms).
-        if result.success? && @resolve_account
-          emit_otp_validated(result.account, result.challenge)
+        # Emit events only after the transaction commits. Skip auth-oriented
+        # OTP_VALIDATED payloads when the caller opted out of account
+        # resolution (non-auth realms via Otp.verify).
+        pending_events.each do |event|
+          case event[0]
+          when :otp_validation_failed
+            emit_otp_validation_failed(event[1])
+          when :otp_validated
+            emit_otp_validated(event[1], event[2]) if @resolve_account
+          end
         end
 
         result
-      rescue ActiveRecord::RecordNotFound
-        failure("Invalid or expired verification code", error_code: :expired)
       rescue ActiveRecord::RecordInvalid => e
         failure("Unable to complete verification: #{e.record.errors.full_messages.to_sentence}", error_code: :server_error)
       end
@@ -233,41 +258,39 @@ module StandardId
         end
       end
 
-      def find_active_challenge
-        StandardId::CodeChallenge.active
+      # Select the most recent active challenge and take a pessimistic row
+      # lock on it. Must be called inside a transaction. Returns nil when no
+      # active challenge exists — callers should treat that as "not_found".
+      #
+      # Selecting-then-locking-by-id is used instead of a single locking
+      # SELECT so the `active` scope's time comparison is evaluated before
+      # we escalate to a row lock. Between the SELECT and the lock another
+      # transaction may mark the row used; we recheck `active?` after the
+      # lock is acquired to close that window.
+      def lock_active_challenge
+        candidate = StandardId::CodeChallenge.active
           .where(realm: @realm, channel: @channel, target: @target)
           .order(created_at: :desc)
           .first
+
+        return nil unless candidate
+
+        locked = StandardId::CodeChallenge.lock.find_by(id: candidate.id)
+        return nil unless locked&.active?
+
+        locked
       end
 
-      # NOTE: The update! here can raise ActiveRecord::RecordInvalid, which is
-      # rescued alongside account-creation errors. This is intentional — both
-      # represent unexpected persistence failures and warrant the same response.
+      # Increment the per-challenge attempt counter while the row lock is
+      # held. Safe against concurrent verifications — the lock serializes
+      # reads and writes to metadata["attempts"].
       #
-      # The SELECT...FOR UPDATE is load-bearing: without it, two concurrent
-      # wrong-code submissions would both read attempts=N and both write
-      # attempts=N+1, losing a failure and letting an attacker guess past the
-      # max_attempts ceiling. We serialize the read-modify-write under a row
-      # lock (portable across pg/sqlite) rather than a Postgres-only
-      # `jsonb_set(...) update_all` so the test suite still runs on sqlite.
-      def record_failed_attempt(challenge, code_matches)
-        return 0 if code_matches
-
-        max_attempts = StandardId.config.passwordless.max_attempts
-        attempts = 0
-
-        ActiveRecord::Base.transaction do
-          locked = StandardId::CodeChallenge.lock.find(challenge.id)
-          attempts = (locked.metadata["attempts"] || 0) + 1
-          new_metadata = locked.metadata.merge("attempts" => attempts)
-
-          if attempts >= max_attempts && locked.used_at.nil?
-            locked.update!(metadata: new_metadata, used_at: Time.current)
-          else
-            locked.update!(metadata: new_metadata)
-          end
-        end
-
+      # NOTE: The update! here can raise ActiveRecord::RecordInvalid, which is
+      # rescued by the caller alongside account-creation errors.
+      def record_failed_attempt!(challenge)
+        metadata = challenge.metadata || {}
+        attempts = (metadata["attempts"] || 0) + 1
+        challenge.update!(metadata: metadata.merge("attempts" => attempts))
         attempts
       end
 

@@ -39,7 +39,7 @@ module StandardId
   #     request: request
   #   )
   #   result.success?    # boolean
-  #   result.error_code  # :invalid_code | :expired | :max_attempts | :not_found | :blank_code | :server_error
+  #   result.error_code  # :invalid_code | :max_attempts | :not_found | :blank_code | :server_error
   #   result.challenge   # consumed CodeChallenge on success, nil on failure (or bypass)
   #
   # == Delivery modes

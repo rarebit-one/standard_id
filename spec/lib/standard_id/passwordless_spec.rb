@@ -159,14 +159,22 @@ RSpec.describe StandardId::Passwordless do
         expect(result.error_code).to eq(:not_found)
       end
 
-      it "returns :expired when challenge is consumed by a concurrent request" do
+      it "returns :not_found when the challenge is consumed between select and lock" do
+        # Lookup, lock, verify, and consume happen inside a single transaction
+        # with a row lock, but the active? recheck after the lock still has
+        # to handle the race where a concurrent transaction consumed the
+        # challenge between the initial SELECT and the lock acquisition.
+        # In that case we now return :not_found (no active challenge exists).
         create_email_account(email)
-        create_challenge(channel: "email", target: email)
+        challenge = create_challenge(channel: "email", target: email)
 
-        inactive = instance_double(StandardId::CodeChallenge, active?: false)
-        allow(StandardId::CodeChallenge).to receive(:lock).and_return(
-          double(find: inactive)
-        )
+        # Simulate a concurrent consumption that happens between the select
+        # and the lock by wrapping the lock scope's find_by.
+        original_lock = StandardId::CodeChallenge.method(:lock)
+        allow(StandardId::CodeChallenge).to receive(:lock) do
+          challenge.update_columns(used_at: Time.current)
+          original_lock.call
+        end
 
         result = described_class.verify(
           username: email,
@@ -176,7 +184,7 @@ RSpec.describe StandardId::Passwordless do
         )
 
         expect(result.success?).to be false
-        expect(result.error_code).to eq(:expired)
+        expect(result.error_code).to eq(:not_found)
       end
 
       it "returns :invalid_code when code is wrong" do

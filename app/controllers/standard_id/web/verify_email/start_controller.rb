@@ -32,7 +32,7 @@ module StandardId
             realm: "verification",
             channel: "email",
             target: email,
-            code: generate_otp_code,
+            code: StandardId::Passwordless.generate_otp_code,
             expires_at: 10.minutes.from_now,
             ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
             user_agent: request.user_agent
@@ -41,12 +41,6 @@ module StandardId
           StandardId.config.passwordless_email_sender&.call(email, challenge.code)
 
           redirect_to standard_id_web.login_path, notice: "Verification code sent to your email", status: :see_other
-        end
-
-        private
-
-        def generate_otp_code
-          (SecureRandom.random_number(900_000) + 100_000).to_s
         end
       end
     end

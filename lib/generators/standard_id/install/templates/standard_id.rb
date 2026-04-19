@@ -136,7 +136,21 @@ StandardId.configure do |c|
   # Default: 600 (10 minutes) — TTL of OTP codes.
   # c.passwordless.code_ttl = 600
 
-  # Default: 3 — max verify attempts per challenge before it is invalidated.
+  # Default: 6 — length of generated OTP codes (digits). Clamped to 4..10.
+  # Codes may be zero-padded (e.g. "000123") so host apps that display or
+  # parse codes must treat them as strings, not integers. 8+ is recommended
+  # for security-sensitive deployments.
+  # c.passwordless.code_length = 6
+
+  # Per-challenge global attempt ceiling (across all IPs). When reached the
+  # challenge is burned so further submissions fail fast. Distinct from the
+  # per-IP rate limit (c.rate_limits.otp_verify_per_ip) — this defends
+  # against distributed brute-force against a single challenge.
+  # Default: nil — falls back to :max_attempts for backwards compatibility.
+  # c.passwordless.max_attempts_per_challenge = 5
+
+  # Default: 3 — deprecated alias for :max_attempts_per_challenge. Retained
+  # for backwards compatibility; new installs should set the newer key.
   # c.passwordless.max_attempts = 3
 
   # Default: 30 — seconds before a new challenge can be requested.
