@@ -144,12 +144,27 @@ module StandardId
     end
 
     # Determine if this is the account's first browser session.
-    # When called before session creation (before_sign_in), count == 0 means first.
-    # When called after session creation (after_sign_in), count <= 1 means first
-    # (the just-created session is the only one).
+    # Uses `exists?` (which compiles to `SELECT 1 ... LIMIT 1`) instead of
+    # `count` — we only care whether *any other* active browser session is
+    # present, not the exact number. This short-circuits as soon as a row is
+    # found, so it's dramatically cheaper on accounts with many sessions.
+    #
+    # When called before session creation (before_sign_in), "first" means no
+    # active browser session exists at all.
+    # When called after session creation (after_sign_in), the just-created
+    # session counts as one, so "first" means no OTHER active browser session
+    # exists — i.e. exclude the current session before checking existence.
+    #
+    # Invariant: when `session_created: true`, `session_manager.current_session`
+    # is always set — invoke_after_sign_in runs immediately after
+    # session_manager.sign_in_account, which populates current_session. The
+    # nil guard below is defensive only; it would behave differently from the
+    # old `count <= 1` path (new: false, old: true) if that invariant were
+    # ever violated, but today no call site can reach it.
     def first_sign_in?(account, session_created: true)
-      active_count = account.sessions.where(type: "StandardId::BrowserSession").active.count
-      session_created ? active_count <= 1 : active_count == 0
+      scope = account.sessions.where(type: "StandardId::BrowserSession").active
+      scope = scope.where.not(id: session_manager.current_session.id) if session_created && session_manager.current_session
+      !scope.exists?
     end
 
     # Handle AuthenticationDenied by revoking the session and redirecting to login.
