@@ -11,4 +11,33 @@ RSpec.describe StandardId::Engine do
       end
     end
   end
+
+  describe ".verify_host_cookie_encryption!" do
+    let(:logger) { instance_double(Logger, warn: nil) }
+
+    before do
+      allow(Rails).to receive(:logger).and_return(logger)
+    end
+
+    it "warns when the host app has no secret_key_base" do
+      app = double("App", secret_key_base: nil)
+      expect(logger).to receive(:warn).with(a_string_including("secret_key_base"))
+
+      described_class.verify_host_cookie_encryption!(app)
+    end
+
+    it "warns when secret_key_base is blank" do
+      app = double("App", secret_key_base: "")
+      expect(logger).to receive(:warn).with(a_string_including("secret_key_base"))
+
+      described_class.verify_host_cookie_encryption!(app)
+    end
+
+    it "does not warn when secret_key_base is set" do
+      app = double("App", secret_key_base: "x" * 64)
+      expect(logger).not_to receive(:warn)
+
+      described_class.verify_host_cookie_encryption!(app)
+    end
+  end
 end
