@@ -7,13 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-04-19
+
 ### Security
 
 - **OTP verification race-condition fix and per-challenge brute-force defenses** — `VerificationService.verify` now wraps the challenge lookup, failed-attempt increment, and consumption in a single `SELECT ... FOR UPDATE` transaction, closing the TOCTOU window between "find active challenge" and "mark it used." Failed-attempt counting is now atomic and scoped to the specific challenge (previously a loose read-modify-write on the account). Events are deferred to post-commit so observers never see rolled-back state. New `config.passwordless.max_attempts_per_challenge` (default `5`) supersedes the now-deprecated account-wide `max_attempts` (kept as a fallback for existing installs). (#169)
+- **JWT audience enforcement at decode time** — `JwtService.decode` now accepts an `allowed_audiences:` kwarg and raises `StandardId::InvalidAudienceError` on mismatch. `Api::TokenManager#verify_jwt_token` threads `config.oauth.allowed_audiences` through automatically, so cross-audience JWT replay is now blocked even on controllers that forget to include the `AudienceVerification` concern. Production emits a warning when `allowed_audiences` is unset. (#170, #174)
+- **Web flow polish** — password-reset delivery moved to an async job with a constant-time success response (closes enumeration timing leak); OAuth `redirect_uri` validation tightened to exact scheme+host+port+path match at both registration and authorize time (blocks query-string piggyback); engine logs a warning when the host app has no `secret_key_base` configured so encrypted session cookies can't silently fall back to plaintext. New `reset_password` config scope with `:delivery` (`:custom` default, `:built_in` opt-in) and mailer-sender/subject knobs. `CREDENTIAL_PASSWORD_RESET_INITIATED` event now fires from the job. (#171)
+- **Per-client PKCE enforcement at the authorize endpoint** — honors the existing `require_pkce` column on `ClientApplication`. Requests missing `code_challenge` are rejected with `invalid_request` when the client requires PKCE. Per-client `code_challenge_methods` replaces the global S256-only hardcode (case-insensitive). New validation blocks public clients from opting out (`public_clients_must_require_pkce`). (#175)
+- **Hardened GitHub Actions workflows** — minimal `permissions:` blocks added to every workflow; third-party actions pinned to commit SHAs. (#185)
+
+### Added
+
+- **Typed identifier accessors on `AccountAssociations`** — `account.email_identifier`, `account.phone_number_identifier`, `account.username_identifier` replace the manual `identifiers.detect { |i| i.type == "…" }` pattern used by consuming apps. Uses loaded-association detection to stay N+1-safe. (#180)
+- **`SOCIAL_AUTH_FAILED` event** — emitted when social provider callbacks catch `StandardId::OAuthError` from an infrastructure failure (DNS, SSL, timeout). Policy/link errors (`SocialLinkError`) emit their existing `SOCIAL_LINK_BLOCKED` event instead. Enables host apps to observe provider outages without monkey-patching. (#180)
+- **Idempotent event subscriptions** in `AccountStatus` / `AccountLocking` — guarded with a module-level flag so re-including a concern (e.g., Rails reload) no longer accumulates duplicate subscribers. (#180)
+- **Errors module eager-loaded from all engines** — `StandardId::SocialLinkError` and the full error hierarchy are available at engine load time, so `rescue_from StandardId::SocialLinkError` at controller class-body time resolves as a constant instead of needing a string literal. (#180)
+- **`bin/dev`** — dummy-app boot script for contributors; provisions the SQLite dev DB via `rake app:db:setup` if absent and execs `spec/dummy/Procfile.dev` through overmind/hivemind/foreman. (#173)
+- **Boot-time config validators** — new `StandardId::Config::CallableValidator` and `StandardId::Config::ScopeClaimsValidator` raise `StandardId::ConfigurationError` at engine `after_initialize` if lifecycle callables have wrong arity or if `scope_claims` entries reference claims without a matching resolver. Surfaces typos at deploy time instead of at callback time. (#173)
+- **Cleanup rake tasks** — `standard_id:cleanup:{sessions,refresh_tokens,authorization_codes,code_challenges,all}` honoring `GRACE_DAYS` env var, plus `docs/OPERATIONS.md` with scheduling examples for SolidQueue recurring, sidekiq-cron, whenever, and cron. (#173)
+
+### Performance
+
+- **`first_sign_in?` uses `.exists?` instead of `.count`** on the `LifecycleHooks` hot path — removes a full count on every login. (#172)
+- **Bulk session revocation uses `update_all`** in `Api::OAuth::RevocationsController` — one SQL UPDATE instead of O(N) per-row UPDATEs across sessions + cascaded refresh_tokens. `SESSION_REVOKED` event emission preserved per-session. (#172)
+- **Partial indexes on hot active-row lookups** — `standard_id_sessions(expires_at) WHERE revoked_at IS NULL`, same for `refresh_tokens`, and `code_challenges(realm, channel, target, created_at) WHERE used_at IS NULL`. Dropped the unused Postgres GIN index on `code_challenges.metadata`. Migration uses `algorithm: :concurrently` with `disable_ddl_transaction!` on Postgres. (#172)
+- **Isolate `SESSION_REVOKED` subscriber failures during bulk revoke** — a failing subscriber no longer aborts the revocation loop. (#172)
+
+### Deprecated
+
+- **`config.passwordless.max_attempts`** — use `max_attempts_per_challenge` instead. The old key is still read as a fallback when the new one is unset, so existing installs keep working. Planned for removal in 2.0. (#169)
 
 ### Changed
 
 - **OTP code format now allows leading zeros** — `StandardId::Passwordless.generate_otp_code` (new consolidated generator, replacing the inline generators in `VerifyEmail::StartController`, `VerifyPhone::StartController`, and `BaseStrategy`) produces codes in the range `[0, 10**n)` zero-padded to the configured length, so values like `"000123"` are now valid. The previous generators produced integers in `[10**(n-1), 10**n)`, which never had leading zeros. Entropy is unchanged; host apps that stored or displayed codes as integers should treat them as strings. (#169)
+
+### Chore
+
+- Deleted stale top-level `test_authorization_flows.rb` scaffolding. (#173)
 
 ## [0.15.0] - 2026-04-18
 
