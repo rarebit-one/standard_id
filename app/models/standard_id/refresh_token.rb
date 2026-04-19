@@ -48,34 +48,30 @@ module StandardId
 
     private
 
-    # Find the root of this token's family and return all descendants.
-    # Backward traversal uses a visited set for cycle detection in case
-    # of corrupted data. Forward traversal collects all descendants.
+    # Collect every token in this token's family (all ancestors + all
+    # descendants reachable via previous_token_id) in a single recursive
+    # CTE. Previously we walked the chain in Ruby with one query per
+    # generation — fine for small families, O(depth) under reuse-detection
+    # storms. The CTE is one round trip.
+    #
+    # `UNION` (not `UNION ALL`) deduplicates against the full accumulator
+    # at each step — so a row already emitted earlier in the traversal is
+    # skipped, preventing infinite loops on cyclic data. Supported by
+    # PostgreSQL, SQLite 3.8+, and MySQL 8+.
     def family_tokens
-      root = self
-      visited = Set.new([root.id])
-      while root.previous_token.present?
-        break if visited.include?(root.previous_token_id)
-        visited.add(root.previous_token_id)
-        root = root.previous_token
-      end
-
-      self.class.where(id: collect_family_ids(root.id))
-    end
-
-    def collect_family_ids(root_id)
-      ids = [root_id]
-      current_ids = [root_id]
-
-      loop do
-        next_ids = self.class.where(previous_token_id: current_ids).pluck(:id)
-        break if next_ids.empty?
-
-        ids.concat(next_ids)
-        current_ids = next_ids
-      end
-
-      ids
+      table = self.class.quoted_table_name
+      sql = <<~SQL.squish
+        WITH RECURSIVE family AS (
+          SELECT id, previous_token_id FROM #{table} WHERE id = :id
+          UNION
+          SELECT rt.id, rt.previous_token_id
+          FROM #{table} rt
+          JOIN family f ON rt.id = f.previous_token_id OR rt.previous_token_id = f.id
+        )
+        SELECT id FROM family
+      SQL
+      family_ids = self.class.connection.select_values(self.class.sanitize_sql([sql, { id: id }]))
+      self.class.where(id: family_ids)
     end
   end
 end
