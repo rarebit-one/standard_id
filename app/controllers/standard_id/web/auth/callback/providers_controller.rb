@@ -61,7 +61,13 @@ module StandardId
               redirect_to destination, redirect_options
             rescue StandardId::AuthenticationDenied => e
               handle_authentication_denied(e, account: account, newly_created: newly_created)
+            rescue StandardId::SocialLinkError => e
+              # Policy/link error — SOCIAL_LINK_BLOCKED has already been emitted
+              # by validate_social_link!, so do not also emit SOCIAL_AUTH_FAILED
+              # (which is reserved for infrastructure-level failures).
+              redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             rescue StandardId::OAuthError => e
+              emit_social_auth_failed(e, account: account)
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             end
           end

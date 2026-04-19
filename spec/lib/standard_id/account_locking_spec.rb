@@ -239,4 +239,28 @@ RSpec.describe StandardId::AccountLocking do
       expect(error.message).to eq("Account has been locked")
     end
   end
+
+  describe "idempotent subscription registration" do
+    it "does not register a second subscription when AccountLocking is included twice" do
+      expect(StandardId::AccountLocking.subscribed).to be true
+
+      before_count = account_locking_listeners_count
+
+      second_class = Class.new(ApplicationRecord) do
+        self.table_name = Account.table_name
+        include StandardId::AccountLocking
+      end
+      second_class.name
+
+      after_count = account_locking_listeners_count
+
+      expect(after_count).to eq(before_count)
+    end
+  end
+
+  def account_locking_listeners_count
+    ActiveSupport::Notifications.notifier.listeners_for(
+      "standard_id.#{StandardId::Events::SESSION_CREATING}"
+    ).size
+  end
 end

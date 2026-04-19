@@ -1,3 +1,5 @@
+require "standard_id/errors"
+
 module StandardId
   class WebEngine < ::Rails::Engine
     isolate_namespace StandardId

@@ -57,6 +57,7 @@ module StandardId
       SOCIAL_ACCOUNT_LINKED = "social.account.linked"
       SOCIAL_LINK_BLOCKED = "social.link.blocked"
       SOCIAL_AUTH_COMPLETED = "social.auth.completed"
+      SOCIAL_AUTH_FAILED = "social.auth.failed"
 
       CREDENTIAL_PASSWORD_CREATED = "credential.password.created"
       CREDENTIAL_PASSWORD_RESET_INITIATED = "credential.password.reset_initiated"
@@ -134,7 +135,8 @@ module StandardId
         SOCIAL_ACCOUNT_CREATED,
         SOCIAL_ACCOUNT_LINKED,
         SOCIAL_LINK_BLOCKED,
-        SOCIAL_AUTH_COMPLETED
+        SOCIAL_AUTH_COMPLETED,
+        SOCIAL_AUTH_FAILED
       ].freeze
 
       CREDENTIAL_EVENTS = [
@@ -189,7 +191,8 @@ module StandardId
         # Social
         SOCIAL_ACCOUNT_CREATED,
         SOCIAL_ACCOUNT_LINKED,
-        SOCIAL_LINK_BLOCKED
+        SOCIAL_LINK_BLOCKED,
+        SOCIAL_AUTH_FAILED
       ].freeze
 
       ALL_EVENTS = (

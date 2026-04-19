@@ -2,6 +2,15 @@ module StandardId
   module AccountLocking
     extend ActiveSupport::Concern
 
+    # Guard against duplicate event subscriptions when AccountLocking is
+    # included multiple times. The subscriber is process-wide, so one
+    # registration is sufficient for the whole Ruby process.
+    @subscribed = false
+
+    class << self
+      attr_accessor :subscribed
+    end
+
     included do
       belongs_to :locked_by, polymorphic: true, optional: true
       belongs_to :unlocked_by, polymorphic: true, optional: true
@@ -12,16 +21,20 @@ module StandardId
       after_commit :emit_account_locked_event, on: :update, if: :just_locked?
       after_commit :emit_account_unlocked_event, on: :update, if: :just_unlocked?
 
-      # Subscribe to events to enforce lock status
-      # Lock check runs BEFORE status check (more restrictive first)
-      StandardId::Events.subscribe(
-        StandardId::Events::OAUTH_TOKEN_ISSUING,
-        StandardId::Events::SESSION_CREATING,
-        StandardId::Events::SESSION_VALIDATING
-      ) do |event|
-        account = event[:account]
-        if account&.locked?
-          raise StandardId::AccountLockedError.new(account)
+      unless StandardId::AccountLocking.subscribed
+        StandardId::AccountLocking.subscribed = true
+
+        # Subscribe to events to enforce lock status
+        # Lock check runs BEFORE status check (more restrictive first)
+        StandardId::Events.subscribe(
+          StandardId::Events::OAUTH_TOKEN_ISSUING,
+          StandardId::Events::SESSION_CREATING,
+          StandardId::Events::SESSION_VALIDATING
+        ) do |event|
+          account = event[:account]
+          if account&.locked?
+            raise StandardId::AccountLockedError.new(account)
+          end
         end
       end
     end

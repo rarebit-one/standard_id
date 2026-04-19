@@ -269,4 +269,67 @@ RSpec.describe StandardId::SocialAuthentication do
       end
     end
   end
+
+  describe "#emit_social_auth_failed" do
+    let(:provider) { double("Provider", provider_name: "google") }
+    let(:error) { StandardId::OAuthError.new("Connection refused") }
+
+    before do
+      allow(instance).to receive(:provider).and_return(provider)
+    end
+
+    it "publishes SOCIAL_AUTH_FAILED with provider, error, error_class, and account" do
+      event_received = nil
+      subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) do |event|
+        event_received = event
+      end
+
+      begin
+        instance.send(:emit_social_auth_failed, error, account: account)
+
+        expect(event_received).to be_present
+        expect(event_received[:provider]).to eq("google")
+        expect(event_received[:error]).to eq("Connection refused")
+        expect(event_received[:error_class]).to eq("StandardId::OAuthError")
+        expect(event_received[:account]).to eq(account)
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+    end
+
+    it "emits with account: nil when no account was resolved before the failure" do
+      event_received = nil
+      subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) do |event|
+        event_received = event
+      end
+
+      begin
+        instance.send(:emit_social_auth_failed, error)
+
+        expect(event_received).to be_present
+        expect(event_received[:account]).to be_nil
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+    end
+
+    it "emits with provider: nil when provider resolution failed" do
+      allow(instance).to receive(:provider).and_return(nil)
+
+      event_received = nil
+      subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) do |event|
+        event_received = event
+      end
+
+      begin
+        instance.send(:emit_social_auth_failed, error)
+
+        expect(event_received).to be_present
+        expect(event_received[:provider]).to be_nil
+        expect(event_received[:error]).to eq("Connection refused")
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+    end
+  end
 end

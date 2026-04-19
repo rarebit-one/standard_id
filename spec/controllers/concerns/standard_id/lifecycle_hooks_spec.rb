@@ -8,11 +8,12 @@ RSpec.describe StandardId::LifecycleHooks do
     Class.new(ActionController::Base) do
       include StandardId::LifecycleHooks
 
-      attr_accessor :mock_session_manager, :mock_request
+      attr_accessor :mock_session_manager, :mock_request, :redirected_to, :redirect_options
 
       # Expose private methods for testing
       public :invoke_before_sign_in, :invoke_after_sign_in, :invoke_after_account_created,
-             :current_scope_config, :current_scope_name, :resolve_profile_for_authorizer
+             :current_scope_config, :current_scope_name, :resolve_profile_for_authorizer,
+             :handle_authentication_denied
 
       def request
         mock_request || OpenStruct.new(path_parameters: {})
@@ -20,6 +21,13 @@ RSpec.describe StandardId::LifecycleHooks do
 
       def session_manager
         mock_session_manager
+      end
+
+      # Stub redirect_to so we can invoke handle_authentication_denied without
+      # a full controller lifecycle.
+      def redirect_to(target, options = {})
+        @redirected_to = target
+        @redirect_options = options
       end
     end
   end
@@ -786,6 +794,62 @@ RSpec.describe StandardId::LifecycleHooks do
       expect {
         controller.resolve_profile_for_authorizer(acct, "Platform")
       }.to raise_error(ActiveRecord::StatementInvalid)
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # handle_authentication_denied — session revocation
+  # ─────────────────────────────────────────────────────────────────────────
+  describe "#handle_authentication_denied" do
+    let(:current_session) { double("BrowserSession", present?: true) }
+
+    context "when an active session exists" do
+      before do
+        allow(mock_session_manager).to receive(:current_session).and_return(current_session)
+        allow(mock_session_manager).to receive(:revoke_current_session!)
+      end
+
+      it "revokes the current session before redirecting" do
+        error = StandardId::AuthenticationDenied.new("Profile required")
+
+        controller.handle_authentication_denied(error)
+
+        expect(mock_session_manager).to have_received(:revoke_current_session!)
+      end
+
+      it "redirects to the login path with the error message as alert" do
+        error = StandardId::AuthenticationDenied.new("Profile required")
+
+        controller.handle_authentication_denied(error)
+
+        expect(controller.redirect_options[:alert]).to eq("Profile required")
+      end
+    end
+
+    context "when no session is present" do
+      before do
+        allow(mock_session_manager).to receive(:current_session).and_return(nil)
+      end
+
+      it "does not call revoke_current_session!" do
+        allow(mock_session_manager).to receive(:revoke_current_session!)
+
+        controller.handle_authentication_denied(StandardId::AuthenticationDenied.new("nope"))
+
+        expect(mock_session_manager).not_to have_received(:revoke_current_session!)
+      end
+    end
+
+    context "when the error has a blank message" do
+      before do
+        allow(mock_session_manager).to receive(:current_session).and_return(nil)
+      end
+
+      it "falls back to a generic 'Sign-in was denied' message" do
+        controller.handle_authentication_denied(StandardId::AuthenticationDenied.new)
+
+        expect(controller.redirect_options[:alert]).to eq("Sign-in was denied")
+      end
     end
   end
 end

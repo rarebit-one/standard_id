@@ -1,3 +1,5 @@
+require "standard_id/errors"
+
 module StandardId
   class ApiEngine < ::Rails::Engine
     isolate_namespace StandardId
