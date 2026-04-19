@@ -3,19 +3,29 @@
 module StandardId
   # Per-controller audience verification for API endpoints.
   #
-  # StandardId enforces audience in two layers:
+  # StandardId enforces audience in three layers:
   #
   #   1. At encode time (`Oauth::TokenGrantFlow#validate_audience!`):
   #      rejects issuance of tokens with an audience outside the global
   #      `StandardId.config.oauth.allowed_audiences` list.
   #   2. At decode time (`JwtService.decode(..., allowed_audiences:)`):
   #      rejects tokens whose `aud` claim does not match the caller-supplied
-  #      list, raising `StandardId::InvalidAudienceError`. The default
-  #      `decode` call does not check aud — callers opt in.
+  #      list, raising `StandardId::InvalidAudienceError`. The engine's
+  #      `Api::TokenManager#verify_jwt_token` wires this automatically when
+  #      `StandardId.config.oauth.allowed_audiences` is non-empty — a
+  #      mismatch there is normalised to the same 401 "invalid token"
+  #      response as a bad signature. Call sites that pass no arguments
+  #      to `decode` directly still skip aud checks by design.
+  #   3. At the controller, via this concern: layers on top as
+  #      per-endpoint defense-in-depth. Required when a controller serves
+  #      a strict subset of the global allowed audiences (e.g., the global
+  #      list is `%w[web api admin]` but `AdminController` must only
+  #      accept `admin`).
   #
-  # This concern layers on top as per-controller defense-in-depth, so
-  # forgetting to pass `allowed_audiences:` at the auth layer still results
-  # in a 403 at the controller instead of an accepted cross-audience replay.
+  # With the global decode-time check now automatic, this concern is
+  # primarily useful for tightening the allowed audience per controller,
+  # not for plugging the "controller forgot to verify aud" gap (which
+  # is closed globally when `config.oauth.allowed_audiences` is set).
   #
   # In addition, when `StandardId.config.oauth.audience_profile_types` is set,
   # this concern enforces the audience → profile-type binding: after the

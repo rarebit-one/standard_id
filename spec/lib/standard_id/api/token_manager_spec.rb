@@ -208,6 +208,75 @@ RSpec.describe StandardId::Api::TokenManager, type: :model do
     end
   end
 
+  describe "#verify_jwt_token" do
+    let(:sub_id) { SecureRandom.uuid }
+
+    context "when config.oauth.allowed_audiences is empty (default)" do
+      before { allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([]) }
+
+      it "decodes a token regardless of its aud claim" do
+        token = StandardId::JwtService.encode({ sub: sub_id, aud: "other-service" })
+
+        session = token_manager.verify_jwt_token(token: token)
+
+        expect(session).not_to be_nil
+        expect(session.account_id).to eq(sub_id)
+      end
+
+      it "decodes a token with no aud claim" do
+        token = StandardId::JwtService.encode({ sub: sub_id })
+
+        session = token_manager.verify_jwt_token(token: token)
+
+        expect(session).not_to be_nil
+        expect(session.account_id).to eq(sub_id)
+      end
+    end
+
+    context "when config.oauth.allowed_audiences lists expected audiences" do
+      before { allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[web api]) }
+
+      it "accepts a token whose aud is in the list" do
+        token = StandardId::JwtService.encode({ sub: sub_id, aud: "api" })
+
+        session = token_manager.verify_jwt_token(token: token)
+
+        expect(session).not_to be_nil
+        expect(session.account_id).to eq(sub_id)
+      end
+
+      it "accepts a token whose aud (array) intersects the list" do
+        token = StandardId::JwtService.encode({ sub: sub_id, aud: %w[web mobile] })
+
+        session = token_manager.verify_jwt_token(token: token)
+
+        expect(session).not_to be_nil
+      end
+
+      it "returns nil for a token whose aud is not in the list" do
+        token = StandardId::JwtService.encode({ sub: sub_id, aud: "other-service" })
+
+        expect(token_manager.verify_jwt_token(token: token)).to be_nil
+      end
+
+      it "returns nil for a token with no aud claim" do
+        token = StandardId::JwtService.encode({ sub: sub_id })
+
+        expect(token_manager.verify_jwt_token(token: token)).to be_nil
+      end
+
+      it "returns nil for a token with an invalid signature (same as invalid-token path)" do
+        expect(token_manager.verify_jwt_token(token: "not.a.jwt")).to be_nil
+      end
+
+      it "does not leak StandardId::InvalidAudienceError" do
+        token = StandardId::JwtService.encode({ sub: sub_id, aud: "other-service" })
+
+        expect { token_manager.verify_jwt_token(token: token) }.not_to raise_error
+      end
+    end
+  end
+
   describe "integration with session models" do
     it "creates sessions that can be found by their tokens" do
       device_session = token_manager.create_device_session(account)

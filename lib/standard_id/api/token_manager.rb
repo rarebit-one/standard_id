@@ -53,8 +53,23 @@ module StandardId
         @bearer_token = StandardId::BearerTokenExtraction.extract(@request.headers["Authorization"])
       end
 
+      # Verifies the bearer JWT and returns a decoded session.
+      #
+      # When `StandardId.config.oauth.allowed_audiences` is non-empty,
+      # the token's `aud` claim is enforced against that list at decode
+      # time. A mismatch raises `StandardId::InvalidAudienceError`, which
+      # is caught and treated as an invalid token (returns nil) so the
+      # downstream 401 path in `Api::BaseController` handles it
+      # identically to signature/expiry failures.
+      #
+      # When the config is empty (default), no audience enforcement is
+      # applied here — behavior is unchanged vs pre-threading releases.
+      # Per-controller `AudienceVerification` concern still applies on
+      # top for tighter endpoint-specific restrictions.
       def verify_jwt_token(token: bearer_token)
-        StandardId::JwtService.decode_session(token)
+        StandardId::JwtService.decode_session(token, allowed_audiences: configured_allowed_audiences)
+      rescue StandardId::InvalidAudienceError
+        nil
       end
 
       def generate_lookup_hash(token)
@@ -88,6 +103,11 @@ module StandardId
             "session_type_resolver returned #{session_class.name} for flow :api_device_auth; " \
             "expected :browser or :device."
         end
+      end
+
+      def configured_allowed_audiences
+        audiences = StandardId.config.oauth.allowed_audiences
+        audiences.presence
       end
     end
   end
