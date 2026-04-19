@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **OTP verification race-condition fix and per-challenge brute-force defenses** — `VerificationService.verify` now wraps the challenge lookup, failed-attempt increment, and consumption in a single `SELECT ... FOR UPDATE` transaction, closing the TOCTOU window between "find active challenge" and "mark it used." Failed-attempt counting is now atomic and scoped to the specific challenge (previously a loose read-modify-write on the account). Events are deferred to post-commit so observers never see rolled-back state. New `config.passwordless.max_attempts_per_challenge` (default `5`) supersedes the now-deprecated account-wide `max_attempts` (kept as a fallback for existing installs). (#169)
+
+### Changed
+
+- **OTP code format now allows leading zeros** — `StandardId::Passwordless.generate_otp_code` (new consolidated generator, replacing the inline generators in `VerifyEmail::StartController`, `VerifyPhone::StartController`, and `BaseStrategy`) produces codes in the range `[0, 10**n)` zero-padded to the configured length, so values like `"000123"` are now valid. The previous generators produced integers in `[10**(n-1), 10**n)`, which never had leading zeros. Entropy is unchanged; host apps that stored or displayed codes as integers should treat them as strings. (#169)
+
 ## [0.15.0] - 2026-04-18
 
 ### Added

@@ -501,7 +501,6 @@ RSpec.describe StandardId::Passwordless::VerificationService do
         # Intercept `find_by` only on the specific relation returned by
         # CodeChallenge.lock so we don't accidentally stub unrelated find_by
         # calls made during account resolution or elsewhere in the stack.
-        original_lock = StandardId::CodeChallenge.method(:lock)
         hijacked = false
         allow(StandardId::CodeChallenge).to receive(:lock).and_wrap_original do |m, *args|
           relation = m.call(*args)
