@@ -59,8 +59,18 @@ module StandardId
     # We warn (not raise) to avoid breaking apps that intentionally short-
     # circuit boot (e.g., `assets:precompile` rake tasks with no secrets
     # available). A hard failure would be hostile to those workflows.
+    #
+    # IMPORTANT: we must NOT call `app.secret_key_base` directly. Rails 8.1's
+    # getter runs the "generate + persist" path on first read, which in turn
+    # invokes the setter — and the setter raises when the resolved value is
+    # blank (which is exactly the case this check is meant to warn about).
+    # So calling the getter here would turn a soft warning into a hard boot
+    # failure under parallel workers (e.g. parallel_rspec's `parallel:create`)
+    # that don't share a generated key between processes. Instead we read
+    # the same underlying sources Rails resolves from (ENV, then credentials)
+    # without triggering the write path.
     def self.verify_host_cookie_encryption!(app)
-      secret = app.respond_to?(:secret_key_base) ? app.secret_key_base : nil
+      secret = host_secret_key_base(app)
 
       if secret.blank?
         Rails.logger.warn(
@@ -72,6 +82,27 @@ module StandardId
         )
       end
     end
+
+    # Probe secret_key_base sources without touching the memoizing setter.
+    # Mirrors Rails' own resolution order (ENV -> credentials), stopping on
+    # the first present value. Returns nil when neither is set — the caller
+    # logs a warning in that case.
+    def self.host_secret_key_base(app)
+      return ENV["SECRET_KEY_BASE"] if ENV["SECRET_KEY_BASE"].present?
+
+      credentials = app.respond_to?(:credentials) ? app.credentials : nil
+      return nil unless credentials&.respond_to?(:secret_key_base)
+
+      credentials.secret_key_base
+    rescue StandardError
+      # A broken credentials file or missing master key raises during read.
+      # That's the host app's problem to surface elsewhere — here we just
+      # want the cookie-encryption warning to fire, so we treat "could not
+      # probe" as "not configured" and let Rails error loudly on its own
+      # path if the app genuinely needs the secret.
+      nil
+    end
+    private_class_method :host_secret_key_base
 
     # Logs a production-only warning when no global audience allow-list is
     # configured. With `allowed_audiences` empty, the API token manager

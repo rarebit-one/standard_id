@@ -19,25 +19,80 @@ RSpec.describe StandardId::Engine do
       allow(Rails).to receive(:logger).and_return(logger)
     end
 
-    it "warns when the host app has no secret_key_base" do
-      app = double("App", secret_key_base: nil)
+    around do |example|
+      original_env = ENV.fetch("SECRET_KEY_BASE", nil)
+      ENV.delete("SECRET_KEY_BASE")
+      example.run
+    ensure
+      ENV["SECRET_KEY_BASE"] = original_env if original_env
+    end
+
+    it "warns when neither ENV nor credentials provide a secret_key_base" do
+      credentials = double("Credentials", secret_key_base: nil)
+      app = double("App", credentials: credentials)
       expect(logger).to receive(:warn).with(a_string_including("secret_key_base"))
 
       described_class.verify_host_cookie_encryption!(app)
     end
 
-    it "warns when secret_key_base is blank" do
-      app = double("App", secret_key_base: "")
+    it "warns when credentials.secret_key_base is blank" do
+      credentials = double("Credentials", secret_key_base: "")
+      app = double("App", credentials: credentials)
       expect(logger).to receive(:warn).with(a_string_including("secret_key_base"))
 
       described_class.verify_host_cookie_encryption!(app)
     end
 
-    it "does not warn when secret_key_base is set" do
-      app = double("App", secret_key_base: "x" * 64)
+    it "does not warn when ENV['SECRET_KEY_BASE'] is set" do
+      ENV["SECRET_KEY_BASE"] = "x" * 64
+      app = double("App") # no credentials needed — ENV short-circuits
       expect(logger).not_to receive(:warn)
 
       described_class.verify_host_cookie_encryption!(app)
+    end
+
+    it "does not warn when credentials.secret_key_base is present" do
+      credentials = double("Credentials", secret_key_base: "x" * 64)
+      app = double("App", credentials: credentials)
+      expect(logger).not_to receive(:warn)
+
+      described_class.verify_host_cookie_encryption!(app)
+    end
+
+    it "does NOT call app.secret_key_base (which would trigger Rails' setter and can raise)" do
+      # Regression test: earlier versions called `app.secret_key_base`, which
+      # in Rails 8.1 runs the auto-generate+persist path. When that resolves
+      # to blank, the setter raises, turning this defensive warning into a
+      # hard boot failure under parallel workers. The fix reads ENV and
+      # credentials directly instead.
+      credentials = double("Credentials", secret_key_base: "x" * 64)
+      app = double("App", credentials: credentials)
+      # Intentionally NOT stubbing secret_key_base — if the engine tries to
+      # call it, the double raises RSpec::Mocks::MockExpectationError for
+      # unknown message, which fails the test.
+
+      expect { described_class.verify_host_cookie_encryption!(app) }.not_to raise_error
+    end
+
+    it "treats a raising credentials lookup as 'not configured' (no propagation)" do
+      credentials = double("Credentials")
+      allow(credentials).to receive(:secret_key_base).and_raise(StandardError, "missing master key")
+      app = double("App", credentials: credentials)
+      expect(logger).to receive(:warn).with(a_string_including("secret_key_base"))
+
+      expect { described_class.verify_host_cookie_encryption!(app) }.not_to raise_error
+    end
+
+    it "warns (and does not raise) when the app responds to neither credentials nor secret_key_base" do
+      # Covers the `respond_to?(:credentials)` guard in host_secret_key_base.
+      # A minimal double with no stubs at all: any method call would raise
+      # RSpec's unknown-message error, so reaching this test without a raise
+      # proves the probe never touches credentials or secret_key_base on an
+      # app that doesn't expose them.
+      app = double("App")
+      expect(logger).to receive(:warn).with(a_string_including("secret_key_base"))
+
+      expect { described_class.verify_host_cookie_encryption!(app) }.not_to raise_error
     end
   end
 
