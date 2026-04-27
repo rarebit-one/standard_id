@@ -112,7 +112,7 @@ jobs:
           bundler-cache: false
 
       - name: Install dependencies against Rails edge
-        run: bundle install --jobs 4
+        run: bundle install --jobs 4 --retry 3
 
       - name: Run tests against Rails edge
         env:
@@ -121,3 +121,11 @@ jobs:
           bin/rails db:test:prepare
           bin/rails app:tailwindcss:build
           bundle exec rspec
+
+      - name: Keep screenshots from failed system tests
+        uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: screenshots-rails-edge
+          path: ${{ github.workspace }}/tmp/screenshots
+          if-no-files-found: ignore
