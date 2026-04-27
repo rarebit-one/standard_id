@@ -53,6 +53,25 @@ RSpec.describe StandardId::ConfigSchema do
       expect(config.base.account_class_name).to eq("Account")
     end
 
+    it "returns nil for ambiguous field names present in multiple scopes" do
+      ambiguous_schema = described_class.new
+      ambiguous_schema.define do
+        scope :a do
+          field :delivery, type: :string, default: "from_a"
+        end
+        scope :b do
+          field :delivery, type: :string, default: "from_b"
+        end
+      end
+      ambiguous = described_class::Config.new
+      ambiguous_schema.apply(ambiguous)
+      # `delivery` exists in both :a and :b — top-level access intentionally
+      # returns nil rather than guessing or raising. Callers must use the scope.
+      expect(ambiguous.delivery).to be_nil
+      expect(ambiguous.a.delivery).to eq("from_a")
+      expect(ambiguous.b.delivery).to eq("from_b")
+    end
+
     it "dups Array/Hash defaults so callers cannot mutate the schema" do
       first = config.allowed
       first << :leak
@@ -97,6 +116,11 @@ RSpec.describe StandardId::ConfigSchema do
       expect(config.test.as_hash).to eq(nil) # cast preserves nil
       expect(config.test.as_symbol).to eq(:foo)
       expect(config.test.as_any).to eq(mixed: 1)
+    end
+
+    it "casts strings to symbols for :symbol type" do
+      config.test.as_symbol = "from_string"
+      expect(config.test.as_symbol).to eq(:from_string)
     end
   end
 
