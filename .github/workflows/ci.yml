@@ -76,3 +76,48 @@ jobs:
           name: screenshots
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
+
+  test-rails-edge:
+    # Early-warning canary against Rails `main`. Non-blocking: this job is allowed
+    # to fail without breaking PRs. The point is to surface upstream breakage in
+    # development rather than at a host app's `bundle update` after a Rails 9
+    # release. The widened `>= 8.0` constraint in standard_id.gemspec means
+    # Rails 9+ will be auto-resolved by host bundlers once published, so we want
+    # to know about incompatibilities early.
+    name: test (rails-edge)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential git libyaml-dev pkg-config google-chrome-stable
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Pin Rails to main in Gemfile
+        run: |
+          cat >> Gemfile <<'RUBY'
+
+          # Override Rails to edge for the rails-edge canary job (CI only).
+          gem "rails", github: "rails/rails", branch: "main"
+          RUBY
+          # Drop the lockfile so bundler resolves edge versions cleanly.
+          rm -f Gemfile.lock
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 4.0.1
+          bundler-cache: false
+
+      - name: Install dependencies against Rails edge
+        run: bundle install --jobs 4
+
+      - name: Run tests against Rails edge
+        env:
+          RAILS_ENV: test
+        run: |
+          bin/rails db:test:prepare
+          bin/rails app:tailwindcss:build
+          bundle exec rspec
