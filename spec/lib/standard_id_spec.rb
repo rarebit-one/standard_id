@@ -64,13 +64,15 @@ RSpec.describe StandardId do
     end
 
     context "dynamic configuration with multitenancy" do
-      # Save and restore the :social scope to prevent register(:social, ...)
-      # from leaking into other examples.
+      # Save and restore the :social scope's resolver to prevent
+      # register(:social, ...) from leaking into other examples.
+      # Must capture the resolver value, not the Scope object reference, since
+      # register mutates the Scope in place.
       around do |example|
-        saved_social = StandardId.config[:social]
+        saved_resolver = StandardId.config[:social].resolver
         example.run
       ensure
-        StandardId.config.send(:write_raw, :social, saved_social) if saved_social
+        StandardId.config[:social].resolver = saved_resolver
       end
 
       let(:tenant_configs) do

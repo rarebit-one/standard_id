@@ -68,7 +68,8 @@ module StandardId
     def cast(value, type)
       return value if value.nil?
       case type
-      when :any, :symbol then value
+      when :any     then value
+      when :symbol  then value.is_a?(Symbol) ? value : value.to_sym
       when :string  then value.to_s
       when :integer then value.to_i
       when :float   then value.to_f
@@ -129,7 +130,9 @@ module StandardId
         validate!(sym) unless key?(sym) || resolver
         raw = if resolver
                 hash = resolver.call || {}
-                hash.respond_to?(:[]) ? (hash[sym] || hash[sym.to_s]) : nil
+                if hash.respond_to?(:key?) && hash.respond_to?(:[])
+                  hash.key?(sym) ? hash[sym] : hash[sym.to_s]
+                end
         elsif key?(sym)
                 super(sym)
         else

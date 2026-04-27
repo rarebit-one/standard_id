@@ -34,7 +34,6 @@ module StandardId
         )
       end
 
-
       # Get all registered providers
       # @return [Hash] Provider name => class mapping
       def all
