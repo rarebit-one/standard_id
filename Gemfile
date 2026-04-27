@@ -1,6 +1,9 @@
 source "https://rubygems.org"
 
-ruby file: ".ruby-version"
+# Ruby version requirement is declared in standard_id.gemspec
+# (required_ruby_version) so the CI matrix can exercise all
+# supported 4.x patch versions without bundler frozen-mode rejecting
+# anything other than the local .ruby-version pin.
 
 # Specify your gem's dependencies in standard_id.gemspec.
 gemspec
