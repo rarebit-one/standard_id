@@ -59,11 +59,11 @@ RSpec.describe StandardId::ProviderRegistry do
       expect(setup_called).to be true
     end
 
-    it "registers config_schema fields with StandardConfig" do
+    it "registers config_schema fields with the StandardId schema" do
       described_class.register(:test, test_provider_class)
 
-      expect(StandardConfig.schema.valid_field?(:social, :test_client_id)).to be true
-      expect(StandardConfig.schema.valid_field?(:social, :test_client_secret)).to be true
+      expect(StandardId::ConfigSchema.instance.field?(:social, :test_client_id)).to be true
+      expect(StandardId::ConfigSchema.instance.field?(:social, :test_client_secret)).to be true
     end
 
     it "skips config registration when config_schema is empty" do

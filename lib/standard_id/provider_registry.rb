@@ -50,16 +50,15 @@ module StandardId
 
       private
 
-      # Register provider's config schema fields with StandardConfig
+      # Register provider's config schema fields with the StandardId schema.
+      # Thread-safe and idempotent — adding the same field twice is a no-op.
       # @param provider_class [Class] Provider implementation class
       def register_config_schema(provider_class)
         schema = provider_class.config_schema
         return if schema.nil? || schema.empty?
 
-        StandardConfig.schema.scope(:social) do
-          schema.each do |field_name, options|
-            field field_name, **options
-          end
+        schema.each do |field_name, options|
+          StandardId::ConfigSchema.add_field(scope: :social, name: field_name, **options)
         end
       end
 

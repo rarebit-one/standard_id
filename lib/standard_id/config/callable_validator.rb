@@ -18,8 +18,8 @@ module StandardId
     #   runtime.
     #
     # Scope: only validates top-level StandardId.config fields plus the hash
-    # entries under `oauth.claim_resolvers`. Does NOT modify the StandardConfig
-    # DSL (the gem's schema doesn't need to know about this).
+    # entries under `oauth.claim_resolvers`. Does NOT modify the schema
+    # (the gem's schema doesn't need to know about this).
     module CallableValidator
       # Each entry: field_path => { signature: "(a, b, c)", arity: Integer, kind: :positional | :keyword, keywords: [..] }
       # Field path is the method chain on StandardId.config, e.g. "after_sign_in"
