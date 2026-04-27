@@ -1,109 +1,22 @@
-name: Weekly Maintenance (PR)
+name: Weekly Maintenance
 
 on:
   schedule:
-    - cron: "0 0 * * 0"
+    - cron: '0 0 * * 0'
   workflow_dispatch:
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   maintenance:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    permissions:
-      contents: write
-      pull-requests: write
-      id-token: write
-
-    steps:
-      - name: Validate required secrets
-        run: |
-          if [ -z "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" ]; then
-            echo "::error::CLAUDE_CODE_OAUTH_TOKEN secret is not set"
-            exit 1
-          fi
-          if [ -z "${{ secrets.LINEAR_API_KEY }}" ]; then
-            echo "::warning::LINEAR_API_KEY secret is not set — Linear integration will be unavailable"
-          fi
-
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: 3.4.4
-          bundler-cache: true
-
-      - name: Weekly maintenance
-        uses: anthropics/claude-code-action@v1
-        env:
-          LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          # Linear MCP configuration using official remote server with API key auth
-          # Requires LINEAR_API_KEY secret to be set in repository settings
-          # See: https://linear.app/docs/mcp
-          mcp_config: |
-            {
-              "linear": {
-                "command": "npx",
-                "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp", "--header", "Authorization:Bearer ${{ secrets.LINEAR_API_KEY }}"]
-              }
-            }
-          prompt: |
-            REPO: ${{ github.repository }}
-            DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-            RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-            Perform weekly repository maintenance:
-            1. Check for outdated Ruby gems: `bundle outdated`
-            2. Scan for gem security vulnerabilities: `bundle exec bundler-audit --update`
-            3. Review open PRs older than 90 days: `gh pr list --state open`
-            4. Check for TODO/FIXME comments in commits from the last week
-
-            ## Safe changes (create PR):
-            - Running `bundle lock --update` for minor/patch updates
-            - Fixing broken links or typos in README.md
-
-            ## Risky changes (create Linear issue instead):
-            - Major version updates for gems
-            - Security fixes requiring code changes
-            - TODO/FIXME items requiring judgment
-
-            Output rules:
-            - If you make safe changes, create a new branch, commit, push, and open a PR against DEFAULT_BRANCH following the signed-commit flow below.
-            - If only risky items are found (or nothing actionable), create ONE Linear issue summarizing findings.
-            - You MUST determine Linear team/project/labels yourself each run by querying Linear.
-            - Always include RUN_URL in the PR body or Linear issue description.
-            - Do NOT create or reference GitHub Issues (this repo does not use them).
-
-            PR creation steps (when there are safe changes to ship):
-            1. `git checkout -b maintenance/weekly-$GITHUB_RUN_ID`
-            2. `git add -A`
-            3. `git commit -m "chore: weekly dependency maintenance"`
-            4. `git push -u origin HEAD`
-            5. Replace the unsigned commit with a signed one via the GitHub API:
-               ```bash
-               TREE=$(git rev-parse HEAD^{tree})
-               PARENT=$(git rev-parse HEAD^)
-               BRANCH=maintenance/weekly-$GITHUB_RUN_ID
-               SIGNED=$(gh api repos/$GITHUB_REPOSITORY/git/commits \
-                 --method POST \
-                 -f message="chore: weekly dependency maintenance" \
-                 -f tree="$TREE" \
-                 -f "parents[]=$PARENT" \
-                 --jq '.sha')
-               [ -z "$SIGNED" ] && { echo "ERROR: Failed to create signed commit via API" >&2; exit 1; }
-               gh api repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH \
-                 --method PATCH \
-                 -f sha="$SIGNED" \
-                 -F force=true
-               ```
-            6. `gh pr create --base ${{ github.event.repository.default_branch }} --title "chore: weekly dependency maintenance" --body "..."`
-          claude_args: |
-            --allowed-tools "Read,Glob,Grep,Bash(git status),Bash(git log),Bash(git diff),Bash(git checkout:*),Bash(git add:*),Bash(git commit:*),Bash(git push:*),Bash(git rev-parse:*),Bash(bundle outdated),Bash(bundle exec bundler-audit),Bash(bundle lock --update),Bash(gh pr:*),Bash(gh api:*),mcp__linear__list_teams,mcp__linear__list_projects,mcp__linear__list_issue_labels,mcp__linear__create_issue"
+    uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@v1
+    with:
+      stack: ruby-gem
+      linear-fallback: true
+      lint-commands: |
+        bundle exec rubocop
+      test-commands: |
+        bundle exec rspec
+    secrets:
+      claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      linear-api-key: ${{ secrets.LINEAR_API_KEY }}
