@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Widened Rails constraint to `>= 8.0`** — gemspec now allows Rails 9+ when available. Aligns with the org-wide policy of supporting Rails 8 and up with no upper bound.
+
 ## [0.16.1] - 2026-04-19
 
 ### Performance
