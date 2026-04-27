@@ -1,9 +1,9 @@
 # Schema definitions for StandardId
 # This file defines the configuration schema structure
 
-require "standard_config"
+require "standard_id/config_schema"
 
-StandardConfig.schema.draw do
+StandardId::ConfigSchema.define do
   scope :base do
     field :account_class_name, type: :string, default: "User"
     field :cache_store, type: :any, default: nil
@@ -147,7 +147,7 @@ StandardConfig.schema.draw do
     #
     # Note: the scope is named `reset_password` rather than `password_reset` to
     # avoid a name collision with the `web.password_reset` boolean feature flag
-    # — StandardConfig resolves unique field names globally.
+    # — StandardId::ConfigSchema resolves unique field names globally.
     field :delivery, type: :symbol, default: :custom
     field :mailer_from, type: :string, default: "noreply@example.com"
     field :mailer_subject, type: :string, default: "Reset your password"

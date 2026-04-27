@@ -106,7 +106,7 @@ module StandardId
 
         # Define configuration schema fields for this provider.
         #
-        # Returns a hash of field definitions compatible with StandardConfig schema DSL.
+        # Returns a hash of field definitions compatible with the StandardId::ConfigSchema DSL.
         # These fields will be registered under the :social configuration scope.
         #
         # @return [Hash] Field definitions with types and defaults

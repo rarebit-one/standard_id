@@ -3,6 +3,7 @@ require "standard_id/current_attributes"
 require "standard_id/engine"
 require "standard_id/web_engine"
 require "standard_id/api_engine"
+require "standard_id/config_schema"
 require "standard_id/config/schema"
 require "standard_id/scope_config"
 require "standard_id/errors"
@@ -59,20 +60,23 @@ require "standard_id/providers/base"
 require "standard_id/provider_registry"
 
 module StandardId
+  CONFIG = Concurrent::Delay.new { ConfigSchema.build }
+
   class << self
     CACHE_STORE = Concurrent::Delay.new { config.cache_store || Rails.cache }
     LOGGER = Concurrent::Delay.new { config.logger || Rails.logger }
 
     def configure(&block)
-      StandardConfig.configure(&block)
+      yield config if block_given?
+      config
     end
 
     def register(scope_name, resolver_proc)
-      StandardConfig.config.register(scope_name, resolver_proc)
+      config.register(scope_name, resolver_proc)
     end
 
     def config
-      StandardConfig.config
+      CONFIG.value
     end
 
     def cache_store
