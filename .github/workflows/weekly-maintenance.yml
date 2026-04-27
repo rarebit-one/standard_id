@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * 0'
   workflow_dispatch:
 
+concurrency:
+  group: weekly-maintenance-${{ github.repository }}
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:

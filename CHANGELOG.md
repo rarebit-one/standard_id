@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Rails edge CI canary** — a non-blocking `test (rails-edge)` job runs the spec suite against `rails/rails@main` on every PR. Failures surface upstream breakage during development rather than at a host app's `bundle update` after a Rails 9 release. Allowed to fail (`continue-on-error: true`) so it never blocks merges.
 
+### Fixed
+
+- **Weekly maintenance concurrency guard** — added a `concurrency:` block to `weekly-maintenance.yml` so a manual `workflow_dispatch` during an in-flight scheduled run no longer spawns a parallel job. `cancel-in-progress: false` lets the running job finish rather than orphan a half-open PR. Follow-up to #199.
+
 ## [0.16.1] - 2026-04-19
 
 ### Performance
