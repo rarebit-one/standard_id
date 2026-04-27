@@ -19,7 +19,7 @@ Gem::Specification.new do |spec|
     Dir["{app,config,db,lib}/**/*", "MIT-LICENSE", "Rakefile", "README.md"]
   end
 
-  spec.required_ruby_version = ">= 3.2"
+  spec.required_ruby_version = ">= 4.0"
 
   spec.add_dependency "rails", ">= 8.0"
   spec.add_dependency "bcrypt", "~> 3.1"

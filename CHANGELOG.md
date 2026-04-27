@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Weekly maintenance concurrency guard** — added a `concurrency:` block to `weekly-maintenance.yml` so a manual `workflow_dispatch` during an in-flight scheduled run no longer spawns a parallel job. `cancel-in-progress: false` lets the running job finish rather than orphan a half-open PR. Follow-up to #199.
 
+### Removed
+
+- **BREAKING:** Dropped support for Ruby < 4.0. `required_ruby_version` is now `>= 4.0`. Hosts must upgrade to Ruby 4.0+ before bundling this version. CI tests all four published 4.0.x patches.
+
 ## [0.16.1] - 2026-04-19
 
 ### Performance
