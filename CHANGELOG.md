@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Release workflow migrated to the shared `rarebit-one/.github` reusable workflow (`reusable-gem-release.yml@v1`); `.github/workflows/release.yml` is now a thin shim. CI workflow remains bespoke pending unrelated open PRs that touch it.
 - **Widened Rails constraint to `>= 8.0`** — gemspec now allows Rails 9+ when available. Aligns with the org-wide policy of supporting Rails 8 and up with no upper bound.
 - Replaced the vendored `StandardConfig` schema/manager (~430 LOC across `lib/standard_config/`) with `ActiveSupport::OrderedOptions` plus a small internal `StandardId::ConfigSchema` helper (~200 LOC). No public API change for consumers using `StandardId.configure { |c| ... }` or `StandardId.config.foo`. The top-level `StandardConfig` constant has been removed — it was internal-only and shipped under standard_id's lib path, but its name implied a separate gem and risked namespace collisions.
 
