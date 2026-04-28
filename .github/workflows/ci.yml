@@ -82,16 +82,35 @@ jobs:
           path: ${{ github.workspace }}/tmp/screenshots
           if-no-files-found: ignore
 
-  # Aggregator that fans in the matrix into a single required status check.
+  # Aggregator that fans the matrix into a single required status check.
   # Branch protection on `main` requires a check literally named "test"; matrix
-  # jobs publish "test (4.0.0)" etc. which don't match. This job depends on
-  # every matrix leg and succeeds only when they all do.
+  # jobs publish "test (4.0.0)" etc. which don't match.
+  #
+  # Run regardless of test-matrix result so a failing leg fails this aggregator
+  # instead of skipping it. Without `if: always()` a failing matrix leg would
+  # skip this job, and GitHub's required-check semantics around skipped checks
+  # are ambiguous enough that we'd rather fail loud. `success` and `skipped`
+  # both count as passing; anything else fails the aggregator. Mirrors the
+  # `test` aggregator in `rarebit-one/.github`'s reusable-gem-ci.yml@v1.
   test:
     needs: test-matrix
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
-      - run: echo "All Ruby matrix legs passed"
+      - name: Check matrix result
+        env:
+          MATRIX_RESULT: ${{ needs.test-matrix.result }}
+        run: |
+          case "$MATRIX_RESULT" in
+            success|skipped)
+              echo "test-matrix: $MATRIX_RESULT"
+              ;;
+            *)
+              echo "test-matrix failed: $MATRIX_RESULT"
+              exit 1
+              ;;
+          esac
 
   test-rails-edge:
     # Early-warning canary against Rails `main`. Non-blocking: this job is allowed
