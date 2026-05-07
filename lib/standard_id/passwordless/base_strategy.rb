@@ -30,7 +30,12 @@ module StandardId
           expires_in: expires_in,
           metadata: metadata
         )
-        emit_code_generated(challenge, username)
+        # skip_sender is forwarded into the event payload so subscribers that
+        # deliver on PASSWORDLESS_CODE_GENERATED (e.g. PasswordlessDeliverySubscriber)
+        # can honor a per-call manual-delivery request — not just the legacy
+        # sender_callback. Without this, Otp.issue(delivery: :manual) silently
+        # double-delivers when c.passwordless.delivery == :built_in.
+        emit_code_generated(challenge, username, skip_sender: skip_sender)
         sender_callback&.call(username, challenge.code) unless skip_sender
         emit_code_sent(username) unless skip_sender
         challenge
@@ -158,14 +163,15 @@ module StandardId
         )
       end
 
-      def emit_code_generated(challenge, username)
+      def emit_code_generated(challenge, username, skip_sender: false)
         StandardId::Events.publish(
           StandardId::Events::PASSWORDLESS_CODE_GENERATED,
           code_challenge: challenge,
           identifier: username,
           channel: connection_type,
           realm: @realm,
-          expires_at: challenge.expires_at
+          expires_at: challenge.expires_at,
+          skip_sender: skip_sender
         )
       end
 

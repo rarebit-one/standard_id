@@ -68,6 +68,34 @@ RSpec.describe StandardId::Otp do
         expect(result.challenge.expires_at).to be_within(5.seconds).of(120.seconds.from_now)
       end
 
+      context "when c.passwordless.delivery is :built_in" do
+        before do
+          # Reset subscribers to a clean fanout, then attach exactly one copy of
+          # the bundled delivery subscriber. Mirrors the pattern in
+          # passwordless_delivery_subscriber_spec; without it, the engine's
+          # auto-attach plus any previous-test attach would duplicate the
+          # subscription and inflate enqueue counts.
+          clear_event_subscribers!
+          StandardId::Events::Subscribers::PasswordlessDeliverySubscriber.attach
+          allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+        end
+
+        after { clear_event_subscribers! }
+
+        # Before this regression was fixed, BaseStrategy#start! emitted
+        # PASSWORDLESS_CODE_GENERATED unconditionally. PasswordlessDeliverySubscriber
+        # gated only on c.passwordless.delivery, so manual callers received
+        # a duplicate email on top of their own out-of-band delivery.
+        it "does not enqueue the bundled mailer (manual means manual)" do
+          expect {
+            described_class.issue(
+              realm: realm, target: email, channel: :email,
+              request: request, delivery: :manual
+            )
+          }.not_to have_enqueued_mail(StandardId::PasswordlessMailer, :otp_email)
+        end
+      end
+
       it "invalidates prior active challenges in the same realm+channel+target" do
         first = described_class.issue(
           realm: realm, target: email, channel: :email,

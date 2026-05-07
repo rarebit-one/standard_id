@@ -5,6 +5,12 @@ module StandardId
         subscribe_to StandardId::Events::PASSWORDLESS_CODE_GENERATED
 
         def call(event)
+          # Per-call manual-delivery request takes precedence over the global
+          # delivery config. Honors Otp.issue(delivery: :manual) callers who
+          # deliver the code themselves (custom widget flows, step-up
+          # challenges, etc.) and would otherwise receive a duplicate email
+          # from this subscriber when c.passwordless.delivery == :built_in.
+          return if event[:skip_sender]
           return unless built_in_delivery?
           return unless event[:channel] == "email"
 
