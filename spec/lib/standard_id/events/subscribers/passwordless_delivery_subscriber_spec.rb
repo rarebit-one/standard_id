@@ -118,6 +118,34 @@ RSpec.describe StandardId::Events::Subscribers::PasswordlessDeliverySubscriber d
       end
     end
 
+    context "when event payload sets skip_sender: true" do
+      before do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+      end
+
+      let(:event) do
+        StandardId::Events::Event.new(
+          name: "standard_id.passwordless.code.generated",
+          payload: {
+            event_type: "passwordless.code.generated",
+            identifier: "user@example.com",
+            channel: "email",
+            code_challenge: code_challenge,
+            expires_at: 10.minutes.from_now,
+            skip_sender: true
+          }
+        )
+      end
+
+      # Per-call override: even when the host has c.passwordless.delivery = :built_in,
+      # an Otp.issue(delivery: :manual) caller must not receive a duplicate email.
+      it "does not enqueue the bundled mailer" do
+        expect(StandardId::PasswordlessMailer).not_to receive(:with)
+
+        described_class.new.call(event)
+      end
+    end
+
     context "when delivery is :custom (default)" do
       before do
         allow(StandardId.config.passwordless).to receive(:delivery).and_return(:custom)

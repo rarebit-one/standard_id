@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Otp.issue(delivery: :manual)` no longer double-delivers when `c.passwordless.delivery == :built_in`.** Previously, `BaseStrategy#start!` emitted `PASSWORDLESS_CODE_GENERATED` unconditionally and `PasswordlessDeliverySubscriber` gated only on the global delivery config — so callers who passed `delivery: :manual` and delivered the code themselves (custom widget/verification/step-up flows) silently received a duplicate email from the bundled mailer on top of their own. `skip_sender` is now forwarded into the event payload, and the subscriber short-circuits when it sees the flag. Manual callers get exactly one delivery again, in line with the documented contract for `:manual`.
+
 ## [0.17.0] - 2026-04-29
 
 ### Changed
