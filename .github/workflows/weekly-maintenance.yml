@@ -9,7 +9,10 @@ concurrency:
   group: weekly-maintenance-${{ github.repository }}
   cancel-in-progress: false
 
-permissions: {}
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
 
 jobs:
   maintenance:
