@@ -24,3 +24,15 @@ Then work inside `.worktrees/<name>/` for the rest of the session.
 **Why this matters:** Working directly on the main checkout causes cross-contamination between sessions — uncommitted changes, wrong branches, and dirty state leak into unrelated work. Worktrees eliminate this entirely.
 
 See the `/worktree` and `/start` skills for full conventions and flags.
+
+## Consumers
+
+This gem is consumed by all three web apps in the workspace:
+
+| App | Constraint | Style |
+|---|---|---|
+| `fundbright-web` | `~> 0.17.0` | rubygems |
+| `luminality-web` | `~> 0.17.0` | rubygems |
+| `nutripod-web` | `~> 0.17.0` | rubygems |
+
+After publishing a new version via `/publish-gem`, roll it out to consumers with the workspace-level `/rollout-gem standard_id [<version>]` skill. Keep this list in sync with the consumer matrix in `<workspace>/.claude/skills/rollout-gem/SKILL.md`.
