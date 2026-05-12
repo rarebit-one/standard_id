@@ -27,7 +27,7 @@ See the `/worktree` and `/start` skills for full conventions and flags.
 
 ## Consumers
 
-This gem is consumed by all three web apps in the workspace:
+`standard_id` is consumed by all three web apps in the rarebit-one workspace:
 
 - `fundbright-web`
 - `luminality-web`
