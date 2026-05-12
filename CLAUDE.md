@@ -24,3 +24,13 @@ Then work inside `.worktrees/<name>/` for the rest of the session.
 **Why this matters:** Working directly on the main checkout causes cross-contamination between sessions — uncommitted changes, wrong branches, and dirty state leak into unrelated work. Worktrees eliminate this entirely.
 
 See the `/worktree` and `/start` skills for full conventions and flags.
+
+## Consumers
+
+This gem is consumed by all three web apps in the workspace:
+
+- `fundbright-web`
+- `luminality-web`
+- `nutripod-web`
+
+After publishing a new version via `/publish-gem`, roll it out with the workspace-level `/rollout-gem standard_id [<version>]` skill (defined at the rarebit-one workspace root, one directory above this repo). The canonical consumer matrix — including version constraints and any non-rubygems sources — lives in that skill's `SKILL.md`; the list here is a summary so version pins don't drift between two files.
