@@ -8,10 +8,17 @@
 #   1. Fetches latest target branch and rebases current branch onto it
 #   2. If rebase changes history, injects --force-with-lease into git push
 #   3. Checks commit count and blocks if >1 commit (prompts user to squash)
+#   4. For `gh pr create`, when rebase changed history: performs an
+#      unconditional `git push --force-with-lease` inside the hook before
+#      letting `gh pr create` proceed (since `gh pr create` has no
+#      --force-with-lease flag of its own). This push happens in the hook
+#      process and bypasses Claude Code's permission system — it's
+#      necessary because the PR can't be created against the stale
+#      remote branch.
 #
 # Exit codes:
 #   0 - Allow (optionally with modified command)
-#   2 - Block (rebase conflict or multiple commits)
+#   2 - Block (rebase conflict, dirty working tree, or multiple commits)
 #
 # To skip entirely:
 #   SKIP_PRE_PUSH_PREPARE=1 git push ...
@@ -89,6 +96,16 @@ if git fetch origin "$DEFAULT_BRANCH" --quiet 2>/dev/null; then
   if [[ -z "$REMOTE_TIP" ]]; then
     echo "⚠️  Could not resolve origin/$DEFAULT_BRANCH, skipping rebase" >&2
   elif [[ -n "$MERGE_BASE" && "$MERGE_BASE" != "$REMOTE_TIP" ]]; then
+    # Guard against rebasing with a dirty working tree — git rebase
+    # would fail with a "could not apply" error that reads like a
+    # real merge conflict, masking the actual cause. Bail with a
+    # clearer message so the user can stash/commit first.
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+      echo "❌ Uncommitted changes — cannot rebase onto origin/$DEFAULT_BRANCH." >&2
+      echo "   Stash or commit them, then retry:" >&2
+      git status --short >&2
+      exit 2
+    fi
     echo "🔄 Rebasing onto origin/$DEFAULT_BRANCH..." >&2
     if git rebase --quiet "origin/$DEFAULT_BRANCH" >&2; then
       HEAD_AFTER=$(git rev-parse HEAD)
@@ -126,8 +143,10 @@ fi
 
 if [[ "$REBASE_HAPPENED" == "true" ]]; then
   if [[ "$IS_GIT_PUSH" == "true" ]]; then
-    # Inject --force-with-lease if not already present
-    if [[ ! "$COMMAND" =~ --force-with-lease ]] && [[ ! "$COMMAND" =~ --force ]]; then
+    # Inject --force-with-lease if no --force* flag is already present.
+    # The word-boundary regex catches --force, --force-with-lease, and
+    # --force-if-includes without false-matching unrelated tokens.
+    if [[ ! "$COMMAND" =~ (^|[[:space:]])--force ]]; then
       MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E 's/(git[[:space:]]+push)/\1 --force-with-lease/')
       echo "🔄 Injecting --force-with-lease (rebase changed history)" >&2
       jq -n --arg cmd "$MODIFIED_COMMAND" '{

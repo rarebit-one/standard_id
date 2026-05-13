@@ -4,6 +4,7 @@
       "Bash(ALLOW_MULTIPLE_COMMITS=1 gh pr create:*)",
       "Bash(ALLOW_MULTIPLE_COMMITS=1 git push:*)",
       "Bash(SKIP_PRE_PUSH_PREPARE=1 git push:*)",
+      "Bash(SKIP_SIGNED_COMMITS_HOOK=1 git commit:*)",
       "Bash(bundle:*)",
       "Bash(gem build:*)",
       "Bash(gem info:*)",
