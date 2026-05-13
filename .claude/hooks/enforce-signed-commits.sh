@@ -52,8 +52,12 @@ if [[ ! "$COMMAND" =~ (^|[[:space:]\&\;\|])git[[:space:]]+commit([[:space:]]|$) 
   exit 0
 fi
 
-# Allow explicit opt-out via environment variable
-if [[ "${SKIP_SIGNED_COMMITS_HOOK:-}" == "1" ]]; then
+# Allow explicit opt-out via env var (exported) or inline command prefix.
+# Inline env-vars (e.g. `SKIP_SIGNED_COMMITS_HOOK=1 git commit ...`) apply
+# to the subprocess, not the hook process, so we have to inspect $COMMAND.
+# The matching allow-list entry `Bash(SKIP_SIGNED_COMMITS_HOOK=1 git commit:*)`
+# pre-approves the inline form so Claude Code doesn't prompt.
+if [[ "${SKIP_SIGNED_COMMITS_HOOK:-}" == "1" ]] || [[ "$COMMAND" == SKIP_SIGNED_COMMITS_HOOK=1* ]]; then
   echo "⏭️  Signed commits hook skipped (SKIP_SIGNED_COMMITS_HOOK=1)" >&2
   exit 0
 fi
