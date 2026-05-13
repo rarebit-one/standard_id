@@ -1,29 +1,32 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git status:*)",
-      "Bash(git log:*)",
-      "Bash(git diff:*)",
-      "Bash(git branch:*)",
-      "Bash(git fetch:*)",
-      "Bash(git rev-parse:*)",
-      "Bash(git merge-base:*)",
-      "Bash(git remote:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(git checkout:*)",
-      "Bash(git switch:*)",
-      "Bash(git pull:*)",
-      "Bash(git tag:*)",
-      "Bash(gh pr:*)",
-      "Bash(gh api:*)",
+      "Bash(ALLOW_MULTIPLE_COMMITS=1 gh pr create:*)",
+      "Bash(ALLOW_MULTIPLE_COMMITS=1 git push:*)",
+      "Bash(SKIP_PRE_PUSH_PREPARE=1 git push:*)",
       "Bash(bundle:*)",
       "Bash(gem build:*)",
       "Bash(gem info:*)",
-      "Bash(rm *.gem)",
-      "Skill(publish-gem)",
+      "Bash(gh api:*)",
+      "Bash(gh pr:*)",
+      "Bash(git add:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "Bash(git fetch:*)",
+      "Bash(git log:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git pull:*)",
+      "Bash(git remote:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git stash:*)",
+      "Bash(git status:*)",
+      "Bash(git switch:*)",
+      "Bash(git tag:*)",
       "Bash(git worktree:*)",
-      "Bash(git stash:*)"
+      "Bash(rm *.gem)",
+      "Skill(publish-gem)"
     ]
   },
   "hooks": {
@@ -35,6 +38,21 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/enforce-worktree.sh",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/pre-push-prepare.sh",
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/enforce-signed-commits.sh",
+            "timeout": 30
           }
         ]
       }
