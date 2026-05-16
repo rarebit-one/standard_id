@@ -84,9 +84,22 @@ test -f CHANGELOG.md && echo "CHANGELOG.md found" || echo "CHANGELOG.md missing"
 When the current version is already published, or the user requests a bump:
 
 1. Update `lib/<gem_name>/version.rb` with the new version
-2. Run `bundle install` to sync `Gemfile.lock`
+2. Sync `Gemfile.lock` so the `PATH` block reflects the new version:
 
-**Critical:** Always run `bundle install` after changing the version to keep `Gemfile.lock` in sync. Skipping this causes CI failures.
+   ```bash
+   bundle install
+   # If bundler runs in frozen mode locally, the lockfile stays stale —
+   # force a re-lock and verify the new version is recorded.
+   grep -q "    <gem_name> (<new_version>)" Gemfile.lock || {
+     BUNDLE_FROZEN=false bundle lock
+     grep -q "    <gem_name> (<new_version>)" Gemfile.lock || {
+       echo "Gemfile.lock did not pick up <new_version> — fix before continuing"
+       exit 1
+     }
+   }
+   ```
+
+**Critical:** Skipping the verification causes CI failures during the release PR. Bundler does NOT always rewrite `Gemfile.lock` after a pure version bump (no other resolution changes), and if the user has `bundle config set frozen true` locally, `bundle install` is a silent no-op for the lockfile. The release PR for `v0.17.0` had to be patched with a follow-up `chore: sync Gemfile.lock with version 0.17.0` commit because of this; the fix is to verify before commit.
 
 ### 5. Update CHANGELOG.md
 
