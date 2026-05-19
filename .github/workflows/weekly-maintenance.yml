@@ -19,11 +19,9 @@ jobs:
     uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@v1
     with:
       stack: ruby-gem
-      linear-fallback: true
       lint-commands: |
         bundle exec rubocop
       test-commands: |
         bundle exec rspec
     secrets:
       claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-      linear-api-key: ${{ secrets.LINEAR_API_KEY }}
