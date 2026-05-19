@@ -110,7 +110,7 @@ RSpec.describe StandardId::JwtService do
         token = described_class.encode({ sub: "user-123" })
 
         # Verify using just the public key
-        decoded = JWT.decode(token, rsa_private_key.public_key, true, { algorithm: "RS256" })
+        decoded = JWT.decode(token, rsa_private_key.public_key, true, { algorithms: ["RS256"] })
         expect(decoded.first["sub"]).to eq("user-123")
       end
     end

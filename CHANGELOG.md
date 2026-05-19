@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-05-19
+
+### Changed
+
+- Relaxed `jwt` dependency constraint from `~> 2.7` to `>= 2.7, < 4`, allowing consumers to satisfy the GHSA security advisory for `jwt` 2.x by upgrading to `jwt` 3.x. Existing 2.x users are unaffected. Consuming apps that bump to `jwt` 3.x should verify their own JWT encode/decode call sites against the [jwt 3.0 release notes](https://github.com/jwt/ruby-jwt/blob/main/CHANGELOG.md) — `JWT.encode` / `JWT.decode` calls inside `StandardId::JwtService` already pass an explicit algorithm and are 3.x-compatible.
+
 ## [0.17.1] - 2026-05-07
 
 ### Fixed
