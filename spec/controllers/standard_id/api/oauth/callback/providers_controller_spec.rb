@@ -78,5 +78,79 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
         expect(response).to have_http_status(:ok)
       end
     end
+
+    describe "original_request_params forwarding" do
+      before do
+        allow_any_instance_of(described_class).to receive(:get_user_info_from_provider)
+          .and_return(user_info:, tokens: {})
+      end
+
+      def capture_original_request_params(&request_block)
+        captured = nil
+        subscriber = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
+          captured = event[:original_request_params]
+        end
+        request_block.call
+        captured
+      ensure
+        StandardId::Events.unsubscribe(subscriber)
+      end
+
+      it "forwards non-reserved params to SOCIAL_AUTH_COMPLETED subscribers" do
+        captured = capture_original_request_params do
+          post :callback, params: {
+            provider: "apple",
+            code: "abc123",
+            experience_slug: "spring-launch",
+            utm_source: "instagram",
+            utm_medium: "story",
+            utm_campaign: "march-2026",
+            referrer: "https://partner.example.com"
+          }
+        end
+
+        expect(response).to have_http_status(:ok)
+        expect(captured).to eq(
+          "experience_slug" => "spring-launch",
+          "utm_source" => "instagram",
+          "utm_medium" => "story",
+          "utm_campaign" => "march-2026",
+          "referrer" => "https://partner.example.com"
+        )
+      end
+
+      it "strips reserved OAuth-flow params" do
+        captured = capture_original_request_params do
+          post :callback, params: {
+            provider: "apple",
+            code: "abc123",
+            id_token: "tok",
+            scope: "profile",
+            scopes: "profile email",
+            audience: "companion_kit",
+            redirect_uri: "app://callback",
+            flow: "mobile",
+            state: "abc",
+            nonce: "xyz",
+            authenticity_token: "csrf",
+            utf8: "✓",
+            _method: "patch",
+            custom_key: "kept"
+          }
+        end
+
+        expect(response).to have_http_status(:ok)
+        expect(captured).to eq("custom_key" => "kept")
+      end
+
+      it "forwards an empty hash when no extra params are present" do
+        captured = capture_original_request_params do
+          post :callback, params: { provider: "apple", code: "abc123" }
+        end
+
+        expect(response).to have_http_status(:ok)
+        expect(captured).to eq({})
+      end
+    end
   end
 end
