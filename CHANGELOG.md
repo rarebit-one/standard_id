@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-05-19
+
+### Added
+
+- **`Api::Oauth::Callback::ProvidersController` now forwards non-OAuth request params** to `SOCIAL_AUTH_COMPLETED` subscribers as `original_request_params`. Previously the API (mobile) flow always passed an empty hash, blocking host-app attribution tracking for mobile signups. Reserved OAuth/Rails keys (`id_token`, `code`, `scope`, `scopes`, `audience`, `redirect_uri`, `flow`, `state`, `nonce`, `provider`, `controller`, `action`, `format`, `authenticity_token`, `utf8`, `_method`) are stripped; everything else is treated as opaque host-supplied data and forwarded through. Mirrors the web flow's existing `state_data` pass-through contract.
+
 ## [0.18.0] - 2026-05-19
 
 ### Changed

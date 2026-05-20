@@ -8,6 +8,16 @@ module StandardId
 
         skip_before_action :validate_content_type!
 
+        # OAuth-flow params consumed by this controller and the SocialFlow.
+        # Everything else is forwarded to SOCIAL_AUTH_COMPLETED subscribers as
+        # `original_request_params` so host apps can attach attribution
+        # (UTM, campaign IDs, deep-link slugs) to the signing-in account.
+        RESERVED_CALLBACK_PARAMS = %w[
+          id_token code scope scopes audience redirect_uri flow
+          state nonce provider controller action format
+          authenticity_token utf8 _method
+        ].freeze
+
         def callback
           provider_response = get_user_info_from_provider(flow: resolve_flow_for(provider.provider_name))
           social_info = provider_response[:user_info]
@@ -28,6 +38,7 @@ module StandardId
             social_info:,
             provider_tokens:,
             account:,
+            original_request_params: forwarded_request_params
           )
           render json: token_response, status: :ok
         end
@@ -39,6 +50,12 @@ module StandardId
 
           flow_param = params[:flow].to_s.downcase
           flow_param == "web" ? :web : :mobile
+        end
+
+        # The `except` list is the trust boundary — non-reserved values are
+        # host-supplied opaque attribution data, never interpreted by the gem.
+        def forwarded_request_params
+          params.to_unsafe_h.stringify_keys.except(*RESERVED_CALLBACK_PARAMS)
         end
       end
     end
