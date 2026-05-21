@@ -36,9 +36,13 @@ module StandardId
 
       def generate_token_response
         validate_audience!
+        enforce_audience_profile_binding!
         emit_token_issuing
         expires_in = token_expiry
         payload = build_jwt_payload(expires_in)
+        # Pre-generate jti so we can include it in the OAUTH_TOKEN_ISSUED
+        # event payload without re-decoding the encoded JWT.
+        @issued_jti = payload[:jti] ||= SecureRandom.uuid
         access_token = StandardId::JwtService.encode(payload, expires_in: expires_in)
 
         response = {
@@ -212,6 +216,51 @@ module StandardId
         end
       end
 
+      # Fail closed when the requested audience has a profile-type binding
+      # configured (`c.oauth.audience_profile_types`) but the account holds
+      # no matching active profile.
+      #
+      # Before this check existed, mints silently succeeded with `gid` (or
+      # any other profile-derived claim) resolving to `nil`. Downstream
+      # services then received a syntactically-valid bearer that pointed at
+      # nothing — a classic "fail open" foot-gun. Now: the mint raises
+      # `InvalidGrantError` (via `NoBoundProfileError` / `AmbiguousProfileError`),
+      # which the OAuth error handler renders as RFC 6749 `invalid_grant`.
+      #
+      # The resolved profile is stashed in `@resolved_profile` for two
+      # downstream uses:
+      #   1. Inclusion in the OAUTH_TOKEN_ISSUED audit event payload
+      #      (so operators can correlate mints to profiles).
+      #   2. Use by host-app claim resolvers via `claim_resolvers_context`,
+      #      eliminating a redundant DB lookup (and the race window in
+      #      which the profile might be deactivated between lookup and use).
+      #
+      # No-op when audience is unset or no binding is configured for any of
+      # the requested audiences — preserves existing behavior for endpoints
+      # that haven't opted into the audience→profile binding feature.
+      def enforce_audience_profile_binding!
+        requested = Array(audience).reject(&:blank?)
+        return if requested.empty?
+
+        bound = requested.select { |a| StandardId::Oauth::AudienceProfileResolver.configured_for?(a) }
+        return if bound.empty?
+
+        # Multiple bound audiences in one token would imply the holder is
+        # cleared for multiple distinct profile-type contexts simultaneously
+        # — there's no coherent answer for which profile to bind. Reject
+        # rather than silently picking one. Host apps that need cross-
+        # audience tokens should issue separate tokens per audience.
+        if bound.length > 1
+          raise StandardId::InvalidGrantError,
+            "Cannot bind a single token to multiple profile-bound audiences: #{bound.join(', ')}"
+        end
+
+        @resolved_profile = StandardId::Oauth::AudienceProfileResolver.resolve!(
+          account: token_account,
+          audience: bound.first
+        )
+      end
+
       def claims_from_custom_claims
         callable = StandardId.config.oauth.custom_claims
         return {} unless callable.respond_to?(:call)
@@ -270,7 +319,13 @@ module StandardId
           client: token_client,
           account: token_account,
           request: request,
-          audience: audience
+          audience: audience,
+          # Pre-resolved profile (when the requested audience has a binding).
+          # Host-app claim resolvers that previously looked up the profile by
+          # account+type can now accept this directly via keyword filtering,
+          # avoiding both an extra query and the race in which the profile
+          # is deactivated between resolver lookup and use.
+          profile: @resolved_profile
         }
       end
 
@@ -295,7 +350,16 @@ module StandardId
           grant_type: grant_type,
           client_id: client_id,
           account: token_account,
-          expires_in: expires_in
+          expires_in: expires_in,
+          # Audit enrichment — without these, downstream subscribers
+          # (SIEM, audit log, anomaly detection) cannot meaningfully
+          # correlate a successful mint to the entity it authorizes,
+          # the resource server it targets, the specific token (jti)
+          # for revocation, or the scopes the client requested.
+          profile_id: @resolved_profile&.id,
+          audience: audience,
+          jti: @issued_jti,
+          requested_scopes: current_scopes
         )
       end
     end

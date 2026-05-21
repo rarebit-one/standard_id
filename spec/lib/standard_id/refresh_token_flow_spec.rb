@@ -203,11 +203,16 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       allow(StandardId.config.oauth).to receive(:scope_claims).and_return({ "read" => [:session_id] })
       allow(StandardId.config.oauth).to receive(:claim_resolvers).and_return({ session_id: resolver })
 
+      # `profile` is passed through when the resolver's signature does not
+      # filter it out (e.g., when introspection isn't available, as with
+      # mocked resolvers). It is nil here because the audience has no
+      # `audience_profile_types` binding configured.
       expect(resolver).to receive(:call).with(
         client: client_application,
         account: account,
         request: request,
-        audience: nil
+        audience: nil,
+        profile: nil
       ).and_return("session-123")
 
       allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload.merge(scope: "read"))

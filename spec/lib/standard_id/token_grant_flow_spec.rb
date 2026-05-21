@@ -101,4 +101,173 @@ RSpec.describe StandardId::Oauth::TokenGrantFlow do
       expect { flow.execute }.not_to raise_error
     end
   end
+
+  describe "audience → profile binding (mint-time fail-closed)" do
+    let(:request) { instance_double("ActionDispatch::Request") }
+
+    # Build an account stub whose profile list is configurable per-test. The
+    # token_account hook is overridden directly on the concrete class so
+    # tests don't have to stub StandardId.account_class (which is global
+    # state and would leak across examples).
+    def build_flow(audience:, account:)
+      concrete = Class.new(described_class) do
+        attr_accessor :_test_account
+
+        def authenticate!; end
+        def subject_id; "sub-123"; end
+        def client_id; "cid-abc"; end
+        def token_scope; "read write"; end
+        def grant_type; "password"; end
+        def token_expiry; 30.minutes; end
+        def supports_refresh_token?; false; end
+        def maybe_persist_session_for_token!; end
+        def token_account; @_test_account; end
+      end
+      flow = concrete.new({ audience: audience }, request)
+      flow._test_account = account
+      flow
+    end
+
+    def stub_audience_binding(mapping)
+      allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return(mapping)
+      allow(StandardId.config.oauth).to receive(:audience_profile_resolver).and_return(nil)
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(mapping.keys.map(&:to_s))
+    end
+
+    def profile(type, id:, active: true)
+      double("Profile", profileable_type: type, active?: active, id: id)
+    end
+
+    it "fails closed (NoBoundProfileError) when no matching profile exists" do
+      stub_audience_binding("admin_kit" => "PlatformProfile")
+      account = double("Account", profiles: [profile("DeviceUserProfile", id: 1)])
+      flow = build_flow(audience: "admin_kit", account: account)
+
+      # JWT should never be encoded — we fail before mint.
+      expect(StandardId::JwtService).not_to receive(:encode)
+
+      expect { flow.execute }.to raise_error(StandardId::NoBoundProfileError)
+    end
+
+    it "raised error is also an InvalidGrantError so OAuth error handlers catch it" do
+      stub_audience_binding("admin_kit" => "PlatformProfile")
+      account = double("Account", profiles: [])
+      flow = build_flow(audience: "admin_kit", account: account)
+
+      expect { flow.execute }.to raise_error(StandardId::InvalidGrantError)
+    end
+
+    it "fails closed (AmbiguousProfileError) when multiple active profiles match" do
+      stub_audience_binding("admin_kit" => "PlatformProfile")
+      account = double("Account", profiles: [
+        profile("PlatformProfile", id: 10),
+        profile("PlatformProfile", id: 11)
+      ])
+      flow = build_flow(audience: "admin_kit", account: account)
+
+      expect(StandardId::JwtService).not_to receive(:encode)
+
+      expect { flow.execute }.to raise_error(StandardId::AmbiguousProfileError) do |err|
+        expect(err.profile_ids).to match_array([10, 11])
+      end
+    end
+
+    it "succeeds when exactly one active matching profile exists" do
+      stub_audience_binding("admin_kit" => "PlatformProfile")
+      match = profile("PlatformProfile", id: 42)
+      account = double("Account", profiles: [match], locked?: false, inactive?: false, id: 1)
+      flow = build_flow(audience: "admin_kit", account: account)
+
+      allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+      result = flow.execute
+      expect(result[:access_token]).to eq("jwt-token")
+    end
+
+    it "is a no-op when the audience has no binding configured (back-compat)" do
+      stub_audience_binding({}) # no bindings — pure allowed_audiences path
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+
+      # locked? is needed by the AccountLocking subscriber wired to
+      # OAUTH_TOKEN_ISSUING.
+      account = double("Account", locked?: false, inactive?: false, id: 1)
+      flow = build_flow(audience: "anything", account: account)
+
+      allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+      expect { flow.execute }.not_to raise_error
+    end
+
+    it "rejects tokens that bind to multiple profile-bound audiences in one mint" do
+      stub_audience_binding(
+        "admin_kit" => "PlatformProfile",
+        "harness" => "DeviceUserProfile"
+      )
+      account = double("Account") # never reaches resolver
+      flow = build_flow(audience: ["admin_kit", "harness"], account: account)
+
+      expect { flow.execute }.to raise_error(
+        StandardId::InvalidGrantError,
+        /multiple profile-bound audiences/i
+      )
+    end
+
+    describe "OAUTH_TOKEN_ISSUED event enrichment" do
+      it "includes profile_id, audience, jti, and requested_scopes" do
+        stub_audience_binding("admin_kit" => "PlatformProfile")
+        match = profile("PlatformProfile", id: 777)
+        account = double("Account", profiles: [match], locked?: false, inactive?: false, id: 1)
+        flow = build_flow(audience: "admin_kit", account: account)
+
+        captured_jti = nil
+        allow(StandardId::JwtService).to receive(:encode) do |payload, _opts|
+          captured_jti = payload[:jti]
+          "jwt-token"
+        end
+
+        captured_payload = nil
+        allow(StandardId::Events).to receive(:publish).and_call_original
+        expect(StandardId::Events).to receive(:publish).with(
+          StandardId::Events::OAUTH_TOKEN_ISSUED, hash_including(:jti)
+        ) do |_name, payload|
+          captured_payload = payload
+        end
+
+        flow.execute
+
+        expect(captured_payload[:profile_id]).to eq(777)
+        expect(captured_payload[:audience]).to eq("admin_kit")
+        expect(captured_payload[:jti]).to eq(captured_jti)
+        expect(captured_payload[:jti]).to be_a(String)
+        expect(captured_payload[:requested_scopes]).to match_array(["read", "write"])
+        # And the previously-emitted fields are preserved
+        expect(captured_payload).to include(
+          grant_type: "password",
+          client_id: "cid-abc",
+          expires_in: 30.minutes
+        )
+      end
+
+      it "emits profile_id=nil when the audience has no binding" do
+        stub_audience_binding({})
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+
+        account = double("Account", locked?: false, inactive?: false, id: 1)
+        flow = build_flow(audience: nil, account: account)
+
+        allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+        captured = nil
+        allow(StandardId::Events).to receive(:publish).and_call_original
+        expect(StandardId::Events).to receive(:publish)
+          .with(StandardId::Events::OAUTH_TOKEN_ISSUED, hash_including(:profile_id)) do |_, payload|
+            captured = payload
+          end
+
+        flow.execute
+
+        expect(captured[:profile_id]).to be_nil
+      end
+    end
+  end
 end

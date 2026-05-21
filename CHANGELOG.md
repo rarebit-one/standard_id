@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-05-21
+
+### Changed (BREAKING — behavior)
+
+- **OAuth token grants now fail closed when the requested audience has a configured profile binding but the account has no matching active profile.** Previously, `TokenGrantFlow` only validated `aud ∈ allowed_audiences`; if `c.oauth.audience_profile_types[aud]` was set but the account lacked a matching profile, the mint silently succeeded with profile-derived claims (e.g. `gid`) resolving to `nil`. The new behavior raises `StandardId::NoBoundProfileError` (a subclass of `InvalidGrantError`), which the standard OAuth error handler renders as RFC 6749 `invalid_grant` (HTTP 400). Decode-time enforcement via `AudienceVerification` is unchanged.
+- **`AudienceProfileResolver` now exposes a strict `.resolve!(account:, audience:)` method** used by `TokenGrantFlow`. It returns the uniquely matching active profile, or raises `NoBoundProfileError` (no match) / `AmbiguousProfileError` (multiple matches). The legacy `.call(account:, audience:)` is unchanged — it still returns the "first active else first match" profile and is used by the decode-time `AudienceVerification` concern, where back-compat tolerance is intentional.
+
+### Added
+
+- `StandardId::NoBoundProfileError` and `StandardId::AmbiguousProfileError` — both subclass `InvalidGrantError` so existing OAuth error handlers map them to `invalid_grant`. Exposed readers (`audience`, `expected_profile_types`, `profile_ids`) are for audit logging only; do **not** interpolate them into client-facing responses.
+- **`OAUTH_TOKEN_ISSUED` event payload now includes** `profile_id`, `audience`, `jti`, and `requested_scopes` (in addition to the existing `grant_type`, `client_id`, `account`, `expires_in`). Without these, downstream subscribers (SIEM, audit log, anomaly detection) could not correlate a successful mint to the entity it authorized, the resource server it targeted, the specific token for revocation, or the scopes the client requested. Existing subscribers are unaffected — payload additions are backward-compatible.
+- `claim_resolvers_context` now exposes the pre-resolved `profile` (when a binding matched), so host-app claim resolvers can use it directly via keyword filtering instead of re-querying.
+
+### Migration notes
+
+Host apps with **multiple active profiles of the same type for a single account** will see previously-silent mints now fail with `AmbiguousProfileError`. Two options:
+
+1. **Recommended:** Treat duplicates as a data-integrity bug and deactivate the superfluous profiles. The previous "pick the first arbitrary active match" behavior was non-deterministic across reloads and unsafe to rely on.
+2. **Temporary:** Configure a custom `c.oauth.audience_profile_resolver` callable that applies your own selection rule. The strict path delegates to it when set.
+
+An explicit per-grant `profile_id` parameter is intentionally out of scope for this release; the grant-parameter contract for profile selection will be designed separately once host apps have migrated off duplicate profiles.
+
 ## [0.19.0] - 2026-05-19
 
 ### Added
