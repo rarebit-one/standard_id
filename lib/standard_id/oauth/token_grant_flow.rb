@@ -302,12 +302,13 @@ module StandardId
       end
 
       def token_account
-        return nil if subject_id.blank?
+        return @token_account if defined?(@token_account)
+        return (@token_account = nil) if subject_id.blank?
 
         account_class = StandardId.account_class
-        return nil unless account_class.respond_to?(:find_by)
+        return (@token_account = nil) unless account_class.respond_to?(:find_by)
 
-        account_class.find_by(id: subject_id)
+        @token_account = account_class.find_by(id: subject_id)
       end
 
       def token_client

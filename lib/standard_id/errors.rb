@@ -94,7 +94,7 @@ module StandardId
       @expected_profile_types = Array(expected_profile_types)
       @profile_ids = Array(profile_ids)
       super("Multiple active profiles of type [#{@expected_profile_types.join(', ')}] " \
-            "for audience '#{audience}' (ids: #{@profile_ids.join(', ')})")
+            "for audience '#{audience}' (#{@profile_ids.length} profile(s))")
     end
   end
 
