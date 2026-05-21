@@ -1,16 +1,8 @@
 version: 2
 updates:
-  - package-ecosystem: bundler
-    directory: "/"
-    schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 10
-    groups:
-      development-dependencies:
-        dependency-type: "development"
-      production-dependencies:
-        dependency-type: "production"
+  # Bundler updates are handled by the Weekly Maintenance workflow.
+  # Dependabot does not support Ruby >= 4 (max supported: 3.4.8),
+  # so leaving bundler enabled here produces a weekly failed run.
 
   - package-ecosystem: github-actions
     directory: "/"
