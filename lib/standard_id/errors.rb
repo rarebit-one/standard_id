@@ -58,6 +58,46 @@ module StandardId
     def oauth_error_code = :invalid_grant
   end
 
+  # Raised at mint time when an account has no profile of the type bound
+  # to the requested audience via `c.oauth.audience_profile_types`.
+  #
+  # Subclass of `InvalidGrantError` so existing OAuth error handling
+  # (which renders OAuthError as RFC 6749 error responses) treats this
+  # as `invalid_grant`. The audience and expected profile types are
+  # surfaced via readers for audit logging only — operators MUST NOT
+  # interpolate them into client-facing error responses, since the
+  # configured profile-type taxonomy is internal-only information.
+  class NoBoundProfileError < InvalidGrantError
+    attr_reader :audience, :expected_profile_types
+
+    def initialize(audience:, expected_profile_types:)
+      @audience = audience
+      @expected_profile_types = Array(expected_profile_types)
+      super("No profile of type [#{@expected_profile_types.join(', ')}] " \
+            "for audience '#{audience}'")
+    end
+  end
+
+  # Raised at mint time when an account has more than one active profile
+  # of the type bound to the requested audience. Selecting one silently
+  # would be non-deterministic and unauditable, so we fail closed and let
+  # the host app resolve the ambiguity (deactivate duplicates, or pass an
+  # explicit `profile_id` once that grant parameter is supported).
+  #
+  # Same audit-only/PII rules as `NoBoundProfileError`: do NOT surface
+  # profile_ids in client-facing responses.
+  class AmbiguousProfileError < InvalidGrantError
+    attr_reader :audience, :expected_profile_types, :profile_ids
+
+    def initialize(audience:, expected_profile_types:, profile_ids:)
+      @audience = audience
+      @expected_profile_types = Array(expected_profile_types)
+      @profile_ids = Array(profile_ids)
+      super("Multiple active profiles of type [#{@expected_profile_types.join(', ')}] " \
+            "for audience '#{audience}' (#{@profile_ids.length} profile(s))")
+    end
+  end
+
   class InvalidScopeError < OAuthError
     def oauth_error_code = :invalid_scope
   end
