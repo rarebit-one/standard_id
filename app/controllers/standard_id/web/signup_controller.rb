@@ -46,7 +46,9 @@ module StandardId
           redirect_uri = string_param(:redirect_uri)
           context = { mechanism: "password", provider: nil, redirect_uri: redirect_uri }
           redirect_override = invoke_after_sign_in(form.account, context)
-          destination = redirect_override || (safe_destination?(redirect_uri) ? redirect_uri : nil) || after_authentication_url
+          fallback = after_authentication_url
+          fallback = safe_post_signin_default unless safe_destination?(fallback)
+          destination = redirect_override || (safe_destination?(redirect_uri) ? redirect_uri : nil) || fallback
           redirect_to destination, notice: "Account created successfully"
         else
           @redirect_uri = string_param(:redirect_uri) || after_authentication_url

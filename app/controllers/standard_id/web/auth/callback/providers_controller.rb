@@ -147,7 +147,6 @@ module StandardId
             redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: redirect_uri), alert: error_message
           end
 
-
           def mobile_relay_params
             params.permit(:code, :state, :user, :userIdentifier, :id_token, :identity_token, :nonce).to_h.compact
           end

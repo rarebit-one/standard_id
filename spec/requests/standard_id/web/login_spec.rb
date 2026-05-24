@@ -82,6 +82,17 @@ RSpec.describe "StandardId Web Login", type: :request do
         expect(response).to redirect_to("/")
       end
 
+      it "accepts same-origin absolute redirect_uri (store_location_for_redirect compatibility)" do
+        create_account_with_password(email: email, password: password)
+        # request.url on dummy app is http://www.example.com — match the base_url
+        same_origin = "http://www.example.com/admin/users"
+
+        http_post "/login", params: { login: { email: email, password: password }, redirect_uri: same_origin }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to(same_origin)
+      end
+
       it "renders the form with error on invalid credentials" do
         create_account_with_password(email: email, password: password)
 

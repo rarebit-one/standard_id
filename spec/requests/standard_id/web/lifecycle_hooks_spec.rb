@@ -352,6 +352,23 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         expect(response).to redirect_to("/")
       end
 
+      it "rejects cross-host redirect_uri stashed in session (open-redirect defense)" do
+        # string_param only blocks Array/Hash — a valid-looking String URL passes through
+        # to session[:return_to_after_authenticating]. login_verify_controller must
+        # validate the URL it pops off the session before redirecting.
+        enable_passwordless!
+        sender = double("email_sender")
+        allow(sender).to receive(:call)
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+
+        http_post "/login", params: { login: { email: email }, redirect_uri: "https://evil.example.com/phish" }
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
       it "rejects sign-in when after_sign_in raises AuthenticationDenied" do
         hook = ->(_account, _request, _context) { raise StandardId::AuthenticationDenied, "Not allowed" }
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
