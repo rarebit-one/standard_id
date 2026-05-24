@@ -67,6 +67,33 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
       expect(response).to have_http_status(:see_other)
       expect(response).to redirect_to("/dashboard")
     end
+
+    it "forwards redirect_uri param into after_sign_in context" do
+      received_context = nil
+      hook = lambda { |_account, _request, context|
+        received_context = context
+        nil
+      }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      http_post "/login", params: { login: { email: email, password: password }, redirect_uri: "/dashboard" }
+
+      expect(received_context[:redirect_uri]).to eq("/dashboard")
+    end
+
+    it "sets context[:redirect_uri] to nil when no redirect_uri param is sent" do
+      received_context = nil
+      hook = lambda { |_account, _request, context|
+        received_context = context
+        nil
+      }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      http_post "/login", params: { login: { email: email, password: password } }
+
+      expect(received_context).to have_key(:redirect_uri)
+      expect(received_context[:redirect_uri]).to be_nil
+    end
   end
 
   # ───────────────────────────────────────────────────────────────────────────
@@ -269,6 +296,79 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         expect(response).to redirect_to("/welcome-back")
       end
 
+      it "forwards session-stored redirect_uri into after_sign_in context (OAuth handshake completion)" do
+        received_context = nil
+        hook = lambda { |_account, _request, context|
+          received_context = context
+          nil
+        }
+        allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+        enable_passwordless!
+        sender = double("email_sender")
+        allow(sender).to receive(:call)
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+
+        http_post "/login", params: { login: { email: email }, redirect_uri: "/oauth/authorize?client_id=harness" }
+        expect(response).to have_http_status(:see_other)
+
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(received_context[:redirect_uri]).to eq("/oauth/authorize?client_id=harness")
+      end
+
+      it "respects session-stored redirect_uri when after_sign_in defers" do
+        hook = lambda { |_account, _request, context|
+          context[:redirect_uri].present? ? nil : "/default"
+        }
+        allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+        enable_passwordless!
+        sender = double("email_sender")
+        allow(sender).to receive(:call)
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+
+        http_post "/login", params: { login: { email: email }, redirect_uri: "/oauth/authorize?client_id=harness" }
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(response).to redirect_to("/oauth/authorize?client_id=harness")
+      end
+
+      it "ignores Array-shaped redirect_uri in passwordless session write" do
+        # Without string_param guard, the session stores ["/a", "/b"] → after_authentication_url
+        # returns the Array → redirect_to(Array) raises → 500.
+        enable_passwordless!
+        sender = double("email_sender")
+        allow(sender).to receive(:call)
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+
+        http_post "/login", params: { login: { email: email }, redirect_uri: ["/a", "/b"] }
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
+      it "rejects cross-host redirect_uri stashed in session (open-redirect defense)" do
+        # string_param only blocks Array/Hash — a valid-looking String URL passes through
+        # to session[:return_to_after_authenticating]. login_verify_controller must
+        # validate the URL it pops off the session before redirecting.
+        enable_passwordless!
+        sender = double("email_sender")
+        allow(sender).to receive(:call)
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+
+        http_post "/login", params: { login: { email: email }, redirect_uri: "https://evil.example.com/phish" }
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
       it "rejects sign-in when after_sign_in raises AuthenticationDenied" do
         hook = ->(_account, _request, _context) { raise StandardId::AuthenticationDenied, "Not allowed" }
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
@@ -355,6 +455,19 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
       expect(response).to redirect_to("/setup-profile")
     end
 
+    it "forwards redirect_uri param into after_sign_in context on signup" do
+      received_context = nil
+      hook = lambda { |_account, _request, context|
+        received_context = context
+        nil
+      }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      http_post "/signup", params: { signup: { email: "new5@example.com", password: "s3cureP@ss", password_confirmation: "s3cureP@ss" }, redirect_uri: "/post-signup" }
+
+      expect(received_context[:redirect_uri]).to eq("/post-signup")
+    end
+
     it "rejects sign-in when after_sign_in raises AuthenticationDenied on signup" do
       hook = ->(_account, _request, _context) { raise StandardId::AuthenticationDenied, "Registration closed" }
       allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
@@ -413,6 +526,30 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
 
       expect(received_context[:mechanism]).to eq("social")
       expect(received_context[:provider]).to eq("google")
+    end
+
+    it "forwards state_data redirect_uri into after_sign_in context" do
+      received_context = nil
+      hook = lambda { |_account, _request, context|
+        received_context = context
+        nil
+      }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+      expect(received_context[:redirect_uri]).to eq(redirect_uri)
+    end
+
+    it "respects original redirect_uri when after_sign_in hook returns nil" do
+      hook = lambda { |_account, _request, context|
+        context[:redirect_uri].present? ? nil : "/default-home"
+      }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+      expect(response).to redirect_to(redirect_uri)
     end
 
     it "calls after_account_created for new social accounts" do

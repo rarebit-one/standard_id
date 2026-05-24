@@ -52,6 +52,47 @@ RSpec.describe "StandardId Web Login", type: :request do
         expect(response).to redirect_to("/after")
       end
 
+      it "ignores Array-shaped redirect_uri instead of crashing on redirect_to" do
+        create_account_with_password(email: email, password: password)
+
+        # Rails would parse redirect_uri[]=/a&redirect_uri[]=/b as an Array; without the
+        # string_param guard, the destination chain feeds the Array into redirect_to and 500s.
+        http_post "/login", params: { login: { email: email, password: password }, redirect_uri: ["/a", "/b"] }
+
+        expect(response).to have_http_status(:see_other)
+        # Falls through to after_authentication_url since redirect_uri was not a String
+        expect(response).to redirect_to("/")
+      end
+
+      it "rejects cross-host redirect_uri not in the allow list" do
+        create_account_with_password(email: email, password: password)
+
+        http_post "/login", params: { login: { email: email, password: password }, redirect_uri: "https://evil.example.com/phish" }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
+      it "rejects protocol-relative redirect_uri" do
+        create_account_with_password(email: email, password: password)
+
+        http_post "/login", params: { login: { email: email, password: password }, redirect_uri: "//evil.example.com/phish" }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
+      it "accepts same-origin absolute redirect_uri (store_location_for_redirect compatibility)" do
+        create_account_with_password(email: email, password: password)
+        # request.url on dummy app is http://www.example.com — match the base_url
+        same_origin = "http://www.example.com/admin/users"
+
+        http_post "/login", params: { login: { email: email, password: password }, redirect_uri: same_origin }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to(same_origin)
+      end
+
       it "renders the form with error on invalid credentials" do
         create_account_with_password(email: email, password: password)
 

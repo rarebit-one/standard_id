@@ -60,12 +60,24 @@ module StandardId
           invoke_after_account_created(account, { mechanism: "passwordless", provider: nil })
         end
 
-        context = { mechanism: "passwordless", provider: nil }
+        # Peek (don't pop) session[:return_to_after_authenticating] — after_authentication_url
+        # consumes it below when redirect_override is nil, so deleting it here would lose the
+        # destination for hosts whose after_sign_in hook defers to the originator's redirect_uri.
+        context = {
+          mechanism: "passwordless",
+          provider: nil,
+          redirect_uri: session[:return_to_after_authenticating]
+        }
         redirect_override = invoke_after_sign_in(account, context)
 
         session.delete(:standard_id_otp_payload)
 
-        destination = redirect_override || after_authentication_url
+        # after_authentication_url returns whatever was stashed in
+        # session[:return_to_after_authenticating] — which could be an attacker-controlled
+        # URL set by handle_passwordless_login from params[:redirect_uri]. string_param
+        # blocks Array/Hash but not "https://evil.com/phish". Validate before redirect.
+        fallback = after_authentication_url
+        destination = redirect_override || (safe_destination?(fallback) ? fallback : safe_post_signin_default)
         redirect_to destination, status: :see_other, notice: "Successfully signed in"
       rescue StandardId::AuthenticationDenied => e
         session.delete(:standard_id_otp_payload)

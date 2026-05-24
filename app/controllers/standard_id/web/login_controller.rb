@@ -31,7 +31,7 @@ module StandardId
       before_action :redirect_if_social_login, only: [:create]
 
       def show
-        @redirect_uri = params[:redirect_uri] || after_authentication_url
+        @redirect_uri = string_param(:redirect_uri) || after_authentication_url
         @connection = params[:connection]
 
         render_with_inertia props: auth_page_props(passwordless_enabled: passwordless_enabled?)
@@ -59,9 +59,12 @@ module StandardId
         }
 
         if result
-          context = { mechanism: "password", provider: nil }
+          redirect_uri = string_param(:redirect_uri)
+          context = { mechanism: "password", provider: nil, redirect_uri: redirect_uri }
           redirect_override = invoke_after_sign_in(current_account, context)
-          destination = redirect_override || params[:redirect_uri] || after_authentication_url
+          fallback = after_authentication_url
+          fallback = safe_post_signin_default unless safe_destination?(fallback)
+          destination = redirect_override || (safe_destination?(redirect_uri) ? redirect_uri : nil) || fallback
           redirect_to destination, status: :see_other, notice: "Successfully signed in"
         else
           flash.now[:alert] = "Invalid email or password"
@@ -95,7 +98,11 @@ module StandardId
           expires_in: code_ttl.seconds
         )
         session[:standard_id_otp_payload] = signed_payload
-        session[:return_to_after_authenticating] = params[:redirect_uri] if params[:redirect_uri].present?
+        # Use string_param to reject Array/Hash-shaped values — login_verify_controller
+        # consumes this via after_authentication_url and passes it to redirect_to;
+        # storing a non-String here would crash that flow with ArgumentError.
+        redirect_uri = string_param(:redirect_uri)
+        session[:return_to_after_authenticating] = redirect_uri if redirect_uri
 
         redirect_to login_verify_path, status: :see_other
       end

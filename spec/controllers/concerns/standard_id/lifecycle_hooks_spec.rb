@@ -224,6 +224,30 @@ RSpec.describe StandardId::LifecycleHooks do
       expect(result).to eq("/custom-onboarding")
     end
 
+    it "skips scope after_sign_in_path when caller supplied a redirect_uri and hook returned nil (defer signal)" do
+      hook = ->(_account, _request, _context) { nil }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      result = controller.invoke_after_sign_in(
+        account,
+        { mechanism: "password", provider: nil, redirect_uri: "/oauth/authorize?client_id=harness" }
+      )
+
+      expect(result).to be_nil
+    end
+
+    it "still uses scope after_sign_in_path when context has no redirect_uri (defer signal absent)" do
+      hook = ->(_account, _request, _context) { nil }
+      allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+
+      result = controller.invoke_after_sign_in(
+        account,
+        { mechanism: "password", provider: nil, redirect_uri: nil }
+      )
+
+      expect(result).to eq("/borrower/dashboard")
+    end
+
     it "preserves original context fields alongside scope fields" do
       received_context = nil
       hook = lambda { |_account, _request, context|

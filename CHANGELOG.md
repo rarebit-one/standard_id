@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.1] - 2026-05-24
+
+### Added
+
+- **`after_sign_in` hook context now includes `:redirect_uri`** — the caller-supplied destination (from the form param for password/signup flows, from the OAuth state cookie for social flows, from `session[:return_to_after_authenticating]` for passwordless OTP). Host hooks that always return a default path (e.g. `PostLoginRedirect.new(account).path`) silently shadowed the caller's `redirect_uri` because `redirect_override` wins in the destination chain. Hooks can now return `nil` when `context[:redirect_uri]` is present so the originator's URL is honoured — required for OAuth/SSO flows where the host bounces through `/login?redirect_uri=/oauth/authorize?…` and expects the handshake to complete back to the originating consumer (e.g. external API clients hitting `/api/v1/authorize`).
+- **All four sign-in flows now forward the caller's redirect_uri into the hook context**: password login, signup, social callback, AND passwordless OTP verify (`web/login_verify_controller.rb`). Previously only the first three were covered; passwordless users initiating OAuth from a consumer landed on the host default page.
+
+### Fixed
+
+- **Cancel-at-provider preserves `redirect_uri`** — `handle_callback_error` (provider returns `?error=access_denied`) now extracts the state and forwards `redirect_uri` to `login_path`, symmetric with the `SocialLinkError`/`OAuthError` rescue paths. Previously a user who cancelled at the provider lost the OAuth handshake context entirely.
+- **Open-redirect / 500 mitigation in social callback** — when the host hook defers (returns nil), the social callback validates the originator-supplied destination via `safe_destination?` (same-origin paths or `allowed_redirect_url_prefixes` matches only; rejects protocol-relative and arbitrary cross-host URLs). On failure, falls back to `/` instead of feeding the unsafe value into `redirect_to`. Closes a class of phishing vectors that opened when host hooks started deferring instead of always returning an internal path.
+- **`params[:redirect_uri]` Array/Hash type safety** — login, signup, login_verify, and logout controllers now use a `string_param` helper that returns nil for non-String shapes (e.g. `redirect_uri[]=a&redirect_uri[]=b`), preventing a self-DoS 500 from `redirect_to <Array>`. Covers all `params[:redirect_uri]` read sites: form re-renders (`show`/error branches), session writes (`handle_passwordless_login`), state encoding (`signup_controller#encode_state`), and direct redirects (`logout`). Also normalizes empty-string values via `.presence` consistently across the context and destination chain.
+- **Open-redirect validation extended to password, signup, logout, AND passwordless verify** — `safe_destination?` and `safe_post_signin_default` are now promoted to `Web::BaseController` and applied to the destination chain for password login, password signup, logout, and passwordless OTP verify (was previously social callback only). `safe_destination?` accepts same-origin absolute URLs (compares against `request.base_url`) so legitimate `store_location_for_redirect` round-trips still work. Cross-host URLs not in `allowed_redirect_url_prefixes`, protocol-relative URLs (`//evil.com/`), and same-origin-looking-but-cross-host URLs (e.g. `http://evil.com:80/`) fall back to `after_authentication_url` / `safe_post_signin_default` instead of redirecting to an attacker-controlled target. Closes a residual open-redirect in passwordless verify where a malicious String redirect_uri passed `string_param` (which only blocks Array/Hash) and got stashed in `session[:return_to_after_authenticating]`, then served unfiltered.
+- **Scope-level `after_sign_in_path` no longer shadows caller's redirect_uri** — when the host hook returns nil AND `context[:redirect_uri]` is present, `LifecycleHooks#invoke_after_sign_in` now returns nil (the documented "defer to originator" signal) instead of `scope_config&.after_sign_in_path`. Hosts that configure both a scope path AND OAuth/SSO flows previously had the scope path silently win and break the handshake.
+- **Defensive nil-guard on `state_data['redirect_uri']`** in the social callback — uses `state_data&.dig("redirect_uri").presence` consistent with the rescue paths.
+
 ## [0.20.0] - 2026-05-21
 
 ### Changed (BREAKING — behavior)

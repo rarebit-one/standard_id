@@ -44,6 +44,20 @@ RSpec.describe "StandardId Web Logout", type: :request do
         expect(response).to have_http_status(:found)
         expect(response).to redirect_to("/")
       end
+
+      it "rejects cross-host redirect_uri not in the allow list" do
+        http_post "/logout", params: { redirect_uri: "https://evil.example.com/phish" }
+
+        expect(response).to have_http_status(:found)
+        expect(response).to redirect_to("/")
+      end
+
+      it "rejects Array-shaped redirect_uri instead of crashing on redirect_to" do
+        http_post "/logout", params: { redirect_uri: ["/a", "/b"] }
+
+        expect(response).to have_http_status(:found)
+        expect(response).to redirect_to("/")
+      end
     end
   end
 end
