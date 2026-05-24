@@ -43,9 +43,10 @@ module StandardId
           session_manager.sign_in_account(form.account, scope_name: request.path_parameters[:scope])
           invoke_after_account_created(form.account, { mechanism: "signup", provider: nil })
 
-          context = { mechanism: "password", provider: nil }
+          redirect_uri = string_param(:redirect_uri)
+          context = { mechanism: "password", provider: nil, redirect_uri: redirect_uri }
           redirect_override = invoke_after_sign_in(form.account, context)
-          destination = redirect_override || params[:redirect_uri] || after_authentication_url
+          destination = redirect_override || redirect_uri || after_authentication_url
           redirect_to destination, notice: "Account created successfully"
         else
           @redirect_uri = params[:redirect_uri] || after_authentication_url

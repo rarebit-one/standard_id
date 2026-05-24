@@ -26,6 +26,7 @@ module StandardId
 
             begin
               extract_state_and_nonce => { state_data:, nonce: }
+              caller_redirect_uri = state_data&.dig("redirect_uri").presence
               redirect_uri = callback_url_for
               provider_response = get_user_info_from_provider(redirect_uri:, nonce:)
               social_info = provider_response[:user_info]
@@ -52,10 +53,19 @@ module StandardId
                 original_request_params: state_data
               )
 
-              context = { mechanism: "social", provider: provider_name }
+              context = {
+                mechanism: "social",
+                provider: provider_name,
+                redirect_uri: caller_redirect_uri
+              }
               redirect_override = invoke_after_sign_in(account, context)
 
-              destination = redirect_override || state_data["redirect_uri"]
+              # When the hook defers (returns nil), the originator-supplied URL becomes the
+              # destination. Validate it before redirect_to — without this, an attacker who
+              # tricks a victim into clicking /login?connection=google&redirect_uri=<evil>
+              # can steer the post-auth landing page. redirect_override is host-internal so
+              # we trust it; only the fallthrough needs validation.
+              destination = redirect_override || (safe_destination?(caller_redirect_uri) ? caller_redirect_uri : safe_post_signin_default)
               redirect_options = { notice: "Successfully signed in with #{provider_name.humanize}" }
               redirect_options[:allow_other_host] = true if allow_other_host_redirect?(destination)
               redirect_to destination, redirect_options
@@ -124,7 +134,33 @@ module StandardId
                             "Authentication failed"
             end
 
-            redirect_to StandardId::WebEngine.routes.url_helpers.login_path, alert: error_message
+            # Preserve redirect_uri across the bounce-back-to-/login so the user can retry
+            # the OAuth handshake and complete it back to the originator. Symmetric with
+            # the SocialLinkError / OAuthError rescue paths above.
+            redirect_uri = begin
+              extract_state_and_nonce => { state_data: }
+              state_data&.dig("redirect_uri").presence
+            rescue StandardId::InvalidRequestError
+              nil
+            end
+
+            redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: redirect_uri), alert: error_message
+          end
+
+          # Whether `destination` is safe to redirect a just-signed-in user to.
+          # - Same-origin paths ("/foo") pass; protocol-relative ("//evil") does not.
+          # - Cross-host URLs pass only when the host has explicitly allow-listed the prefix.
+          # - Anything else (blank, absolute http(s) URL not in the allow-list, opaque scheme)
+          #   is rejected; the caller falls back to safe_post_signin_default.
+          def safe_destination?(destination)
+            return false if destination.blank?
+            return true if allow_other_host_redirect?(destination)
+
+            destination.start_with?("/") && !destination.start_with?("//")
+          end
+
+          def safe_post_signin_default
+            "/"
           end
 
           def mobile_relay_params

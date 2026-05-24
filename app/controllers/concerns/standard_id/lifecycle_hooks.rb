@@ -100,6 +100,12 @@ module StandardId
     #   - :profile_type [String, nil] first configured profile type for the scope (back-compat)
     #   - :profile_types [Array<String>, nil] all configured profile types for the scope
     #   - :after_sign_in_path [String, nil] default redirect path for the scope
+    #   - :redirect_uri [String, nil] caller-supplied destination (from the form
+    #     param for password/signup, from the OAuth state cookie for social).
+    #     Hooks that always return a default path should return nil when this is
+    #     present so the originator's URL wins — otherwise upstream OAuth/SSO
+    #     flows that send users to /login?redirect_uri=... will land on the
+    #     hook's default page instead of completing the handshake.
     # @return [String, nil] redirect path override, or nil for default
     # @raise [StandardId::AuthenticationDenied] to reject the sign-in
     def invoke_after_sign_in(account, context)
@@ -117,6 +123,12 @@ module StandardId
         # If hook returned a redirect path, use it; otherwise fall back to scope path
         return result if result.present?
       end
+
+      # When the caller supplied a :redirect_uri and the hook returned nil, treat that
+      # as the documented "defer to originator" signal — do NOT shadow it with the
+      # scope's after_sign_in_path (which would silently break OAuth/SSO handshakes
+      # for any host that configures a scope default).
+      return nil if context[:redirect_uri].present?
 
       # When no hook override, use the scope's after_sign_in_path if present
       scope_config&.after_sign_in_path

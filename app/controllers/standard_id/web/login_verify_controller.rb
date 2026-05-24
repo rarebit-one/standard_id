@@ -60,7 +60,14 @@ module StandardId
           invoke_after_account_created(account, { mechanism: "passwordless", provider: nil })
         end
 
-        context = { mechanism: "passwordless", provider: nil }
+        # Peek (don't pop) session[:return_to_after_authenticating] — after_authentication_url
+        # consumes it below when redirect_override is nil, so deleting it here would lose the
+        # destination for hosts whose after_sign_in hook defers to the originator's redirect_uri.
+        context = {
+          mechanism: "passwordless",
+          provider: nil,
+          redirect_uri: session[:return_to_after_authenticating]
+        }
         redirect_override = invoke_after_sign_in(account, context)
 
         session.delete(:standard_id_otp_payload)

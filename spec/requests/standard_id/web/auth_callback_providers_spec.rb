@@ -70,6 +70,72 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
       expect(flash[:alert]).to eq("Authentication failed")
     end
 
+    it "preserves redirect_uri across handle_callback_error (provider cancel path)" do
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request)
+        .with(state)
+        .and_return({ "params" => { "redirect_uri" => "/oauth/authorize?client_id=harness" }, "nonce" => nil })
+
+      http_get "/auth/callback/google", params: { error: "access_denied", state: state }
+
+      expect(response).to redirect_to(standard_id_web.login_path(redirect_uri: "/oauth/authorize?client_id=harness"))
+    end
+
+    describe "safe_destination? validation" do
+      it "falls back to / when hook defers and state_data redirect_uri is a cross-host URL not in the allow list" do
+        hook = ->(_account, _request, _context) { nil }
+        allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+        allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+          .to receive(:consume_oauth_request)
+          .with(state)
+          .and_return({ "params" => { "redirect_uri" => "https://evil.example.com/phish" }, "nonce" => nil })
+
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+        expect(response).to redirect_to("/")
+      end
+
+      it "falls back to / when state_data redirect_uri is a protocol-relative URL" do
+        hook = ->(_account, _request, _context) { nil }
+        allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+        allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+          .to receive(:consume_oauth_request)
+          .with(state)
+          .and_return({ "params" => { "redirect_uri" => "//evil.example.com/phish" }, "nonce" => nil })
+
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+        expect(response).to redirect_to("/")
+      end
+
+      it "allows same-origin paths after defer" do
+        hook = ->(_account, _request, _context) { nil }
+        allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+        # Default stub above sets redirect_uri = "/dashboard"
+
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+        expect(response).to redirect_to("/dashboard")
+      end
+
+      it "allows cross-host URLs matching allowed_redirect_url_prefixes after defer" do
+        original = StandardId.config.allowed_redirect_url_prefixes
+        StandardId.config.allowed_redirect_url_prefixes = ["sidekicklabs://"]
+        hook = ->(_account, _request, _context) { nil }
+        allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
+        allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+          .to receive(:consume_oauth_request)
+          .with(state)
+          .and_return({ "params" => { "redirect_uri" => "sidekicklabs://callback" }, "nonce" => nil })
+
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+        expect(response).to redirect_to("sidekicklabs://callback")
+      ensure
+        StandardId.config.allowed_redirect_url_prefixes = original
+      end
+    end
+
     context "when the provider raises an OAuthError (e.g. HTTP/DNS/SSL failure)" do
       let(:oauth_error) { StandardId::OAuthError.new("Connection refused") }
 
