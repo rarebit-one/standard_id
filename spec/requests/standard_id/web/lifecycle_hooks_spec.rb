@@ -336,6 +336,22 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         expect(response).to redirect_to("/oauth/authorize?client_id=harness")
       end
 
+      it "ignores Array-shaped redirect_uri in passwordless session write" do
+        # Without string_param guard, the session stores ["/a", "/b"] → after_authentication_url
+        # returns the Array → redirect_to(Array) raises → 500.
+        enable_passwordless!
+        sender = double("email_sender")
+        allow(sender).to receive(:call)
+        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+
+        http_post "/login", params: { login: { email: email }, redirect_uri: ["/a", "/b"] }
+        challenge = StandardId::CodeChallenge.last
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
       it "rejects sign-in when after_sign_in raises AuthenticationDenied" do
         hook = ->(_account, _request, _context) { raise StandardId::AuthenticationDenied, "Not allowed" }
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)

@@ -147,21 +147,6 @@ module StandardId
             redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: redirect_uri), alert: error_message
           end
 
-          # Whether `destination` is safe to redirect a just-signed-in user to.
-          # - Same-origin paths ("/foo") pass; protocol-relative ("//evil") does not.
-          # - Cross-host URLs pass only when the host has explicitly allow-listed the prefix.
-          # - Anything else (blank, absolute http(s) URL not in the allow-list, opaque scheme)
-          #   is rejected; the caller falls back to safe_post_signin_default.
-          def safe_destination?(destination)
-            return false if destination.blank?
-            return true if allow_other_host_redirect?(destination)
-
-            destination.start_with?("/") && !destination.start_with?("//")
-          end
-
-          def safe_post_signin_default
-            "/"
-          end
 
           def mobile_relay_params
             params.permit(:code, :state, :user, :userIdentifier, :id_token, :identity_token, :nonce).to_h.compact

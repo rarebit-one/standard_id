@@ -15,7 +15,7 @@ module StandardId
       before_action :redirect_if_social_login, only: [:create]
 
       def show
-        @redirect_uri = params[:redirect_uri] || after_authentication_url
+        @redirect_uri = string_param(:redirect_uri) || after_authentication_url
         @connection = params[:connection] # For social login detection
 
         render_with_inertia props: auth_page_props
@@ -46,10 +46,10 @@ module StandardId
           redirect_uri = string_param(:redirect_uri)
           context = { mechanism: "password", provider: nil, redirect_uri: redirect_uri }
           redirect_override = invoke_after_sign_in(form.account, context)
-          destination = redirect_override || redirect_uri || after_authentication_url
+          destination = redirect_override || (safe_destination?(redirect_uri) ? redirect_uri : nil) || after_authentication_url
           redirect_to destination, notice: "Account created successfully"
         else
-          @redirect_uri = params[:redirect_uri] || after_authentication_url
+          @redirect_uri = string_param(:redirect_uri) || after_authentication_url
           @connection = params[:connection]
           flash.now[:alert] = form.errors.full_messages.join(", ")
           render_with_inertia action: :show, props: auth_page_props(errors: form.errors.to_hash), status: :unprocessable_content
@@ -80,7 +80,7 @@ module StandardId
 
       def encode_state
         Base64.urlsafe_encode64({
-          redirect_uri: params[:redirect_uri] || after_authentication_url,
+          redirect_uri: string_param(:redirect_uri) || after_authentication_url,
           timestamp: Time.current.to_i
         }.to_json)
       end

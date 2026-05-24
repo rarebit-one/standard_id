@@ -14,13 +14,18 @@ module StandardId
 
       def create
         revoke_current_session!
-        redirect_to params[:redirect_uri] || root_path, notice: "Successfully signed out"
+        redirect_to logout_destination, notice: "Successfully signed out"
       end
 
       private
 
       def redirect_if_not_authenticated
-        redirect_to params[:redirect_uri] || root_path unless authenticated?
+        redirect_to logout_destination unless authenticated?
+      end
+
+      def logout_destination
+        redirect_uri = string_param(:redirect_uri)
+        safe_destination?(redirect_uri) ? redirect_uri : root_path
       end
     end
   end

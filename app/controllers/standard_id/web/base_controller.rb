@@ -26,6 +26,28 @@ module StandardId
         value = params[key]
         value.is_a?(String) ? value.presence : nil
       end
+
+      # Whether `destination` is safe to redirect a signed-in user to.
+      # - Same-origin paths ("/foo") pass; protocol-relative ("//evil") does not.
+      # - Cross-host URLs pass only when the host has explicitly allow-listed the prefix
+      #   via `StandardId.config.allowed_redirect_url_prefixes`.
+      # - Anything else (blank, absolute http(s) URL not in the allow-list, opaque scheme)
+      #   is rejected; callers should fall back to `safe_post_signin_default`.
+      def safe_destination?(destination)
+        return false if destination.blank?
+        return true if destination.start_with?("/") && !destination.start_with?("//")
+
+        Array(StandardId.config.allowed_redirect_url_prefixes).any? do |entry|
+          case entry
+          when Regexp then entry.match?(destination)
+          else destination.start_with?(entry.to_s)
+          end
+        end
+      end
+
+      def safe_post_signin_default
+        "/"
+      end
     end
   end
 end

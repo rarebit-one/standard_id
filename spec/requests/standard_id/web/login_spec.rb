@@ -64,6 +64,24 @@ RSpec.describe "StandardId Web Login", type: :request do
         expect(response).to redirect_to("/")
       end
 
+      it "rejects cross-host redirect_uri not in the allow list" do
+        create_account_with_password(email: email, password: password)
+
+        http_post "/login", params: { login: { email: email, password: password }, redirect_uri: "https://evil.example.com/phish" }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
+      it "rejects protocol-relative redirect_uri" do
+        create_account_with_password(email: email, password: password)
+
+        http_post "/login", params: { login: { email: email, password: password }, redirect_uri: "//evil.example.com/phish" }
+
+        expect(response).to have_http_status(:see_other)
+        expect(response).to redirect_to("/")
+      end
+
       it "renders the form with error on invalid credentials" do
         create_account_with_password(email: email, password: password)
 
