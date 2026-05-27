@@ -13,10 +13,11 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  security-events: read
 
 jobs:
   maintenance:
-    uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@v1
+    uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@v2
     with:
       stack: ruby-gem
       lint-commands: |
