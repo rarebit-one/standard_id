@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   maintenance:
-    uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@v1
+    uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@v2
     with:
       stack: ruby-gem
       lint-commands: |
