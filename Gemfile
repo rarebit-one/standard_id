@@ -37,7 +37,7 @@ gem "tailwindcss-ruby", "~> 4.2"
 gem "tailwindcss-rails", "~> 4.4"
 
 # Apple Sign In
-gem "standard_id-apple", "~> 0.2.0"
+gem "standard_id-apple", "~> 0.4.0"
 
 # Google Sign In
-gem "standard_id-google", "~> 0.2.0"
+gem "standard_id-google", "~> 0.3.0"
