@@ -1,5 +1,8 @@
 require "rails_helper"
 require "action_cable"
+# Pulls in ActionCable::Connection::TestSocket on Rails edge (8.2+); on released
+# Rails this file simply doesn't define that constant. See connection_input below.
+require "action_cable/connection/test_case"
 
 RSpec.describe StandardId::CableAuthentication do
   let(:account) { Account.create!(name: "Test User", email: "test@example.com") }
@@ -38,8 +41,21 @@ RSpec.describe StandardId::CableAuthentication do
         allow(c).to receive(:[]=) { |key, value| plain_cookies[key] = value }
       end
     end
+    # Rails edge refactored ActionCable::Connection::Base to take a socket object
+    # (which responds to #logger, #request, #env) as its second constructor
+    # argument instead of the raw Rack env Hash. Wrap the env in a TestSocket when
+    # that class is available so this spec runs against both released ActionCable
+    # and the rails-edge canary.
+    let(:connection_input) do
+      if defined?(::ActionCable::Connection::TestSocket)
+        request = ::ActionCable::Connection::TestSocket.build_request("/cable", env: env)
+        ::ActionCable::Connection::TestSocket.new(request)
+      else
+        env
+      end
+    end
     let(:connection) do
-      connection_class.new(server, env).tap do |conn|
+      connection_class.new(server, connection_input).tap do |conn|
         allow(conn).to receive(:cookies).and_return(mock_cookies)
       end
     end
