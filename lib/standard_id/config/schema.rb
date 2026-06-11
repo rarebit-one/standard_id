@@ -328,6 +328,15 @@ StandardId::ConfigSchema.define do
     field :api_passwordless_start_per_target, type: :integer, default: 5 # per 15 minutes
     field :api_token_per_ip, type: :integer, default: 30                 # per 15 minutes
 
+    # Optional per-audience tightening on top of the api_token_per_ip
+    # ceiling. A Hash of audience => max token requests per IP per 15
+    # minutes, e.g. `{ "mobile_app" => 10, "partner_api" => 30 }`. Only
+    # requests targeting a configured audience count toward that audience's
+    # limit; audiences without an entry are governed solely by the global
+    # api_token_per_ip ceiling. A request must pass both its audience cap
+    # and the global cap.
+    field :api_token_per_audience_per_ip, type: :hash, default: -> { {} }
+
     # Dynamic client registration (RFC 7591) — throttle the open registration
     # endpoint by IP so an enabled deployment can't be flooded with client rows.
     field :dynamic_registration_per_ip, type: :integer, default: 10      # per hour

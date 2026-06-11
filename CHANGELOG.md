@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-audience rate limits at `POST /oauth/token`** — new
+  `rate_limits.api_token_per_audience_per_ip` config (Hash of
+  audience => max requests per IP per 15 minutes, default `{}`). Lets hosts
+  tighten the cap for higher-risk audiences (e.g. a public mobile app) while
+  internal/partner audiences keep the global `api_token_per_ip` ceiling. A
+  request must pass both its audience cap and the global cap. Implemented as
+  an explicit `before_action` counter rather than the Rails `rate_limit`
+  DSL: the DSL counts every request reaching the action, and a `by:` block
+  returning `nil` does not exempt a request — it collapses into a shared
+  bucket keyed without the discriminator, so one audience's rule would
+  throttle every other audience's traffic. Only requests that actually
+  target a configured audience increment that audience's per-IP counter.
+  Exceeding the cap renders the standard `rate_limit_exceeded` JSON error
+  with `Retry-After`.
+
 ## [0.22.0] - 2026-06-11
 
 ### Added
