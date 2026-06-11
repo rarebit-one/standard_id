@@ -2,6 +2,11 @@ StandardId::WebEngine.routes.draw do
   scope module: :web do
     # Authentication flows
     resource :login, only: [:show, :create], controller: :login
+
+    # OAuth consent screen (authenticated HTML). The API authorize endpoint
+    # hands off here with a signed payload when a client requires consent.
+    resource :consent, only: [:show, :create], controller: :consent
+
     resource :login_verify, only: [:show, :update], controller: :login_verify
     resource :logout, only: [:create], controller: :logout
     resource :signup, only: [:show, :create], controller: :signup

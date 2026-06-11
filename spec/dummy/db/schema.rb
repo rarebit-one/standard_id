@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_04_16_180511) do
+ActiveRecord::Schema[8.1].define(version: 2026_06_11_000000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -82,6 +82,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_16_180511) do
     t.index ["client_type"], name: "index_standard_id_client_applications_on_client_type"
     t.index ["owner_type", "owner_id"], name: "idx_on_owner_type_owner_id_936e856298"
     t.index ["owner_type", "owner_id"], name: "index_standard_id_client_applications_on_owner"
+  end
+
+  create_table "standard_id_client_grants", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.string "client_id", null: false
+    t.datetime "created_at", null: false
+    t.string "scope"
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "client_id"], name: "idx_standard_id_client_grants_on_account_client", unique: true
+    t.index ["account_id"], name: "index_standard_id_client_grants_on_account_id"
+    t.index ["client_id"], name: "index_standard_id_client_grants_on_client_id"
   end
 
   create_table "standard_id_client_secret_credentials", force: :cascade do |t|
@@ -198,6 +209,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_04_16_180511) do
   end
 
   add_foreign_key "standard_id_authorization_codes", "accounts"
+  add_foreign_key "standard_id_client_grants", "accounts"
   add_foreign_key "standard_id_client_secret_credentials", "standard_id_client_applications", column: "client_application_id"
   add_foreign_key "standard_id_credentials", "standard_id_identifiers", column: "identifier_id"
   add_foreign_key "standard_id_identifiers", "accounts"

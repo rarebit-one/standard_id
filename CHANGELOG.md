@@ -7,6 +7,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-06-11
+
+### Added
+
+- **RFC 8414 OAuth 2.0 Authorization Server Metadata** — new endpoint
+  `/.well-known/oauth-authorization-server` (`Api::WellKnown::OauthAuthorizationServerController`),
+  serving the same document as `/.well-known/openid-configuration`. Both
+  controllers now render a single shared builder,
+  `StandardId::Oauth::DiscoveryDocument.build(issuer, registration_enabled: false)`,
+  so the OIDC and OAuth metadata documents cannot drift.
+  - **Mount caveat:** the ApiEngine is consumer-mounted at a sub-path (e.g.
+    `/auth/api`), so the gem can only serve this at
+    `/auth/api/.well-known/oauth-authorization-server`. A strict RFC 8414 client
+    that derives a *root-anchored* URL from a path-carrying issuer
+    (`<host>/.well-known/oauth-authorization-server/auth/api`) lands outside any
+    engine mount; hosts needing the root-anchored form must add their own root
+    route — the gem cannot. The `registration_endpoint` is intentionally NOT
+    emitted yet; the `registration_enabled:` kwarg is a seam for Phase 2 (DCR).
+- **PKCE advertisement** — both discovery documents now advertise
+  `code_challenge_methods_supported: ["S256"]` (always on; PKCE is always
+  enforced).
+- **HTML consent view for the authorization-code flow** — an authenticated,
+  interactive (HTML) `/authorize` for a client with `require_consent` enabled
+  and no prior grant is now handed off to a new WebEngine consent screen
+  (`GET/POST /consent`, asset-free ERB; Inertia consumers receive props for
+  their own component) instead of dead-ending. On approve, a `ClientGrant` is
+  recorded and the authorization code is issued by re-running the same
+  authorization-code flow (so `redirect_uri` and PKCE are revalidated, not
+  duplicated); on deny, the user is redirected back with `error=access_denied`
+  (+ `state`). Repeat authorizations with a matching grant skip consent. The
+  API authorize endpoint carries the original `/authorize` params to the
+  consent screen through a signed, expiring payload
+  (`StandardId::Oauth::ConsentPayload`, mirroring the OTP `message_verifier`
+  pattern). New table `standard_id_client_grants` (one row per account+client).
+  JSON / non-interactive / implicit / social-login flows are unaffected.
+
+### Changed
+
+- **`audience` is now OPTIONAL at the authorization-code `/authorize`** — moved
+  from `expect_params` to `permit_params` in
+  `AuthorizationCodeAuthorizationFlow`. Token-time validation already no-ops on a
+  blank audience (or when no `allowed_audiences` are configured), so omitting it
+  is safe and lets standards-compliant clients (e.g. MCP) authorize without it.
+  `client_credentials` still REQUIRES `audience` (unchanged). This is a
+  relaxation, not a break.
+- **Passwordless-aware ERB login view** — the gem's ERB login view now selects
+  its form using the same passwordless-first precedence the controller's
+  `#create` uses: passwordless-only renders an asset-free email-only form (no
+  external `tailwindcss.com` logo, no Tailwind-utility dependence, so it renders
+  under a minimal element-CSS layout); password mode renders the existing form
+  unchanged (password consumers are unaffected); neither-enabled renders a "No
+  login method is enabled" message instead of a 500. Social login still renders
+  in both modes when configured.
+
+### Migration notes
+
+- Run the new `CreateStandardIdClientGrants` migration (adds
+  `standard_id_client_grants`). No existing columns change.
+
 ## [0.20.1] - 2026-05-24
 
 ### Added
