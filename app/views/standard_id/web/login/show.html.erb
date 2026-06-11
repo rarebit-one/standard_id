@@ -34,10 +34,12 @@
       <%= render "standard_id/web/login/social_buttons" %>
     <% end %>
 
-    <p>
-      Not a member?
-      <%= link_to "Sign up", signup_path(redirect_uri: @redirect_uri) %>
-    </p>
+    <% if StandardId.config.web.signup %>
+      <p>
+        Not a member?
+        <%= link_to "Sign up", signup_path(redirect_uri: @redirect_uri) %>
+      </p>
+    <% end %>
   </main>
 
 <% elsif @password_enabled %>
@@ -91,9 +93,11 @@
               <label for="remember-me" class="block text-sm/6 text-gray-900 dark:text-white">Remember me</label>
             </div>
 
-            <div class="text-sm/6">
-              <%= link_to "Forgot password?", reset_password_start_path, class: "font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" %>
-            </div>
+            <% if StandardId.config.web.password_reset %>
+              <div class="text-sm/6">
+                <%= link_to "Forgot password?", reset_password_start_path, class: "font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" %>
+              </div>
+            <% end %>
           </div>
 
           <div>
@@ -143,10 +147,12 @@
         <% end %>
       </div>
 
-      <p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400">
-        Not a member?
-        <%= link_to "Sign up", signup_path(redirect_uri: @redirect_uri), class: "font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" %>
-      </p>
+      <% if StandardId.config.web.signup %>
+        <p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400">
+          Not a member?
+          <%= link_to "Sign up", signup_path(redirect_uri: @redirect_uri), class: "font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" %>
+        </p>
+      <% end %>
     </div>
   </div>
 

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-06-11
+
+### Fixed
+
+- **ERB login view now respects the `web.signup` and `web.password_reset`
+  toggles.** The packaged login view rendered an unconditional "Sign up" link
+  (both the passwordless and password branches) and a "Forgot password?" link
+  (password branch), so an app with `web.signup = false` or
+  `web.password_reset = false` showed links to routes that 404. The links are
+  now gated on their respective toggles. No effect on apps that leave the
+  toggles at their defaults.
+
 ## [0.21.0] - 2026-06-11
 
 ### Added
