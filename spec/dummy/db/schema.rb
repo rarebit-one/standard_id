@@ -55,17 +55,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_11_000000) do
     t.index ["expires_at"], name: "index_standard_id_authorization_codes_on_expires_at"
   end
 
-  create_table "standard_id_client_grants", force: :cascade do |t|
-    t.bigint "account_id", null: false
-    t.string "client_id", null: false
-    t.datetime "created_at", null: false
-    t.string "scope"
-    t.datetime "updated_at", null: false
-    t.index ["account_id", "client_id"], name: "idx_standard_id_client_grants_on_account_client", unique: true
-    t.index ["account_id"], name: "index_standard_id_client_grants_on_account_id"
-    t.index ["client_id"], name: "index_standard_id_client_grants_on_client_id"
-  end
-
   create_table "standard_id_client_applications", force: :cascade do |t|
     t.integer "access_token_lifetime", default: 3600
     t.boolean "active", default: true, null: false
@@ -93,6 +82,17 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_11_000000) do
     t.index ["client_type"], name: "index_standard_id_client_applications_on_client_type"
     t.index ["owner_type", "owner_id"], name: "idx_on_owner_type_owner_id_936e856298"
     t.index ["owner_type", "owner_id"], name: "index_standard_id_client_applications_on_owner"
+  end
+
+  create_table "standard_id_client_grants", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.string "client_id", null: false
+    t.datetime "created_at", null: false
+    t.string "scope"
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "client_id"], name: "idx_standard_id_client_grants_on_account_client", unique: true
+    t.index ["account_id"], name: "index_standard_id_client_grants_on_account_id"
+    t.index ["client_id"], name: "index_standard_id_client_grants_on_client_id"
   end
 
   create_table "standard_id_client_secret_credentials", force: :cascade do |t|
