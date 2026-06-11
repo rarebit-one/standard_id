@@ -20,9 +20,10 @@ module StandardId
 
       # @param issuer [String] the configured issuer (e.g. "https://auth.example.com")
       # @param registration_enabled [Boolean] when true, advertises the RFC 7591
-      #   dynamic client registration endpoint. Defaults to false; the seam is
-      #   kept here so Phase 2 (DCR) can flip it on via config without touching
-      #   either controller. While false, no registration_endpoint is emitted.
+      #   dynamic client registration endpoint. The well-known controllers pass
+      #   `StandardId.config.oauth.dynamic_registration_enabled` here, so the
+      #   `registration_endpoint` is emitted only when DCR is turned on. Defaults
+      #   to false so callers (and tests) that omit it get no registration_endpoint.
       # @return [Hash]
       def build(issuer, registration_enabled: false)
         base = issuer.to_s.chomp("/")

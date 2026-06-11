@@ -18,6 +18,11 @@ StandardId::ApiEngine.routes.draw do
       resource :token, only: [:create]
       resource :revoke, only: [:create], controller: :revocations
 
+      # RFC 7591 Dynamic Client Registration -> POST /oauth/register.
+      # The controller returns 404 when oauth.dynamic_registration_enabled is
+      # false, so the endpoint is fully absent unless explicitly enabled.
+      resource :register, only: [:create], controller: :registrations
+
       namespace :callback do
         post ":provider", to: "providers#callback", as: :provider
       end

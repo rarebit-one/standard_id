@@ -270,6 +270,25 @@ StandardId::ConfigSchema.define do
     # Must return a Hash of custom claims to merge into the JWT payload.
     # Example: ->(account:, **) { { channel_id: account.channel_id } }
     field :custom_claims, type: :any, default: nil
+
+    # RFC 7591 Dynamic Client Registration.
+    #
+    # When false (the default), the registration endpoint is fully absent
+    # (`POST /oauth/register` returns 404) and `registration_endpoint` is NOT
+    # advertised in the discovery documents. An open, unauthenticated
+    # registration endpoint is state-mutating attack surface (anyone can mint
+    # OAuth clients), so it is opt-in: a deployment must explicitly turn it on.
+    field :dynamic_registration_enabled, type: :boolean, default: false
+
+    # Callable resolving the polymorphic owner assigned to clients created via
+    # Dynamic Client Registration (the `owner` association on ClientApplication
+    # is required). Example: `-> { Organization.default }`.
+    #
+    # When `dynamic_registration_enabled` is true but this resolver is nil (or
+    # returns nil), registration raises a clear configuration error rather than
+    # silently failing the model's presence validation — so misconfiguration is
+    # caught loudly at request time.
+    field :dynamic_registration_owner, type: :any, default: nil
   end
 
   scope :social do
@@ -308,5 +327,9 @@ StandardId::ConfigSchema.define do
     field :api_passwordless_start_per_ip, type: :integer, default: 10    # per hour
     field :api_passwordless_start_per_target, type: :integer, default: 5 # per 15 minutes
     field :api_token_per_ip, type: :integer, default: 30                 # per 15 minutes
+
+    # Dynamic client registration (RFC 7591) — throttle the open registration
+    # endpoint by IP so an enabled deployment can't be flooded with client rows.
+    field :dynamic_registration_per_ip, type: :integer, default: 10      # per hour
   end
 end

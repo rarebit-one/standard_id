@@ -14,7 +14,10 @@ module StandardId
           end
 
           response.headers["Cache-Control"] = "public, max-age=3600"
-          render json: StandardId::Oauth::DiscoveryDocument.build(issuer)
+          render json: StandardId::Oauth::DiscoveryDocument.build(
+            issuer,
+            registration_enabled: StandardId.config.oauth.dynamic_registration_enabled
+          )
         end
       end
     end

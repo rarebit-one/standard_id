@@ -36,9 +36,16 @@ RSpec.describe "StandardId::Api::WellKnown::OauthAuthorizationServerController",
         expect(response.parsed_body["code_challenge_methods_supported"]).to eq(["S256"])
       end
 
-      it "does not advertise a registration_endpoint (DCR ships in Phase 2)" do
+      it "does not advertise a registration_endpoint when DCR is disabled (default)" do
+        allow(StandardId.config.oauth).to receive(:dynamic_registration_enabled).and_return(false)
         get "/api/.well-known/oauth-authorization-server"
         expect(response.parsed_body).not_to have_key("registration_endpoint")
+      end
+
+      it "advertises a registration_endpoint when DCR is enabled (change D)" do
+        allow(StandardId.config.oauth).to receive(:dynamic_registration_enabled).and_return(true)
+        get "/api/.well-known/oauth-authorization-server"
+        expect(response.parsed_body["registration_endpoint"]).to eq("https://auth.example.com/oauth/register")
       end
     end
 

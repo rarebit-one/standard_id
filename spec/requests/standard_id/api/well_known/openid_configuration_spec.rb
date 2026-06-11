@@ -69,6 +69,20 @@ RSpec.describe "StandardId::Api::WellKnown::OpenidConfigurationController", type
 
         expect(body["token_endpoint"]).to eq("https://auth.example.com/oauth/token")
       end
+
+      it "omits registration_endpoint when DCR is disabled (default)" do
+        allow(StandardId.config.oauth).to receive(:dynamic_registration_enabled).and_return(false)
+
+        get "/api/.well-known/openid-configuration"
+        expect(response.parsed_body).not_to have_key("registration_endpoint")
+      end
+
+      it "advertises registration_endpoint when DCR is enabled (change D)" do
+        allow(StandardId.config.oauth).to receive(:dynamic_registration_enabled).and_return(true)
+
+        get "/api/.well-known/openid-configuration"
+        expect(response.parsed_body["registration_endpoint"]).to eq("https://auth.example.com/oauth/register")
+      end
     end
 
     context "when issuer is not configured" do
