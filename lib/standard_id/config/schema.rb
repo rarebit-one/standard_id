@@ -327,5 +327,9 @@ StandardId::ConfigSchema.define do
     field :api_passwordless_start_per_ip, type: :integer, default: 10    # per hour
     field :api_passwordless_start_per_target, type: :integer, default: 5 # per 15 minutes
     field :api_token_per_ip, type: :integer, default: 30                 # per 15 minutes
+
+    # Dynamic client registration (RFC 7591) — throttle the open registration
+    # endpoint by IP so an enabled deployment can't be flooded with client rows.
+    field :dynamic_registration_per_ip, type: :integer, default: 10      # per hour
   end
 end

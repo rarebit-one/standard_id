@@ -13,6 +13,14 @@ module StandardId
       class RegistrationsController < BaseController
         public_controller
 
+        # Throttle the open, unauthenticated registration endpoint by IP so an
+        # enabled deployment can't be flooded with ClientApplication rows.
+        rate_limit to: StandardId.config.rate_limits.dynamic_registration_per_ip,
+                   within: 1.hour,
+                   name: "dynamic-registration-ip",
+                   only: :create,
+                   store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
         before_action :require_dynamic_registration_enabled!
 
         # POST /oauth/register

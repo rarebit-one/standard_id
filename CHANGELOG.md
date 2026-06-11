@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   endpoint `POST /oauth/register`
   (`Api::Oauth::RegistrationsController` -> `StandardId::Oauth::ClientRegistration`)
   lets clients self-register OAuth client applications.
+  - **Rate limited.** Throttled by IP via
+    `rate_limits.dynamic_registration_per_ip` (default 10/hour) so an enabled
+    deployment can't be flooded with client rows.
   - **Default off.** Gated on `oauth.dynamic_registration_enabled` (default
     `false`). While off, the endpoint returns **404** (fully absent, not just a
     guarded 403) and the discovery documents do **not** advertise a
