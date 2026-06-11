@@ -64,5 +64,33 @@ RSpec.describe "StandardId Web Login view modes", type: :request do
         expect(response.body).not_to include('name="login[password]"')
       end
     end
+
+    # 0.21.1: the login view must respect the web.signup / web.password_reset
+    # toggles so an app that disables them doesn't render links to 404 routes.
+    context "link gating on web toggles" do
+      it "hides the Sign up link (passwordless mode) when signup is disabled" do
+        allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
+        allow(StandardId.config.web).to receive(:password_login).and_return(false)
+        allow(StandardId.config.web).to receive(:signup).and_return(false)
+        http_get "/login"
+        expect(response.body).not_to include("Sign up")
+      end
+
+      it "shows the Sign up link (passwordless mode) when signup is enabled" do
+        allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
+        allow(StandardId.config.web).to receive(:password_login).and_return(false)
+        allow(StandardId.config.web).to receive(:signup).and_return(true)
+        http_get "/login"
+        expect(response.body).to include("Sign up")
+      end
+
+      it "hides the Forgot password link (password mode) when password_reset is disabled" do
+        allow(StandardId.config.web).to receive(:passwordless_login).and_return(false)
+        allow(StandardId.config.web).to receive(:password_login).and_return(true)
+        allow(StandardId.config.web).to receive(:password_reset).and_return(false)
+        http_get "/login"
+        expect(response.body).not_to include("Forgot password?")
+      end
+    end
   end
 end
