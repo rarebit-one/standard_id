@@ -72,7 +72,10 @@ module StandardId
             grant_types: client.grant_types_array,
             response_types: client.response_types_array,
             scope: client.scopes,
-            token_endpoint_auth_method: token_endpoint_auth_method_for(client)
+            # Echo the registered value (RFC 7591 §3.2.1), not a value derived
+            # from client_type — both client_secret_basic and client_secret_post
+            # are accepted and both work at the token endpoint.
+            token_endpoint_auth_method: result.token_endpoint_auth_method
           }
 
           if result.client_secret
@@ -81,10 +84,6 @@ module StandardId
           end
 
           body
-        end
-
-        def token_endpoint_auth_method_for(client)
-          client.public? ? "none" : "client_secret_basic"
         end
       end
     end

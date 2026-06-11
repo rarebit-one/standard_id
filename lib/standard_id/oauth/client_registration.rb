@@ -31,7 +31,7 @@ module StandardId
       # Minimal result object mirroring the gem's `result.success?` /
       # `result.value` convention. `client_secret` is the one-time plaintext for
       # confidential clients (nil for public clients).
-      Result = Struct.new(:client, :client_secret, keyword_init: true) do
+      Result = Struct.new(:client, :client_secret, :token_endpoint_auth_method, keyword_init: true) do
         def success? = true
         def value = client
       end
@@ -61,7 +61,7 @@ module StandardId
           end
         end
 
-        Result.new(client: client, client_secret: secret_plaintext)
+        Result.new(client: client, client_secret: secret_plaintext, token_endpoint_auth_method: auth_method)
       rescue ActiveRecord::RecordInvalid => e
         raise_for(e.record)
       end

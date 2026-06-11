@@ -91,6 +91,20 @@ RSpec.describe "StandardId::Api::Oauth::RegistrationsController", type: :request
         expect(client.primary_client_secret).to be_present
       end
 
+      it "echoes the registered token_endpoint_auth_method (RFC 7591 §3.2.1)" do
+        post path,
+          params: {
+            client_name: "Post Client",
+            redirect_uris: ["https://post.example.com/cb"],
+            token_endpoint_auth_method: "client_secret_post"
+          },
+          as: :json
+
+        expect(response).to have_http_status(:created)
+        # Must echo what was registered, not a value derived from client_type.
+        expect(response.parsed_body["token_endpoint_auth_method"]).to eq("client_secret_post")
+      end
+
       it "rejects a missing redirect_uris with invalid_redirect_uri (400)" do
         post path, params: { client_name: "No Redirect" }, as: :json
 
