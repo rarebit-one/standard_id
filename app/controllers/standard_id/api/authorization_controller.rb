@@ -16,6 +16,7 @@ module StandardId
       }.freeze
 
       def show
+        reject_invalid_redirect_uri!
         return redirect_to_consent if consent_required?
 
         response_data = flow_strategy_class.new(flow_strategy_params, request, current_account: current_account).execute
@@ -28,6 +29,24 @@ module StandardId
       end
 
       private
+
+      # Validate redirect_uri against the resolved client BEFORE any consent
+      # hand-off. The authorization flow validates it during #execute, but the
+      # consent gate (redirect_to_consent) runs first — so without this an
+      # unvalidated redirect_uri would be signed into the consent payload and the
+      # Deny path would redirect straight to it (open redirect). Per OAuth, an
+      # invalid redirect_uri is surfaced as an error, never redirected to. On the
+      # non-consent path the flow re-validates (harmless, same error).
+      def reject_invalid_redirect_uri!
+        return if params[:redirect_uri].blank?
+
+        client = consent_client
+        return if client.nil? # unknown/inactive client is rejected by the flow
+
+        return if client.valid_redirect_uri?(params[:redirect_uri])
+
+        raise StandardId::InvalidRequestError, "Invalid redirect_uri"
+      end
 
       # An interactive authorization-code request needs a consent screen when:
       #   * the user is authenticated,

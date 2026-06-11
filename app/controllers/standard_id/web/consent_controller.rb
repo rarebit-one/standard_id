@@ -93,6 +93,14 @@ module StandardId
 
       def denied_redirect_uri
         base = @consent_request[:redirect_uri].presence || @client.redirect_uris_array.first
+        # Defense-in-depth: only ever redirect to a URI registered on the client.
+        # The authorize endpoint already validates redirect_uri before the consent
+        # hand-off, but re-check here so a deny can never become an open redirect
+        # (and guard the nil case where a client has no registered URIs).
+        unless base.present? && @client.valid_redirect_uri?(base)
+          raise StandardId::InvalidRequestError, "Invalid redirect_uri"
+        end
+
         params_hash = { error: "access_denied", state: @consent_request[:state] }.compact
         build_error_redirect(base, params_hash)
       end
@@ -112,7 +120,7 @@ module StandardId
             name: @client.name,
             description: @client.description
           },
-          scopes: scope_list,
+          scopes: @scopes,
           consent_request: params[:consent_request],
           flash: { notice: flash[:notice], alert: flash[:alert] }.compact
         }

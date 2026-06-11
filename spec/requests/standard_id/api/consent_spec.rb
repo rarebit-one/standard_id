@@ -53,6 +53,17 @@ RSpec.describe "StandardId OAuth consent flow", type: :request do
       expect(response.location).not_to include("code=")
     end
 
+    it "rejects an unregistered redirect_uri rather than handing it to consent (no open redirect on deny)" do
+      http_get "/api/authorize", params: authorize_params.merge(redirect_uri: "https://evil.example.com/callback")
+
+      # Must NOT 302 to /consent — that would sign the unvalidated redirect_uri
+      # into the consent payload and let the Deny path redirect off-host.
+      expect(response.location.to_s).not_to include("/consent")
+      expect(response.location.to_s).not_to include("evil.example.com")
+      body = JSON.parse(response.body) rescue {}
+      expect(body["error_description"].to_s).to include("Invalid redirect_uri")
+    end
+
     it "renders the consent screen with client name and scopes" do
       http_get "/api/authorize", params: authorize_params
       consent_url = response.location
