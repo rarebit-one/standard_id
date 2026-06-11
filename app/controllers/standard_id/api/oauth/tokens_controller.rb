@@ -21,6 +21,7 @@ module StandardId
         }.freeze
 
         before_action :extract_client_credentials_from_basic_auth
+        before_action :enforce_per_audience_rate_limit, only: :create
 
         def create
           response_data = flow_strategy_class.new(flow_strategy_params, request).execute
@@ -28,6 +29,31 @@ module StandardId
         end
 
         private
+
+        # Per-audience tightening on top of the global api_token_per_ip
+        # ceiling (rate_limits.api_token_per_audience_per_ip). Hand-rolled
+        # rather than the Rails rate_limit DSL on purpose: the DSL counts
+        # every request that reaches the action — a `by:` block returning nil
+        # does NOT exempt a request, it collapses into a shared bucket keyed
+        # without the discriminator (["rate-limit", scope, name, nil].compact),
+        # so one audience's rule would throttle every other audience's
+        # traffic. Here only requests that target a configured audience
+        # increment that audience's per-IP counter.
+        def enforce_per_audience_rate_limit
+          limits = StandardId.config.rate_limits.api_token_per_audience_per_ip
+          return if limits.blank?
+
+          Array(params[:audience]).each do |audience|
+            next unless audience.is_a?(String)
+
+            cap = limits[audience] || limits[audience.to_sym]
+            next if cap.blank?
+
+            cache_key = "rate-limit:#{self.class.controller_path}:api_token_per_audience:#{audience}:#{request.remote_ip}"
+            count = StandardId::RateLimitHandling::RATE_LIMIT_STORE.increment(cache_key, 1, expires_in: 15.minutes)
+            raise ActionController::TooManyRequests if count && count > cap.to_i
+          end
+        end
 
         # Support HTTP Basic authentication for client credentials (RFC 6749 Section 2.3.1)
         def extract_client_credentials_from_basic_auth

@@ -368,6 +368,11 @@ StandardId.configure do |c|
   # c.rate_limits.api_passwordless_start_per_target = 5  # per 15 minutes
   # c.rate_limits.api_token_per_ip               = 30  # per 15 minutes
 
+  # Optional per-audience tightening on top of api_token_per_ip. Only token
+  # requests targeting a configured audience count toward its cap (per IP,
+  # per 15 minutes); unlisted audiences are governed by the global ceiling.
+  # c.rate_limits.api_token_per_audience_per_ip  = { "mobile_app" => 10 }
+
   # ---------------------------------------------------------------------------
   # Observability
   # ---------------------------------------------------------------------------
