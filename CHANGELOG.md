@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-06-11
+
+### Added
+
+- **RFC 7591 Dynamic Client Registration** behind a default-off toggle. New
+  endpoint `POST /oauth/register`
+  (`Api::Oauth::RegistrationsController` -> `StandardId::Oauth::ClientRegistration`)
+  lets clients self-register OAuth client applications.
+  - **Default off.** Gated on `oauth.dynamic_registration_enabled` (default
+    `false`). While off, the endpoint returns **404** (fully absent, not just a
+    guarded 403) and the discovery documents do **not** advertise a
+    `registration_endpoint`. An open, unauthenticated registration endpoint is
+    state-mutating attack surface, so it is strictly opt-in.
+  - **Owner resolver.** When enabled, set
+    `oauth.dynamic_registration_owner` to a callable resolving the polymorphic
+    owner for registered clients (e.g. `-> { Organization.default }`). If the
+    toggle is on but the resolver is nil/returns nil, registration raises a
+    clear `StandardId::ConfigurationError` rather than silently failing model
+    validation.
+  - **Metadata -> ClientApplication mapping** (RFC 7591 §2): `redirect_uris`
+    (REQUIRED — empty/invalid yields `invalid_redirect_uri`), `client_name` ->
+    `name` (a name is generated when absent), `scope` (default
+    `"openid profile email"`). `grant_types` is whitelisted to
+    `authorization_code`/`refresh_token` and `response_types` to `code` (others
+    rejected as `invalid_client_metadata`). `token_endpoint_auth_method` `none`
+    -> **public** client; `client_secret_basic`/`client_secret_post` ->
+    **confidential** (a one-time `client_secret` is generated and returned with
+    `client_secret_expires_at: 0`). Default auth method is `none` (public).
+  - **Forced security defaults.** All registered clients are forced onto
+    `require_pkce: true` + `code_challenge_methods: "S256"` (the model also
+    validates this for public clients). Registered clients default to
+    `require_consent: true` — they get the HTML consent screen shipped in
+    0.21.0 rather than the old `require_consent: false` workaround.
+  - **Discovery advertisement.** Both `/.well-known/openid-configuration` and
+    `/.well-known/oauth-authorization-server` advertise
+    `registration_endpoint` **only when** `oauth.dynamic_registration_enabled`
+    is true (the flag is now read from config and passed into
+    `DiscoveryDocument.build`).
+  - Responses follow RFC 7591 §3.2.1 (HTTP 201) on success and §3.2.2 (HTTP
+    400, `invalid_redirect_uri` / `invalid_client_metadata`) on error. No
+    migration required — all `ClientApplication` columns already exist.
+
 ## [0.21.1] - 2026-06-11
 
 ### Fixed

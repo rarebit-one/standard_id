@@ -110,6 +110,18 @@ module StandardId
     def oauth_error_code = :unsupported_response_type
   end
 
+  # RFC 7591 §3.2.2 client registration errors. Both render as HTTP 400 with
+  # an `error` of `invalid_redirect_uri` / `invalid_client_metadata` and an
+  # `error_description`. They subclass OAuthError so the existing OAuth error
+  # handling renders them in the standard error shape.
+  class InvalidRedirectUriError < OAuthError
+    def oauth_error_code = :invalid_redirect_uri
+  end
+
+  class InvalidClientMetadataError < OAuthError
+    def oauth_error_code = :invalid_client_metadata
+  end
+
   # Lifecycle hook errors
   class AuthenticationDenied < StandardError; end
 
