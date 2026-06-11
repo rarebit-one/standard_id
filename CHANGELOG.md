@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Exceeding the cap renders the standard `rate_limit_exceeded` JSON error
   with `Retry-After`.
 
+### Fixed
+
+- **`SOCIAL_AUTH_FAILED` is now emitted on the API (mobile) callback path
+  too.** Since 0.16.0 the event fired only from the web callback
+  (`Web::Auth::Callback::ProvidersController`); on
+  `POST /api/oauth/callback/:provider` an infrastructure-level provider
+  failure (`StandardId::OAuthError` from the provider call) fell through to
+  the standard `handle_oauth_error` JSON response without emitting, so host
+  apps observing provider outages via the event were blind on the API flow
+  (and had to monkey-patch `get_user_info_from_provider` to compensate).
+  The rescue is scoped to the provider call: `OAuthError` subclasses raised
+  later in the flow (`SocialLinkError`, `InvalidRequestError`, ...) are
+  policy/client errors and still do not emit. The JSON error response is
+  unchanged.
+
 ## [0.22.0] - 2026-06-11
 
 ### Added
