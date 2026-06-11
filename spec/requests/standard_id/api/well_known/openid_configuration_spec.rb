@@ -48,6 +48,11 @@ RSpec.describe "StandardId::Api::WellKnown::OpenidConfigurationController", type
         expect(body["subject_types_supported"]).to eq(["public"])
       end
 
+      it "advertises PKCE S256 (change C)" do
+        get "/api/.well-known/openid-configuration"
+        expect(response.parsed_body["code_challenge_methods_supported"]).to eq(["S256"])
+      end
+
       it "includes the signing algorithm" do
         get "/api/.well-known/openid-configuration"
         body = response.parsed_body

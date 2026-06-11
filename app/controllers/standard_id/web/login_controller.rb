@@ -33,6 +33,10 @@ module StandardId
       def show
         @redirect_uri = string_param(:redirect_uri) || after_authentication_url
         @connection = params[:connection]
+        # Drive the ERB view's form selection with the same passwordless-first
+        # precedence the #create action uses (passwordless wins when both are on).
+        @passwordless_enabled = passwordless_enabled?
+        @password_enabled = StandardId.config.web.password_login
 
         render_with_inertia props: auth_page_props(passwordless_enabled: passwordless_enabled?)
       end

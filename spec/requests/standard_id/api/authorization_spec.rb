@@ -8,7 +8,11 @@ RSpec.describe "StandardId API Authorization", type: :request do
       name: "Test Client",
       client_id: "test_client_123",
       redirect_uris: "https://example.com/callback https://app.example.com/auth",
-      scopes: "read write"
+      scopes: "read write",
+      # Consent is exercised in its own spec (api/consent_spec.rb). These cases
+      # assert direct code issuance / validation, so opt this client out of the
+      # consent gate.
+      require_consent: false
     )
   end
   let(:client_credential) do
@@ -84,12 +88,12 @@ RSpec.describe "StandardId API Authorization", type: :request do
           expect(body["error_description"]).to include("The client_id parameter is required")
         end
 
-        it "requires audience parameter" do
+        it "issues a code when audience is omitted (audience is optional)" do
           http_get "/api/authorize", params: valid_params.except(:audience)
-          expect(response).to have_http_status(:bad_request)
-          body = json_body
-          expect(body["error"]).to eq("invalid_request")
-          expect(body["error_description"]).to include("The audience parameter is required")
+          expect(response).to have_http_status(:found)
+          expect(response.location).to include("code=")
+          expect(response.location).to include("state=random_state_123")
+          expect(response.location).to start_with("https://example.com/callback")
         end
 
         it "validates client_id exists" do

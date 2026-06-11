@@ -26,6 +26,7 @@ StandardId::ApiEngine.routes.draw do
     scope ".well-known", module: :well_known do
       get "jwks.json", to: "jwks#show", as: :jwks
       get "openid-configuration", to: "openid_configuration#show", as: :openid_configuration
+      get "oauth-authorization-server", to: "oauth_authorization_server#show", as: :oauth_authorization_server
     end
   end
 end

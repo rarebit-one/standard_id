@@ -1,0 +1,35 @@
+<% content_for :title, "Authorize access" %>
+
+<%#
+  OAuth consent screen. Deliberately ASSET-FREE: semantic HTML only, no
+  external images and no reliance on utility CSS, so it renders acceptably
+  under a minimal element-selector layout. Inertia consumers receive the same
+  data as props (see ConsentController#consent_props) and render their own
+  component instead of this ERB.
+%>
+<main>
+  <h1>Authorize access</h1>
+
+  <p>
+    <strong><%= @client.name %></strong> is requesting access to your account.
+  </p>
+
+  <% if @client.description.present? %>
+    <p><%= @client.description %></p>
+  <% end %>
+
+  <% if @scopes.any? %>
+    <p>This will grant the following:</p>
+    <ul>
+      <% @scopes.each do |scope| %>
+        <li><%= scope %></li>
+      <% end %>
+    </ul>
+  <% end %>
+
+  <%= form_with url: consent_path, method: :post, local: true do |form| %>
+    <%= form.hidden_field :consent_request, value: params[:consent_request] %>
+    <button type="submit" name="decision" value="approve">Approve</button>
+    <button type="submit" name="decision" value="deny">Deny</button>
+  <% end %>
+</main>

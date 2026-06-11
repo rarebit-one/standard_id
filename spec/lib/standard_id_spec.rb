@@ -70,9 +70,19 @@ RSpec.describe StandardId do
       # register mutates the Scope in place.
       around do |example|
         saved_resolver = StandardId.config[:social].resolver
+        # These examples mutate static config (issuer, login_url) to simulate
+        # per-tenant setups. Restore them so the mutations don't leak into
+        # later specs that read these values (e.g. the OAuth consent gate
+        # derives the consent path from login_url).
+        saved_issuer = StandardId.config.issuer
+        saved_login_url = StandardId.config.login_url
         example.run
       ensure
         StandardId.config[:social].resolver = saved_resolver
+        StandardId.configure do |c|
+          c.issuer = saved_issuer
+          c.login_url = saved_login_url
+        end
       end
 
       let(:tenant_configs) do

@@ -1,0 +1,6 @@
+<% content_for :title, "Authorization error" %>
+
+<main>
+  <h1>Authorization error</h1>
+  <p><%= @consent_error.presence || "This authorization request could not be processed." %></p>
+</main>
