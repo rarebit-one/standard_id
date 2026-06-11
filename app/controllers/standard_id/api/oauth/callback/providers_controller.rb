@@ -19,7 +19,7 @@ module StandardId
         ].freeze
 
         def callback
-          provider_response = get_user_info_from_provider(flow: resolve_flow_for(provider.provider_name))
+          provider_response = fetch_provider_user_info
           social_info = provider_response[:user_info]
           provider_tokens = provider_response[:tokens]
           account = find_or_create_account_from_social(social_info)
@@ -44,6 +44,22 @@ module StandardId
         end
 
         private
+
+        # Mirror of the web callback's OAuthError handling: emit
+        # SOCIAL_AUTH_FAILED for infrastructure-level provider failures
+        # (HTTP/DNS/SSL/timeouts surfaced as OAuthError by provider
+        # implementations) so host apps can observe provider outages on the
+        # API flow too. Scoped to the provider call — OAuthError subclasses
+        # raised later in the flow (SocialLinkError, InvalidRequestError,
+        # ...) are policy/client errors, not infrastructure failures, and
+        # must not emit. The error re-raises into the standard
+        # handle_oauth_error JSON response.
+        def fetch_provider_user_info
+          get_user_info_from_provider(flow: resolve_flow_for(provider.provider_name))
+        rescue StandardId::OAuthError => e
+          emit_social_auth_failed(e)
+          raise
+        end
 
         def resolve_flow_for(connection)
           return :mobile unless connection == "apple"

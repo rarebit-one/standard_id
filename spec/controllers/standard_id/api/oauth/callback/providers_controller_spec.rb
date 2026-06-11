@@ -152,5 +152,59 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
         expect(captured).to eq({})
       end
     end
+
+    context "when the provider raises an OAuthError (e.g. HTTP/DNS/SSL failure)" do
+      let(:oauth_error) { StandardId::OAuthError.new("Connection refused") }
+
+      before do
+        allow_any_instance_of(described_class).to receive(:get_user_info_from_provider)
+          .and_raise(oauth_error)
+      end
+
+      def collect_social_auth_failed_events
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) do |event|
+          events << event
+        end
+
+        yield
+
+        events
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+
+      it "publishes a SOCIAL_AUTH_FAILED event with the provider, error, and error_class" do
+        events = collect_social_auth_failed_events do
+          post :callback, params: { provider: "apple", code: "abc123" }
+        end
+
+        expect(events.size).to eq(1)
+        expect(events.first[:provider]).to eq("apple")
+        expect(events.first[:error]).to eq("Connection refused")
+        expect(events.first[:error_class]).to eq("StandardId::OAuthError")
+      end
+
+      it "still renders the standard OAuth error JSON response" do
+        post :callback, params: { provider: "apple", code: "abc123" }
+
+        expect(response).to have_http_status(oauth_error.http_status)
+        expect(response.parsed_body["error"]).to eq(oauth_error.oauth_error_code.to_s)
+        expect(response.parsed_body["error_description"]).to eq("Connection refused")
+      end
+
+      it "does NOT publish for OAuthError subclasses raised after the provider call" do
+        allow_any_instance_of(described_class).to receive(:get_user_info_from_provider)
+          .and_return(user_info:, tokens: {})
+        allow_any_instance_of(described_class).to receive(:find_or_create_account_from_social)
+          .and_raise(StandardId::SocialLinkError.new(email: "user@example.com", provider_name: "apple"))
+
+        events = collect_social_auth_failed_events do
+          post :callback, params: { provider: "apple", code: "abc123" }
+        end
+
+        expect(events).to be_empty
+      end
+    end
   end
 end
