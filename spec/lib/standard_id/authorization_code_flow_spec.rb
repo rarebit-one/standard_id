@@ -10,6 +10,16 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
 
   let(:account) { instance_double("Account", id: 99) }
 
+  # Confidential client is the default for the legacy/regression examples below.
+  let(:client) do
+    instance_double(
+      "StandardId::ClientApplication",
+      client_id: client_id,
+      confidential?: true,
+      public?: false
+    )
+  end
+
   let(:credential) do
     double(
       client_id: client_id
@@ -24,11 +34,19 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
       account_id: 99,
       account: account,
       scope: "read write",
-      audience: nil
+      audience: nil,
+      code_challenge: "stored-challenge"
     ).tap do |ac|
       allow(ac).to receive(:mark_as_used!)
       allow(ac).to receive(:pkce_valid?).and_return(true)
     end
+  end
+
+  before do
+    allow(StandardId::ClientApplication)
+      .to receive(:find_by)
+      .with(client_id: client_id)
+      .and_return(client)
   end
 
   describe "#authenticate!" do
@@ -46,6 +64,16 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
       flow = described_class.new(params, request)
       expect { flow.authenticate! }.not_to raise_error
       expect(authorization_code).to have_received(:mark_as_used!)
+    end
+
+    it "raises InvalidClientError when the client_id is unknown" do
+      allow(StandardId::ClientApplication)
+        .to receive(:find_by)
+        .with(client_id: client_id)
+        .and_return(nil)
+
+      flow = described_class.new(params, request)
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidClientError)
     end
 
     it "raises InvalidGrantError when authorization code is missing/invalid" do
@@ -99,6 +127,81 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
 
       flow = described_class.new(mismatched_params, request)
       expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError)
+    end
+  end
+
+  describe "public clients (PKCE, no client_secret)" do
+    let(:public_client) do
+      instance_double(
+        "StandardId::ClientApplication",
+        client_id: client_id,
+        confidential?: false,
+        public?: true
+      )
+    end
+
+    let(:code_verifier) { "a-very-long-random-code-verifier-string-1234567890" }
+    let(:public_params) { { client_id: client_id, code: code, redirect_uri: redirect_uri, code_verifier: code_verifier } }
+
+    let(:public_code) do
+      instance_double(
+        "AuthorizationCode",
+        valid_for_client?: true,
+        redirect_uri: redirect_uri,
+        account_id: 99,
+        account: account,
+        scope: "read write",
+        audience: nil,
+        code_challenge: "stored-challenge"
+      ).tap do |ac|
+        allow(ac).to receive(:mark_as_used!)
+        allow(ac).to receive(:pkce_valid?).with(code_verifier).and_return(true)
+      end
+    end
+
+    before do
+      allow(StandardId::ClientApplication)
+        .to receive(:find_by)
+        .with(client_id: client_id)
+        .and_return(public_client)
+
+      allow_any_instance_of(described_class)
+        .to receive(:find_authorization_code)
+        .with(code)
+        .and_return(public_code)
+    end
+
+    it "authenticates a public client via PKCE alone with no client_secret" do
+      flow = described_class.new(public_params, request)
+      expect { flow.authenticate! }.not_to raise_error
+      expect(public_code).to have_received(:mark_as_used!)
+    end
+
+    it "never validates a client_secret for a public client" do
+      flow = described_class.new(public_params, request)
+      expect(flow).not_to receive(:validate_client_secret!)
+      flow.authenticate!
+    end
+
+    it "rejects a public client whose code carries no code_challenge (fail closed)" do
+      allow(public_code).to receive(:code_challenge).and_return(nil)
+      # pkce_valid? would otherwise return true for a blank challenge.
+      allow(public_code).to receive(:pkce_valid?).and_return(true)
+
+      flow = described_class.new(public_params, request)
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError, /PKCE is required/)
+    end
+
+    it "rejects a public client that sends a client_secret" do
+      flow = described_class.new(public_params.merge(client_secret: "oops"), request)
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidClientError, /must not send a client_secret/)
+    end
+
+    it "rejects a wrong code_verifier" do
+      allow(public_code).to receive(:pkce_valid?).with("wrong-verifier").and_return(false)
+
+      flow = described_class.new(public_params.merge(code_verifier: "wrong-verifier"), request)
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError, /Invalid PKCE code_verifier/)
     end
   end
 
@@ -179,7 +282,8 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
         account_id: account.id,
         account: account,
         scope: "profile",
-        audience: nil
+        audience: nil,
+        code_challenge: "stored-challenge"
       )
       allow(scoped_code).to receive(:mark_as_used!)
       allow(scoped_code).to receive(:pkce_valid?).and_return(true)
@@ -212,7 +316,7 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
 
       result = described_class.new(params, request).execute
       expect(result[:access_token]).to eq("jwt-token")
-      expect(encoded_payloads.first[:profile_id]).to eq("#{client_application.object_id}-#{account.id}-#{request.object_id}")
+      expect(encoded_payloads.first[:profile_id]).to eq("#{client.object_id}-#{account.id}-#{request.object_id}")
     end
   end
 end

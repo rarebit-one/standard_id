@@ -185,6 +185,156 @@ RSpec.describe "StandardId::Api::Oauth::TokensController", type: :request do
       end
     end
 
+    describe "authorization_code grant" do
+      let(:account) { Account.create!(name: "Auth Code User", email: "authcode-#{SecureRandom.hex(4)}@example.com") }
+      let(:redirect_uri) { "https://app.example.com/callback" }
+      let(:code_verifier) { "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk" }
+
+      # base64url(SHA256(verifier)) — the S256 code_challenge per RFC 7636.
+      def s256_challenge(verifier)
+        Base64.urlsafe_encode64(Digest::SHA256.digest(verifier)).delete("=")
+      end
+
+      def issue_code!(client_id:, with_challenge: true, plaintext_code: SecureRandom.hex(20))
+        StandardId::AuthorizationCode.issue!(
+          plaintext_code: plaintext_code,
+          client_id: client_id,
+          redirect_uri: redirect_uri,
+          scope: "openid profile",
+          account: account,
+          code_challenge: with_challenge ? s256_challenge(code_verifier) : nil,
+          code_challenge_method: with_challenge ? "S256" : nil
+        )
+        plaintext_code
+      end
+
+      describe "public client (PKCE, no client_secret)" do
+        let(:public_client) do
+          StandardId::ClientApplication.create!(
+            owner: account,
+            name: "Public Client",
+            redirect_uris: redirect_uri,
+            scopes: "openid profile email",
+            grant_types: "authorization_code refresh_token",
+            response_types: "code",
+            client_type: "public",
+            require_pkce: true,
+            code_challenge_methods: "S256"
+          )
+        end
+
+        it "issues access + refresh tokens with a valid code_verifier and no secret" do
+          code = issue_code!(client_id: public_client.client_id)
+
+          post path,
+            params: {
+              grant_type: "authorization_code",
+              client_id: public_client.client_id,
+              code: code,
+              redirect_uri: redirect_uri,
+              code_verifier: code_verifier
+            },
+            as: :json
+
+          expect(response).to have_http_status(:ok)
+          body = JSON.parse(response.body)
+          expect(body["access_token"]).to be_present
+          expect(body["token_type"]).to eq("Bearer")
+          expect(body["refresh_token"]).to be_present
+        end
+
+        it "rejects a wrong code_verifier with invalid_grant" do
+          code = issue_code!(client_id: public_client.client_id)
+
+          post path,
+            params: {
+              grant_type: "authorization_code",
+              client_id: public_client.client_id,
+              code: code,
+              redirect_uri: redirect_uri,
+              code_verifier: "totally-wrong-verifier"
+            },
+            as: :json
+
+          expect(response).to have_http_status(:bad_request)
+          expect(JSON.parse(response.body)["error"]).to eq("invalid_grant")
+        end
+
+        it "rejects a public client that sends a client_secret" do
+          code = issue_code!(client_id: public_client.client_id)
+
+          post path,
+            params: {
+              grant_type: "authorization_code",
+              client_id: public_client.client_id,
+              client_secret: "should-not-be-here",
+              code: code,
+              redirect_uri: redirect_uri,
+              code_verifier: code_verifier
+            },
+            as: :json
+
+          expect(response).to have_http_status(:unauthorized)
+          expect(JSON.parse(response.body)["error"]).to eq("invalid_client")
+        end
+      end
+
+      describe "confidential client (regression)" do
+        let(:client_secret_value) { "conf_secret_#{SecureRandom.hex(8)}" }
+        let(:confidential_client) do
+          client = StandardId::ClientApplication.create!(
+            owner: account,
+            name: "Confidential Client",
+            redirect_uris: redirect_uri,
+            scopes: "openid profile email",
+            grant_types: "authorization_code refresh_token",
+            response_types: "code",
+            client_type: "confidential",
+            require_pkce: false,
+            code_challenge_methods: "S256"
+          )
+          client.create_client_secret!(name: "Secret", client_secret: client_secret_value)
+          client
+        end
+
+        it "still exchanges a code for tokens with a valid client_secret (no PKCE)" do
+          code = issue_code!(client_id: confidential_client.client_id, with_challenge: false)
+
+          post path,
+            params: {
+              grant_type: "authorization_code",
+              client_id: confidential_client.client_id,
+              client_secret: client_secret_value,
+              code: code,
+              redirect_uri: redirect_uri
+            },
+            as: :json
+
+          expect(response).to have_http_status(:ok)
+          body = JSON.parse(response.body)
+          expect(body["access_token"]).to be_present
+          expect(body["refresh_token"]).to be_present
+        end
+
+        it "rejects a confidential client presenting a wrong secret" do
+          code = issue_code!(client_id: confidential_client.client_id, with_challenge: false)
+
+          post path,
+            params: {
+              grant_type: "authorization_code",
+              client_id: confidential_client.client_id,
+              client_secret: "wrong",
+              code: code,
+              redirect_uri: redirect_uri
+            },
+            as: :json
+
+          expect(response).to have_http_status(:unauthorized)
+          expect(JSON.parse(response.body)["error"]).to eq("invalid_client")
+        end
+      end
+    end
+
     # describe "grant type validation" do
     #   it "recognizes client_credentials as valid grant type" do
     #     post path, params: { grant_type: "client_credentials" }, as: :json

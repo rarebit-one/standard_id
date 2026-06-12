@@ -25,7 +25,7 @@ module StandardId
       # token_endpoint_auth_method -> client_type mapping.
       PUBLIC_AUTH_METHOD = "none".freeze
       CONFIDENTIAL_AUTH_METHODS = %w[client_secret_basic client_secret_post].freeze
-      DEFAULT_AUTH_METHOD = PUBLIC_AUTH_METHOD
+      SUPPORTED_AUTH_METHODS = (CONFIDENTIAL_AUTH_METHODS + [PUBLIC_AUTH_METHOD]).freeze
       DEFAULT_SCOPE = "openid profile email".freeze
 
       # Minimal result object mirroring the gem's `result.success?` /
@@ -132,7 +132,22 @@ module StandardId
 
       def auth_method
         method = metadata[:token_endpoint_auth_method].to_s.strip
-        method.presence || DEFAULT_AUTH_METHOD
+        method.presence || default_auth_method
+      end
+
+      # Fallback token_endpoint_auth_method when the registration request omits
+      # one. Reads the first-class config value (default "none"). A misconfigured
+      # value is a host-app bug, so it raises ConfigurationError loudly rather
+      # than silently registering a malformed client.
+      def default_auth_method
+        configured = StandardId.config.oauth.dynamic_registration_default_auth_method.to_s
+        unless SUPPORTED_AUTH_METHODS.include?(configured)
+          raise StandardId::ConfigurationError,
+            "oauth.dynamic_registration_default_auth_method must be one of " \
+            "#{SUPPORTED_AUTH_METHODS.join(', ')} (got #{configured.inspect})"
+        end
+
+        configured
       end
 
       def client_type
@@ -142,7 +157,7 @@ module StandardId
 
         raise StandardId::InvalidClientMetadataError,
           "Unsupported token_endpoint_auth_method: #{method.inspect}. " \
-          "Allowed: #{(CONFIDENTIAL_AUTH_METHODS + [PUBLIC_AUTH_METHOD]).join(', ')}"
+          "Allowed: #{SUPPORTED_AUTH_METHODS.join(', ')}"
       end
 
       # Public clients are always forced onto PKCE/S256 (the model also validates

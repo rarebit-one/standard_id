@@ -289,6 +289,21 @@ StandardId::ConfigSchema.define do
     # silently failing the model's presence validation — so misconfiguration is
     # caught loudly at request time.
     field :dynamic_registration_owner, type: :any, default: nil
+
+    # Default `token_endpoint_auth_method` applied to clients created via RFC 7591
+    # Dynamic Client Registration when the request omits `token_endpoint_auth_method`.
+    #
+    # Controls whether self-registered clients default to PUBLIC (PKCE-only, no
+    # secret) or to a CONFIDENTIAL secret-bearing method. The default `"none"`
+    # preserves the historical behaviour (DCR clients are public unless they ask
+    # for a secret) and is the right default for interactive/native/MCP clients,
+    # which cannot keep a secret.
+    #
+    # Valid values (validated at use in StandardId::Oauth::ClientRegistration):
+    #   "none"                — public client, authenticates via PKCE alone
+    #   "client_secret_basic" — confidential, secret via HTTP Basic
+    #   "client_secret_post"  — confidential, secret in the request body
+    field :dynamic_registration_default_auth_method, type: :string, default: "none"
   end
 
   scope :social do

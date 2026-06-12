@@ -39,7 +39,9 @@ module StandardId
           grant_types_supported: %w[authorization_code refresh_token client_credentials],
           subject_types_supported: %w[public],
           id_token_signing_alg_values_supported: [StandardId.config.oauth.signing_algorithm.to_s.upcase],
-          token_endpoint_auth_methods_supported: %w[client_secret_basic client_secret_post],
+          # "none" advertises public-client support (PKCE-only token exchange,
+          # no client_secret) per RFC 8414 — required by native/SPA/MCP clients.
+          token_endpoint_auth_methods_supported: %w[client_secret_basic client_secret_post none],
           # PKCE is always enforced (require_pkce defaults true and cannot be
           # disabled for public clients), so advertise the supported method.
           code_challenge_methods_supported: %w[S256]
