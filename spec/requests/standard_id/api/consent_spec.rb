@@ -119,6 +119,14 @@ RSpec.describe "StandardId OAuth consent flow", type: :request do
       http_post "/consent", params: { decision: "approve", consent_request: "not-a-valid-token" }
       expect(response).to have_http_status(:bad_request)
     end
+
+    # NOTE: when the consent screen is Inertia-rendered (host app sets
+    # use_inertia), the decision arrives as an Inertia XHR, which cannot follow
+    # a 302 to the external client redirect_uri. ConsentController#redirect_out
+    # then emits an Inertia-Location (409 + X-Inertia-Location) instead. That
+    # branch can only run where inertia_rails is loaded — this gem has no
+    # inertia_rails dependency, so the Inertia path is covered by the consuming
+    # app's integration test (sidekick-web: mcp_authorization_flow_spec).
   end
 
   describe "with a prior grant" do

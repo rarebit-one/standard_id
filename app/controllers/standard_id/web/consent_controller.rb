@@ -84,11 +84,26 @@ module StandardId
           .new(@consent_request, request, current_account: current_account)
           .execute
 
-        redirect_to result[:redirect_to], status: result[:status] || :found, allow_other_host: true
+        redirect_out(result[:redirect_to], status: result[:status] || :found)
       end
 
       def deny!
-        redirect_to denied_redirect_uri, status: :found, allow_other_host: true
+        redirect_out(denied_redirect_uri, status: :found)
+      end
+
+      # Redirect to the OAuth client's (external) redirect_uri in a way that
+      # works for BOTH plain-browser and Inertia consumers of the consent
+      # screen. An Inertia visit is an XHR — it cannot follow a 302 to a
+      # non-Inertia, cross-origin URL (the browser stays on the consent page),
+      # so for Inertia requests we emit an Inertia-Location (409 +
+      # X-Inertia-Location) which the client turns into a hard `window.location`
+      # navigation. Plain (ERB) form posts keep the ordinary redirect.
+      def redirect_out(url, status: :found)
+        if request.respond_to?(:inertia?) && request.inertia?
+          inertia_location(url)
+        else
+          redirect_to url, status: status, allow_other_host: true
+        end
       end
 
       def denied_redirect_uri

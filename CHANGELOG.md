@@ -29,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `none` / `client_secret_basic` / `client_secret_post`; an out-of-range
   value raises `ConfigurationError`. Default preserves existing behaviour.
 
+### Fixed
+
+- **Consent screen now completes for Inertia-rendered hosts.** When a host
+  renders the OAuth consent screen via Inertia (`use_inertia`), the
+  approve/deny decision arrives as an Inertia XHR, which cannot follow a 302
+  to the external client `redirect_uri` — the browser would hang on the
+  consent screen. `ConsentController` now emits an Inertia-Location
+  (`409` + `X-Inertia-Location`) for Inertia requests so the client performs a
+  hard navigation to the callback, while plain (ERB) form posts keep the
+  ordinary redirect. No effect on non-Inertia hosts.
+
 ## [0.23.0] - 2026-06-12
 
 ### Added
