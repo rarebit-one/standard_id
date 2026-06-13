@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-06-13
+
+### Added
+
+- **Public-client (PKCE) support at `POST /oauth/token` for the
+  `authorization_code` grant.** Public clients (native/SPA/MCP clients per
+  RFC 8252 / OAuth 2.1) can now exchange an authorization code for tokens
+  using PKCE alone, with no `client_secret`. Confidential clients still
+  authenticate with a secret exactly as before (regression-safe). The flow
+  looks up the `ClientApplication` by `client_id`, validates a secret only
+  for confidential clients, rejects a public client that sends a
+  `client_secret` (`invalid_client`), and **fails closed** when a public
+  client's authorization code carries no `code_challenge` — PKCE is the
+  client's only authentication factor, so a code minted without one is
+  rejected with `invalid_grant`. `"none"` is now advertised in
+  `token_endpoint_auth_methods_supported` in both discovery documents.
+- **`oauth.dynamic_registration_default_auth_method` config** (default
+  `"none"`). Controls the `token_endpoint_auth_method` applied to clients
+  created via RFC 7591 Dynamic Client Registration when the request omits
+  one — i.e. whether self-registered clients default to public (PKCE-only)
+  or confidential (secret-bearing). Validated at use against
+  `none` / `client_secret_basic` / `client_secret_post`; an out-of-range
+  value raises `ConfigurationError`. Default preserves existing behaviour.
+
+### Fixed
+
+- **Consent screen now completes for Inertia-rendered hosts.** When a host
+  renders the OAuth consent screen via Inertia (`use_inertia`), the
+  approve/deny decision arrives as an Inertia XHR, which cannot follow a 302
+  to the external client `redirect_uri` — the browser would hang on the
+  consent screen. `ConsentController` now emits an Inertia-Location
+  (`409` + `X-Inertia-Location`) for Inertia requests so the client performs a
+  hard navigation to the callback, while plain (ERB) form posts keep the
+  ordinary redirect. No effect on non-Inertia hosts.
+
 ## [0.23.0] - 2026-06-12
 
 ### Added

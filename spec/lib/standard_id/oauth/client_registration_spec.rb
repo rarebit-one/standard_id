@@ -88,6 +88,52 @@ RSpec.describe StandardId::Oauth::ClientRegistration do
       end.to raise_error(StandardId::InvalidClientMetadataError, /private_key_jwt/)
     end
 
+    context "with oauth.dynamic_registration_default_auth_method" do
+      it "defaults to a public client when the config is the default 'none' and no method is given" do
+        result = described_class.call(redirect_uris: ["https://app.example.com/cb"])
+
+        expect(result.value.client_type).to eq("public")
+        expect(result.token_endpoint_auth_method).to eq("none")
+        expect(result.client_secret).to be_nil
+      end
+
+      it "defaults to a confidential client when the config is set to a secret-bearing method" do
+        allow(StandardId.config.oauth)
+          .to receive(:dynamic_registration_default_auth_method)
+          .and_return("client_secret_basic")
+
+        result = described_class.call(redirect_uris: ["https://app.example.com/cb"])
+
+        expect(result.value.client_type).to eq("confidential")
+        expect(result.token_endpoint_auth_method).to eq("client_secret_basic")
+        expect(result.client_secret).to be_present
+      end
+
+      it "still honours an explicit request method over the config default" do
+        allow(StandardId.config.oauth)
+          .to receive(:dynamic_registration_default_auth_method)
+          .and_return("client_secret_basic")
+
+        result = described_class.call(
+          redirect_uris: ["https://app.example.com/cb"],
+          token_endpoint_auth_method: "none"
+        )
+
+        expect(result.value.client_type).to eq("public")
+        expect(result.token_endpoint_auth_method).to eq("none")
+      end
+
+      it "raises ConfigurationError when the config holds an unsupported value" do
+        allow(StandardId.config.oauth)
+          .to receive(:dynamic_registration_default_auth_method)
+          .and_return("private_key_jwt")
+
+        expect do
+          described_class.call(redirect_uris: ["https://app.example.com/cb"])
+        end.to raise_error(StandardId::ConfigurationError, /dynamic_registration_default_auth_method/)
+      end
+    end
+
     context "when the owner resolver is nil" do
       before do
         allow(StandardId.config.oauth).to receive(:dynamic_registration_owner).and_return(nil)

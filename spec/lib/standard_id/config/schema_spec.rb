@@ -111,4 +111,17 @@ RSpec.describe "StandardId config schema" do
       expect(StandardId.config.passwordless.mailer_subject).to eq("Your sign-in code")
     end
   end
+
+  describe "oauth.dynamic_registration_default_auth_method" do
+    it "defaults to 'none' (public clients)" do
+      expect(StandardId.config.oauth.dynamic_registration_default_auth_method).to eq("none")
+    end
+
+    it "round-trips a confidential auth method" do
+      allow(StandardId.config.oauth)
+        .to receive(:dynamic_registration_default_auth_method)
+        .and_return("client_secret_basic")
+      expect(StandardId.config.oauth.dynamic_registration_default_auth_method).to eq("client_secret_basic")
+    end
+  end
 end
