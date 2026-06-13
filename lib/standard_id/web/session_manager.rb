@@ -35,7 +35,7 @@ module StandardId
           # Store in both session and encrypted cookie for backward compatibility
           # Action Cable will use the encrypted cookie
           session[:session_token] = browser_session.token
-          cookies.encrypted[:session_token] = browser_session.token
+          write_session_cookie(browser_session)
           if scope_name
             scopes = Array(session[:standard_id_scopes])
             scopes << scope_name.to_s unless scopes.include?(scope_name.to_s)
@@ -70,6 +70,22 @@ module StandardId
       end
 
       private
+
+      # Persist the session token in an encrypted cookie whose lifetime matches
+      # the DB session's expires_at, so an authenticated session survives a full
+      # browser restart (a bare session cookie would be cleared on browser close,
+      # logging the user out well before the BrowserSession actually expires).
+      # httponly/secure/same_site harden the cookie; httponly does not affect
+      # Action Cable, which reads the cookie server-side.
+      def write_session_cookie(browser_session)
+        cookies.encrypted[:session_token] = {
+          value:     browser_session.token,
+          expires:   browser_session.expires_at,
+          httponly:  true,
+          secure:    request.ssl?,
+          same_site: :lax
+        }
+      end
 
       def load_current_account
         if StandardId.config.account_scope
@@ -121,7 +137,7 @@ module StandardId
         token_manager.create_browser_session(password_credential.account, remember_me: true).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
           session[:session_token] = browser_session.token
-          cookies.encrypted[:session_token] = browser_session.token
+          write_session_cookie(browser_session)
           cookies[:remember_token] = token_manager.create_remember_token(password_credential)
         end
       end
