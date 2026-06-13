@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-06-13
+
+### Changed
+
+- **Browser session cookie now persists across browser restarts.** The
+  encrypted `session_token` cookie is written with an explicit `expires` tied
+  to the `BrowserSession#expires_at` (previously a bare session cookie that was
+  cleared on full browser close, logging users out well before their session
+  actually expired). The cookie is also hardened with `httponly: true`,
+  `same_site: :lax`, and `secure` following `request.ssl?`. Combined with a
+  host-configured `session.browser_session_lifetime`, this lets a "remember me
+  for N days" session survive closing and reopening the browser. Applies to
+  both the sign-in and remember-token re-auth paths.
+
 ## [0.24.0] - 2026-06-13
 
 ### Added

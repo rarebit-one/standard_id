@@ -19,13 +19,13 @@ RSpec.describe StandardId::Web::SessionManager do
       allow(c).to receive(:delete) { |key| plain_cookies.delete(key) }
     end
   end
-  let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser") }
+  let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false) }
   let(:token_manager) { double("TokenManager") }
   let(:reset_session_callable) { nil }
   let(:session_manager) do
     described_class.new(token_manager, request: request, session: session, cookies: cookies, reset_session: reset_session_callable)
   end
-  let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account) }
+  let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account, expires_at: 1.week.from_now) }
   let(:account) { double("Account") }
 
   before do
@@ -95,7 +95,7 @@ RSpec.describe StandardId::Web::SessionManager do
 
       it "sets session token in encrypted cookie" do
         session_manager.current_session
-        expect(encrypted_cookies[:session_token]).to eq("token_value")
+        expect(encrypted_cookies[:session_token]).to include(value: "token_value")
       end
 
       it "creates new remember token" do
@@ -224,7 +224,7 @@ RSpec.describe StandardId::Web::SessionManager do
       it "stores the session token" do
         session_manager.sign_in_account(account)
         expect(session[:session_token]).to eq("new_token")
-        expect(encrypted_cookies[:session_token]).to eq("new_token")
+        expect(encrypted_cookies[:session_token]).to include(value: "new_token")
       end
     end
 
@@ -287,6 +287,30 @@ RSpec.describe StandardId::Web::SessionManager do
         session[:standard_id_scopes] = ["admin"]
         session_manager.sign_in_account(account)
         expect(session[:standard_id_scopes]).to eq(["admin"])
+      end
+    end
+
+    context "persistent session cookie" do
+      it "writes the cookie with an expiry tied to the session's expires_at" do
+        session_manager.sign_in_account(account)
+        cookie = encrypted_cookies[:session_token]
+        expect(cookie[:expires]).to eq(browser_session.expires_at)
+        expect(cookie[:expires]).to be > Time.current
+      end
+
+      it "hardens the cookie (httponly, same_site) and follows request.ssl? for secure" do
+        session_manager.sign_in_account(account)
+        cookie = encrypted_cookies[:session_token]
+        expect(cookie).to include(httponly: true, same_site: :lax, secure: false)
+      end
+
+      context "on an SSL request" do
+        let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: true) }
+
+        it "sets secure: true on the cookie" do
+          session_manager.sign_in_account(account)
+          expect(encrypted_cookies[:session_token]).to include(secure: true)
+        end
       end
     end
   end
