@@ -450,7 +450,17 @@ end
 
 **Realm isolation.** `realm:` is a free-form string that partitions challenges by purpose. A code issued for realm `"widget_contact_verification"` cannot be used to verify against realm `"authentication"` (or any other realm) — even for the same `target`. Choose a stable string per flow.
 
-**Bypass code (E2E testing).** When `StandardId.config.passwordless.bypass_code` is set (and `Rails.env` is not `"production"`), `Otp.verify` accepts the bypass code for **any realm**. This replaces per-app bypass ENV checks and works consistently across `Otp.verify` and the built-in passwordless login flow. Never set `bypass_code` in production — it will raise if you try.
+**Bypass code (E2E testing).** When `StandardId.config.passwordless.bypass_code` is set (and the deploy is not production), `Otp.verify` accepts the bypass code for **any realm**. This replaces per-app bypass ENV checks and works consistently across `Otp.verify` and the built-in passwordless login flow. Never set `bypass_code` in production — it will raise if you try.
+
+By default "production" means `Rails.env.production?`. Apps that distinguish a physical deploy environment from `RAILS_ENV` (e.g. a staging box that still runs `RAILS_ENV=production`) can override the decision with a callable:
+
+```ruby
+# Allow the bypass code on a physically-staging box, still refused on real prod.
+c.passwordless.production_env_detector = -> { AppEnv.production? }
+c.passwordless.bypass_code = ENV["STANDARD_ID_BYPASS_CODE"] unless AppEnv.production?
+```
+
+`production_env_detector` takes no arguments and returns a boolean; when `nil` (the default) the gem falls back to `Rails.env.production?`, so existing consumers are unaffected.
 
 **Back-compat.** The existing passwordless authentication flow continues to work unchanged. `Otp.issue`/`Otp.verify` are a new addition — you can migrate direct `CodeChallenge.create!` calls at your own pace.
 

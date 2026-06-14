@@ -204,7 +204,7 @@ module StandardId
         bypass_code = StandardId.config.passwordless.bypass_code
         return unless bypass_code.present?
 
-        if defined?(Rails) && Rails.env.production?
+        if bypass_production_deploy?
           raise "STANDARD_ID_BYPASS_CODE must not be set in production"
         end
 
@@ -244,6 +244,17 @@ module StandardId
 
           success(account: nil, challenge: nil)
         end
+      end
+
+      # Whether the bypass code is forbidden because this is a production
+      # deploy. Defers to config.passwordless.production_env_detector when set
+      # (host apps that distinguish a physical deploy env from RAILS_ENV), else
+      # falls back to Rails.env.production?.
+      def bypass_production_deploy?
+        detector = StandardId.config.passwordless.production_env_detector
+        return !!detector.call if detector
+
+        defined?(Rails) && Rails.env.production?
       end
 
       def resolve_target_and_channel!(email, phone)

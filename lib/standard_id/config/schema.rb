@@ -102,12 +102,26 @@ StandardId::ConfigSchema.define do
     field :max_attempts_per_challenge, type: :integer, default: nil
 
     field :retry_delay, type: :integer, default: 30 # 30 seconds
-    # Bypass code for E2E testing — NEVER set in production (raises).
-    # When set and Rails.env != "production", this code is accepted by
+    # Bypass code for E2E testing — refused on production deploys (raises).
+    # When set and the deploy is *not* production, this code is accepted by
     # both the built-in passwordless login and by StandardId::Otp.verify
     # for *any* realm. Use a long, non-guessable value and unset it
     # outside test environments.
+    #
+    # "Production" is decided by production_env_detector below (default
+    # Rails.env.production?), so host apps that distinguish a physical deploy
+    # environment from RAILS_ENV can still gate this correctly.
     field :bypass_code, type: :string, default: nil
+
+    # Optional callable deciding whether the current deploy is "production"
+    # for the purpose of the bypass-code guard. Takes no args, returns a
+    # boolean. When nil (default), falls back to Rails.env.production? — so
+    # existing consumers are unchanged. Host apps that distinguish a physical
+    # deploy environment from RAILS_ENV (e.g. APP_ENVIRONMENT, which stays
+    # RAILS_ENV=production on a physically-staging box) can supply
+    # `-> { AppEnv.production? }` to allow a bypass code on staging while it
+    # stays refused on real production.
+    field :production_env_detector, type: :any, default: nil
 
     # Custom username validator for passwordless flows.
     # When set, called before OTP generation to validate the recipient address.

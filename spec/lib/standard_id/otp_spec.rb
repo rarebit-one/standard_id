@@ -501,6 +501,30 @@ RSpec.describe StandardId::Otp do
           )
         }.to raise_error(RuntimeError, /must not be set in production/)
       end
+
+      it "honors production_env_detector over Rails.env" do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("staging"))
+        allow(StandardId.config.passwordless).to receive(:production_env_detector).and_return(-> { true })
+
+        expect {
+          described_class.verify(
+            realm: realm, target: email, channel: :email,
+            code: bypass_code, request: request
+          )
+        }.to raise_error(RuntimeError, /must not be set in production/)
+      end
+
+      it "allows bypass under Rails.env.production? when production_env_detector returns false" do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+        allow(StandardId.config.passwordless).to receive(:production_env_detector).and_return(-> { false })
+
+        result = described_class.verify(
+          realm: realm, target: email, channel: :email,
+          code: bypass_code, request: request
+        )
+
+        expect(result.success?).to be true
+      end
     end
 
     context "with bypass_code unset" do
