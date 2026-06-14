@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-06-15
+
+### Fixed
+
+- **Passwordless `login_verify` OTP input now respects
+  `config.passwordless.code_length`.** The built-in ERB verification-code field
+  hardcoded `maxlength: 6`, so apps configuring a longer code (e.g.
+  `code_length = 8`) rendered a field that truncated input to 6 characters —
+  users could not enter the full code. The input now derives `maxlength` from
+  `StandardId::Passwordless.otp_code_length` (the same clamped 4..10 value the
+  OTP generator uses), exposed to views via a new
+  `StandardId::ApplicationHelper#otp_code_length` helper, so the form and the
+  generated code stay in sync end-to-end.
+
 ## [0.26.0] - 2026-06-15
 
 ### Added

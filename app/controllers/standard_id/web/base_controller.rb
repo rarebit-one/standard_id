@@ -9,6 +9,7 @@ module StandardId
 
       include StandardId::WebEngine.routes.url_helpers
       helper StandardId::WebEngine.routes.url_helpers
+      helper StandardId::ApplicationHelper
 
       layout -> { StandardId.config.web_layout.presence || "application" }
 
