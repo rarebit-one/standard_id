@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   OTP generator uses), exposed to views via a new
   `StandardId::ApplicationHelper#otp_code_length` helper, so the form and the
   generated code stay in sync end-to-end.
+- **WebEngine rate-limit responses no longer 500 on hosts without a root
+  route.** When a web auth action (login, login_verify, email/phone verification
+  start) hit its rate limit, the handler redirected to
+  `request.referer || main_app.root_path`. That raised — and returned a 500
+  error page instead of the intended graceful response — for any host app that
+  doesn't define a `root` route (e.g. an API/control-plane that only mounts the
+  engine), and also for cross-origin `Referer` headers (Rails' open-redirect
+  guard). The handler now redirects back to the rate-limited form's own path
+  (`request.path`), which is always a valid same-origin GET. The ApiEngine
+  responses (JSON `429`) are unchanged.
 
 ## [0.26.0] - 2026-06-15
 

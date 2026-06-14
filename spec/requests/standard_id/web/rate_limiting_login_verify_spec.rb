@@ -40,7 +40,7 @@ RSpec.describe "Rate limiting: Web Login Verify (RAR-60)", type: :request do
       end
 
       http_patch "/login_verify", params: { code: "000000" }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/login_verify")
       expect(flash[:alert]).to eq("Too many requests. Please try again later.")
     end
 
@@ -49,7 +49,7 @@ RSpec.describe "Rate limiting: Web Login Verify (RAR-60)", type: :request do
 
       2.times do
         http_patch "/login_verify", params: { code: "000000" }
-        expect(response).not_to redirect_to("/")
+        expect(response).not_to redirect_to("/login_verify")
       end
     end
   end

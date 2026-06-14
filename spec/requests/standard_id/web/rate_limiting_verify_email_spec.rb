@@ -22,7 +22,7 @@ RSpec.describe "Rate limiting: Web Verify Email (RAR-56)", type: :request do
       end
 
       http_post "/verify_email/start", params: { email: email }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/verify_email/start")
     end
 
     it "does not rate limit a different email" do
@@ -33,7 +33,7 @@ RSpec.describe "Rate limiting: Web Verify Email (RAR-56)", type: :request do
       end
 
       http_post "/verify_email/start", params: { email: "other@example.com" }
-      expect(response).not_to redirect_to("/")
+      expect(response).not_to redirect_to("/verify_email/start")
     end
   end
 
@@ -46,7 +46,7 @@ RSpec.describe "Rate limiting: Web Verify Email (RAR-56)", type: :request do
       end
 
       http_post "/verify_email/start", params: { email: "another@example.com" }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/verify_email/start")
     end
   end
 
@@ -59,7 +59,7 @@ RSpec.describe "Rate limiting: Web Verify Email (RAR-56)", type: :request do
       end
 
       http_post "/verify_email/start", params: { email: email }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/verify_email/start")
       expect(flash[:alert]).to eq("Too many requests. Please try again later.")
     end
   end
