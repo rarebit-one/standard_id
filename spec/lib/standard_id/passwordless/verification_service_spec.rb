@@ -435,6 +435,26 @@ RSpec.describe StandardId::Passwordless::VerificationService do
             described_class.verify(email: email, code: bypass_code, request: request)
           }.to raise_error(RuntimeError, /must not be set in production/)
         end
+
+        it "raises when production_env_detector returns true even if Rails.env is not production" do
+          allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("staging"))
+          allow(StandardId.config.passwordless).to receive(:production_env_detector).and_return(-> { true })
+
+          expect {
+            described_class.verify(email: email, code: bypass_code, request: request)
+          }.to raise_error(RuntimeError, /must not be set in production/)
+        end
+
+        it "allows bypass when production_env_detector returns false even under Rails.env.production?" do
+          account = create_email_account(email)
+          allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+          allow(StandardId.config.passwordless).to receive(:production_env_detector).and_return(-> { false })
+
+          result = described_class.verify(email: email, code: bypass_code, request: request)
+
+          expect(result.success?).to be true
+          expect(result.account).to eq(account)
+        end
       end
 
       context "when bypass_code is configured but submitted code does not match" do

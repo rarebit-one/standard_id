@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-06-15
+
+### Added
+
+- **`config.passwordless.production_env_detector`** — an optional callable that
+  decides whether the current deploy counts as "production" for the bypass-code
+  guard. When `nil` (default) the gem falls back to `Rails.env.production?`, so
+  existing consumers are unchanged. Apps that distinguish a physical deploy
+  environment from `RAILS_ENV` (e.g. a staging box still running
+  `RAILS_ENV=production`) can supply `-> { AppEnv.production? }` to permit a
+  `bypass_code` on staging while it stays refused on real production. The guard
+  in `Passwordless::VerificationService` (which also backs `Otp.verify`) now
+  defers to this detector instead of checking `Rails.env.production?` directly.
+
 ## [0.25.0] - 2026-06-13
 
 ### Changed
