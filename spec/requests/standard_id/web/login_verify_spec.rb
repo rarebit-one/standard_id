@@ -131,6 +131,33 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
     end
   end
 
+  describe "GET /login_verify rendered code input (RAR otp maxlength)" do
+    let!(:account) do
+      account = Account.create!(name: "Test User", email: email)
+      StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
+      account
+    end
+
+    before { initiate_passwordless_login! }
+
+    it "renders maxlength matching the default configured code length" do
+      http_get "/login_verify"
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to match(/name="code"[^>]*maxlength="6"|maxlength="6"[^>]*name="code"/)
+    end
+
+    it "renders maxlength matching a configured 8-digit code length" do
+      allow(StandardId.config.passwordless).to receive(:code_length).and_return(8)
+
+      http_get "/login_verify"
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to match(/name="code"[^>]*maxlength="8"|maxlength="8"[^>]*name="code"/)
+      expect(response.body).not_to include('maxlength="6"')
+    end
+  end
+
   describe "PATCH /login_verify" do
     it "redirects to login when no OTP session exists" do
       enable_passwordless!

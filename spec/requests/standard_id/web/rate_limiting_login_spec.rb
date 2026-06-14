@@ -30,7 +30,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email, password: "wrong" } }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/login")
       expect(flash[:alert]).to eq("Too many requests. Please try again later.")
     end
   end
@@ -48,7 +48,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email, password: "wrong" } }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/login")
       expect(flash[:alert]).to eq("Too many requests. Please try again later.")
     end
 
@@ -63,7 +63,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
 
       # Different email should still work (assuming IP limit is not exceeded)
       http_post "/login", params: { login: { email: other_email, password: "wrong" } }
-      expect(response).not_to redirect_to("/")
+      expect(response).not_to redirect_to("/login")
     end
   end
 
@@ -80,7 +80,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email, password: "wrong" } }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/login")
       expect(flash[:alert]).to eq("Too many requests. Please try again later.")
       expect(response.headers["Retry-After"]).to eq(15.minutes.to_i.to_s)
     end
@@ -103,7 +103,31 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       end
 
       http_post "/login", params: { login: { email: email } }
-      expect(response).to redirect_to("/")
+      expect(response).to redirect_to("/login")
+    end
+  end
+
+  describe "graceful degradation when rate limited (regression)" do
+    before do
+      create_account_with_password(email: email, password: password)
+    end
+
+    # The handler previously redirected to `request.referer || main_app.root_path`,
+    # which raised (→ 500) for hosts that define no root route and for cross-origin
+    # referrers (Rails' open-redirect guard). It must bounce to the form's own path.
+    it "redirects to the form path, ignoring a cross-origin Referer" do
+      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+
+      email_limit.times do
+        http_post "/login", params: { login: { email: email, password: "wrong" } }
+      end
+
+      http_post "/login",
+                params: { login: { email: email, password: "wrong" } },
+                headers: { "HTTP_REFERER" => "https://evil.example.com/phish" }
+
+      expect(response).to have_http_status(:see_other)
+      expect(response).to redirect_to("/login")
     end
   end
 end

@@ -20,7 +20,14 @@ module StandardId
         }, status: :too_many_requests
       else
         flash[:alert] = "Too many requests. Please try again later."
-        redirect_to request.referer || main_app.root_path, status: :see_other
+        # Bounce back to the rate-limited form's own GET action. Previously this
+        # used `request.referer || main_app.root_path`, which raised (→ 500) for
+        # two real cases: a host app that doesn't define a root route (e.g. an
+        # API/control-plane that only mounts the engine — `main_app.root_path`
+        # then doesn't exist), and a cross-origin `Referer` (Rails refuses the
+        # redirect as unsafe). `request.path` is always a valid, same-origin GET
+        # for every rate-limited action here, so it degrades gracefully.
+        redirect_to request.path, status: :see_other
       end
     end
   end
