@@ -82,3 +82,15 @@ RSpec.describe "StandardId Web Sessions", type: :request do
     end
   end
 end
+
+RSpec.describe "StandardId Web Sessions (unauthenticated)", type: :request do
+  # No sign-in: the authentication guard raises NotAuthenticatedError. The web
+  # base controller must rescue it and bounce to login — previously this raise
+  # was unhandled and surfaced as a 500.
+  it "redirects GET /sessions to the login page instead of raising a 500" do
+    http_get "/sessions"
+
+    expect(response).to have_http_status(:found)
+    expect(response.headers["Location"]).to include("/login")
+  end
+end
