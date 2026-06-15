@@ -16,7 +16,25 @@ module StandardId
       before_action -> { Current.scope = :web if defined?(::Current) }
       before_action :require_browser_session!
 
+      # The authentication guard (require_browser_session!) RAISES when a page
+      # requires a session that's missing / expired / revoked, rather than
+      # redirecting. The API base controller rescues the same errors; the web
+      # flow must too, or an unauthenticated request to a protected page (e.g.
+      # /sessions) surfaces as a 500 instead of bouncing to login. Expired and
+      # revoked sessions are InvalidSessionError subclasses.
+      rescue_from StandardId::NotAuthenticatedError,
+                  StandardId::InvalidSessionError,
+                  with: :redirect_unauthenticated_to_login
+
       private
+
+      # Bounce an unauthenticated web request to the login page, preserving the
+      # original destination (the guard already stored return_to_after_authenticating;
+      # redirect_to_login also carries it as a ?redirect_uri= param).
+      def redirect_unauthenticated_to_login(_error)
+        store_location_for_redirect
+        redirect_to_login
+      end
 
       # Read a top-level query/form param expected to be a scalar String, returning
       # nil for absent/blank values OR if Rails parsed it as an Array/Hash (e.g. from

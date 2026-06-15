@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.3] - 2026-06-15
+
+### Fixed
+
+- **Unauthenticated access to a protected web page no longer 500s.** The web
+  authentication guard (`require_browser_session!`) raises
+  `NotAuthenticatedError` / `InvalidSessionError` (for missing / expired /
+  revoked sessions) rather than redirecting. The API base controller rescued
+  these, but the web base controller did not — so an unauthenticated request to
+  a protected web page (e.g. `/sessions`) surfaced as a 500 instead of bouncing
+  to login. The web base controller now rescues both and redirects to the login
+  page, preserving the original destination.
+
 ## [0.26.2] - 2026-06-15
 
 ### Security
