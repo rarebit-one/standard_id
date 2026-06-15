@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-06-15
+
+### Security
+
+- **OTP codes and password-reset tokens no longer leak into the logs.** The
+  built-in mailers (`PasswordlessMailer`, `PasswordResetMailer`) pass the OTP
+  code / reset URL as mailer params, which `deliver_later` serializes as the
+  delivery job's arguments — and ActiveJob's log subscriber prints job arguments
+  in plaintext on enqueue/perform (e.g. `params: {email:…, otp_code: "03158369"}`).
+  StandardId's mailers now deliver via `StandardId::SecureMailDeliveryJob`
+  (`ActionMailer::MailDeliveryJob` with `log_arguments = false`), so the
+  arguments are kept out of the log stream. Delivery behaviour is unchanged.
+
 ## [0.26.1] - 2026-06-15
 
 ### Fixed
