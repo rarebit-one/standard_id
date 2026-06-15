@@ -36,7 +36,16 @@ RSpec.describe "StandardId::Api::WellKnown::OpenidConfigurationController", type
         expect(body["token_endpoint"]).to eq("https://auth.example.com/oauth/token")
         expect(body["revocation_endpoint"]).to eq("https://auth.example.com/oauth/revoke")
         expect(body["userinfo_endpoint"]).to eq("https://auth.example.com/userinfo")
-        expect(body["jwks_uri"]).to eq("https://auth.example.com/.well-known/jwks.json")
+      end
+
+      it "omits jwks_uri under symmetric (HS256) signing and advertises it under asymmetric" do
+        allow(StandardId::JwtService).to receive(:asymmetric?).and_return(false)
+        get "/api/.well-known/openid-configuration"
+        expect(response.parsed_body).not_to have_key("jwks_uri")
+
+        allow(StandardId::JwtService).to receive(:asymmetric?).and_return(true)
+        get "/api/.well-known/openid-configuration"
+        expect(response.parsed_body["jwks_uri"]).to eq("https://auth.example.com/.well-known/jwks.json")
       end
 
       it "includes supported response types and grant types" do

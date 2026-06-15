@@ -63,7 +63,12 @@ module StandardId
         # TODO: make token key names configurable
         session.delete(:session_token)
         session.delete(:standard_id_scopes)
-        cookies.encrypted[:session_token] = nil
+        # Delete the cookie outright. Assigning `cookies.encrypted[:session_token] = nil`
+        # writes a fresh encrypted blob through the jar's default options (no httponly)
+        # on every unauthenticated request, leaving a confusing non-HttpOnly
+        # `session_token` cookie that carries no real token. `cookies.delete` removes it
+        # cleanly — the token-bearing write (write_session_cookie) keeps httponly: true.
+        cookies.delete(:session_token)
         cookies.delete(:remember_token)
 
         Current.session = nil

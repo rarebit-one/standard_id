@@ -34,7 +34,6 @@ module StandardId
           token_endpoint: "#{base}/oauth/token",
           revocation_endpoint: "#{base}/oauth/revoke",
           userinfo_endpoint: "#{base}/userinfo",
-          jwks_uri: "#{base}/.well-known/jwks.json",
           response_types_supported: %w[code],
           grant_types_supported: %w[authorization_code refresh_token client_credentials],
           subject_types_supported: %w[public],
@@ -46,6 +45,14 @@ module StandardId
           # disabled for public clients), so advertise the supported method.
           code_challenge_methods_supported: %w[S256]
         }
+
+        # Only advertise jwks_uri when signing is asymmetric. With symmetric
+        # (HS256/384/512) signing there are no public keys to publish, so the
+        # jwks endpoint deliberately returns 404 — advertising it would point
+        # clients at a dead URL. HS-signed tokens are verified with the shared
+        # secret, not JWKS. (RFC 8414 makes jwks_uri optional; an OIDC client
+        # using HS256 id_tokens verifies them with the client_secret.)
+        doc[:jwks_uri] = "#{base}/.well-known/jwks.json" if StandardId::JwtService.asymmetric?
 
         doc[:registration_endpoint] = "#{base}/oauth/register" if registration_enabled
 
