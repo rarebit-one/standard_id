@@ -16,7 +16,10 @@ RSpec.describe StandardId::Web::SessionManager do
       allow(c).to receive(:encrypted).and_return(encrypted_cookies_mock)
       allow(c).to receive(:[]) { |key| plain_cookies[key] }
       allow(c).to receive(:[]=) { |key, value| plain_cookies[key] = value }
-      allow(c).to receive(:delete) { |key| plain_cookies.delete(key) }
+      # A cookie deletion removes the underlying cookie regardless of which jar
+      # (plain or encrypted) wrote it — model that so clear_session!'s
+      # `cookies.delete(:session_token)` clears the encrypted view too.
+      allow(c).to receive(:delete) { |key| plain_cookies.delete(key); encrypted_cookies.delete(key) }
     end
   end
   let(:request) { double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false) }
@@ -359,6 +362,9 @@ RSpec.describe StandardId::Web::SessionManager do
       allow(Current).to receive(:session=)
     end
 
+    # clear_session! now uses cookies.delete(:session_token) rather than
+    # cookies.encrypted[:session_token] = nil — the latter wrote a fresh
+    # non-HttpOnly encrypted blob on every unauthenticated request.
     it "deletes session token cookie" do
       session_manager.clear_session!
       expect(encrypted_cookies[:session_token]).to be_nil

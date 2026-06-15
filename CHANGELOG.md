@@ -30,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   guard). The handler now redirects back to the rate-limited form's own path
   (`request.path`), which is always a valid same-origin GET. The ApiEngine
   responses (JSON `429`) are unchanged.
+- **OAuth/OIDC metadata no longer advertises a `jwks_uri` under symmetric
+  signing.** With the default HS256 (and HS384/HS512) there are no public keys
+  to publish, so the JWKS endpoint deliberately returns 404 — but the
+  authorization-server and openid-configuration documents advertised `jwks_uri`
+  unconditionally, pointing clients at a dead URL. `jwks_uri` is now emitted only
+  when signing is asymmetric (RS*/ES*). RFC 8414 makes it optional; HS-signed
+  tokens are verified with the shared secret, not JWKS.
+- **Sign-out / unauthenticated requests no longer leave a non-HttpOnly
+  `session_token` cookie.** `clear_session!` assigned
+  `cookies.encrypted[:session_token] = nil`, which wrote a fresh encrypted blob
+  through the cookie jar's default options (no `HttpOnly`) on every
+  unauthenticated request. It now uses `cookies.delete(:session_token)` to remove
+  the cookie cleanly. The token-bearing sign-in write was already `httponly: true`
+  and is unchanged, so this is a hygiene/consistency fix, not a token exposure.
 
 ## [0.26.0] - 2026-06-15
 

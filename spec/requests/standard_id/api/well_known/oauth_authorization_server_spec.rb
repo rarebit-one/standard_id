@@ -28,7 +28,18 @@ RSpec.describe "StandardId::Api::WellKnown::OauthAuthorizationServerController",
         expect(body["authorization_endpoint"]).to eq("https://auth.example.com/authorize")
         expect(body["token_endpoint"]).to eq("https://auth.example.com/oauth/token")
         expect(body["revocation_endpoint"]).to eq("https://auth.example.com/oauth/revoke")
-        expect(body["jwks_uri"]).to eq("https://auth.example.com/.well-known/jwks.json")
+      end
+
+      it "omits jwks_uri under symmetric (HS256) signing — no public keys to publish" do
+        allow(StandardId::JwtService).to receive(:asymmetric?).and_return(false)
+        get "/api/.well-known/oauth-authorization-server"
+        expect(response.parsed_body).not_to have_key("jwks_uri")
+      end
+
+      it "advertises jwks_uri under asymmetric signing" do
+        allow(StandardId::JwtService).to receive(:asymmetric?).and_return(true)
+        get "/api/.well-known/oauth-authorization-server"
+        expect(response.parsed_body["jwks_uri"]).to eq("https://auth.example.com/.well-known/jwks.json")
       end
 
       it "advertises PKCE S256 (change C)" do
