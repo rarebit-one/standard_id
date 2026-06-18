@@ -1,0 +1,23 @@
+name: Dependabot auto-merge
+
+# Thin caller: delegates to the org-shared reusable auto-lander in
+# luminalityai/.github so the patch/minor auto-merge logic lives in one place.
+# pull_request_target gives Dependabot the writable token it needs to enable
+# auto-merge; the reusable guards on github.actor == 'dependabot[bot]'.
+
+on: pull_request_target
+
+permissions: {}
+
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: luminalityai/.github/.github/workflows/dependabot-auto-merge.yml@main
+    secrets: inherit
