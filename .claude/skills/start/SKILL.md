@@ -1,62 +1,67 @@
 ---
 name: start
-description: "Start working on Linear issues. Use when the user says 'start working on', 'pick up issue', 'work on RAR-123', or wants to begin development on Linear issues. Handles status updates, branch creation, and context gathering."
+description: "Start working on GitHub Issues in rarebit-one/standard_id. Use when the user says 'start working on', 'pick up issue', 'work on #42', 'work on standard_id-42', 'start #42', '/start', or wants to begin development on a planned issue. Handles context gathering, branch creation, and in-progress signaling."
 ---
 
 # Start Skill
 
-Begin working on Linear issues with proper setup: update status, create branches, gather context, and track progress.
+Begin working on issues from **rarebit-one/standard_id** (GitHub Issues) with proper setup: gather context, create branches, signal in-progress, and track progress.
+
+> **Planning system:** This gem's planning lives in **its own GitHub Issues** (`rarebit-one/standard_id`). Because code and issues live in the **same repo**, a PR can auto-close its issue with a `Closes #NN` keyword in the PR body.
 
 ## Prerequisites
 
-This skill requires the Linear MCP server to be configured. If Linear tools (`mcp__linear__*`) are not available, the skill will warn and offer to proceed with git-only setup (branch creation without status updates).
+This skill uses the `gh` CLI against `rarebit-one/standard_id`. If `gh` is unavailable or unauthenticated, the skill will warn and offer to proceed with git-only setup (branch/worktree creation without the in-progress signal). Check with `gh auth status` if calls fail.
 
 ## Scope
 
-This skill sets up local development for Linear issues. It does **NOT**:
+This skill sets up local development for issues. It does **NOT**:
 - Merge PRs to main (merging is a human decision)
 - Delete branches or worktrees automatically
-- Close or complete Linear issues
+- Close issues directly (a merged PR with `Closes #NN` auto-closes them)
 
 ## Usage
 
 ```
-/start <issue-identifiers...>   # Start specific issues (e.g., /start RAR-123 RAR-124)
-/start --mine                    # Show my assigned issues ready to start
-/start --backlog                 # Show backlog issues for a team
+/start <issue-numbers...>        # Start specific issues (e.g., /start 42 43, /start standard_id-42, /start #42)
+/start --mine                    # Show my assigned open issues
+/start --backlog                 # Show open, unassigned issues
 ```
+
+Accepted identifier forms: `42`, `#42`, `standard_id-42`, or a full issue URL. All normalize to the issue number.
 
 ## Workflow
 
-> **Note:** MCP tool calls shown below use pseudocode syntax for readability.
-> Actual invocation uses Claude's tool use API with the `mcp__linear__*` tools.
-
 ### 1. Parse Input and Fetch Issues
 
-**If specific identifiers provided:**
+**If specific issue numbers provided:**
 
-Fetch each issue using Linear MCP:
+Normalize each identifier to a plain issue number, then fetch with `gh`:
 
+```bash
+gh api repos/rarebit-one/standard_id/issues/<n> \
+  --jq '{number, title, state, labels: [.labels[].name], assignees: [.assignees[].login], milestone: .milestone.title, body}'
+
+# Comments often carry decisions and clarifications — read them too
+gh api repos/rarebit-one/standard_id/issues/<n>/comments \
+  --jq '.[] | {user: .user.login, created_at, body}'
 ```
-mcp__linear__get_issue(id: "RAR-123", includeRelations: true)
-```
+
+The title, body, labels, and comments are the context for the work.
 
 **If `--mine` flag:**
 
-```
-mcp__linear__list_issues(assignee: "me", state: "Todo", limit: 10)
+```bash
+gh issue list -R rarebit-one/standard_id --assignee @me --state open --limit 10
 ```
 
-**If `--backlog` flag (with optional `--team` and `--project` filters):**
+**If `--backlog` flag (optionally with `--label <name>`):**
 
+```bash
+gh issue list -R rarebit-one/standard_id --state open --search "no:assignee" --limit 10
 ```
-mcp__linear__list_issues(
-  team: "<from --team flag, default: Rarebit>",
-  project: "<from --project flag, if provided>",
-  state: "Backlog",
-  limit: 10
-)
-```
+
+> "Backlog" here means open + unassigned. If the repo adopts a `backlog` label or triage milestone, prefer `--label backlog` to avoid surfacing untriaged issues.
 
 Present the issues and let the user select which to work on.
 
@@ -66,15 +71,16 @@ Before starting, verify:
 
 **Check for blockers:**
 
-```
-# From get_issue with includeRelations: true
-# Look at the blocking/blockedBy relations
+GitHub Issues has no native blocking relations — scan the issue body and comments for "blocked by", "depends on", or `#NN` references, and check the state of any referenced issues. This scan is **heuristic**: a bare `#NN` mention may be incidental (e.g. "see discussion in #40"), so read the surrounding context before raising a blocker warning.
+
+```bash
+gh api repos/rarebit-one/standard_id/issues/<referenced-n> --jq '{number, title, state}'
 ```
 
 If blocked:
 ```
-Warning: RAR-123 is blocked by:
-  - RAR-120: "Set up middleware" (In Progress)
+⚠️  #42 appears blocked by:
+  - #40: "Set up middleware" (open)
 
 Options:
 1. Start anyway (work may be blocked)
@@ -84,28 +90,57 @@ Options:
 
 **Check issue readiness:**
 - Has description/acceptance criteria?
-- Has assigned estimate?
+- Part of a milestone?
 
-If missing context, warn but allow proceeding.
-
-### 3. Update Issue Status
-
-**Skip this step if `--no-status` flag is provided.**
-
-Update each issue to "In Progress":
-
+If missing context:
 ```
-mcp__linear__save_issue(
-  id: "<issue-uuid>",
-  stateId: "<in-progress-state-id>"
-)
+⚠️  #42 may need more context:
+  - No acceptance criteria defined
+
+Proceed anyway? [Y/n]
 ```
 
-The workflow should not block on Linear failures — local development can proceed.
+### 3. Signal In-Progress
+
+**Skip this step if `--no-comment` flag is provided.**
+
+Assign the issue to yourself and post a short comment (there is no status field to flip via the issues API):
+
+```bash
+gh issue edit <n> -R rarebit-one/standard_id --add-assignee @me
+
+gh api repos/rarebit-one/standard_id/issues/<n>/comments \
+  -f body="🚀 Started working on this.
+
+Branch: \`<n>/<short-slug>\`
+
+Planned approach:
+- [brief approach notes]"
+```
+
+> **Optional label:** if the repo uses an `in progress` (or similar) label, add it with `gh issue edit <n> -R rarebit-one/standard_id --add-label "in progress"`. Skip if the repo has no such label.
+
+**Error handling for the in-progress signal:**
+
+If assigning or commenting fails (auth error, permission issue, etc.):
+
+```
+⚠️  Could not signal in-progress on #42:
+  Error: <error message>
+
+Options:
+1. Continue anyway (set up branch, work locally)
+2. Retry
+3. Cancel
+
+Note: You can manually assign/comment on the issue later.
+```
+
+On a **401**, retry the `gh` call once before surfacing the error — transient token issues are common. The workflow should not block on GitHub failures — local development can proceed.
 
 ### 4. Set Up Worktree
 
-**Always create a worktree** to isolate this work from any other state in the repo. This prevents changes from different sessions bleeding into unrelated PRs.
+**Always create a worktree** to isolate this work from any other state in the repo. This prevents changes from different sessions bleeding into unrelated PRs. Any uncommitted changes on the current branch are left untouched.
 
 ```bash
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/origin/@@')
@@ -131,25 +166,50 @@ See `/worktree` skill for full worktree conventions.
 
 **Branch name format:**
 
-Use Linear's `gitBranchName` field if available, or generate:
-`{identifier}/{short-description}` (e.g., `rar-123/add-feature-name`)
+Derive the branch name from the issue number plus a short slug of the issue title:
 
-**Worktree naming:** `.worktrees/<identifier>` (e.g., `.worktrees/rar-123`)
+```
+<n>/<short-slug>
+```
+
+Examples:
+- `42/add-feature-name`
+- `57/fix-auth-timeout`
+
+Keep the slug short: 2–5 kebab-case words derived from the issue title. The `{number}/{slug}` shape lets `/ship` auto-detect the issue number.
+
+**For multiple issues in one PR, use the primary issue's branch:**
+- Primary = lowest issue number, or the one the others depend on, or first listed
+
+**Worktree naming:** `.worktrees/<identifier>` (e.g., `.worktrees/42`)
 
 ### 5. Display Issue Context
 
 ```
-Starting: RAR-123
-Issue: <title>
-URL: https://linear.app/...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Starting Work: #42
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Description:
-<full description>
+📋 Issue: <title>
+🔗 https://github.com/rarebit-one/standard_id/issues/42
 
-Acceptance Criteria:
+📝 Description:
+[Full issue body]
+
+✅ Acceptance Criteria:
 - [ ] ...
 
-Branch: <branch-name>
+🏷️  Labels: ...
+🎯 Milestone: ...
+
+💬 Key comments:
+- [decisions/clarifications pulled from the issue comments]
+
+🔗 Referenced Issues:
+- Depends on: #40 "..."
+
+🌿 Branch: 42/<short-slug>
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 ### 6. Create Initial Todo List
@@ -160,26 +220,28 @@ Based on the issue description, create a todo list to track progress.
 
 | Flag | Description |
 |------|-------------|
-| `--mine` | List my assigned issues in Todo state |
-| `--backlog` | List team backlog issues |
+| `--mine` | List my assigned open issues in rarebit-one/standard_id |
+| `--backlog` | List open, unassigned issues |
 | `--no-worktree` | Skip worktree if on the default branch + clean; stops with error otherwise |
-| `--no-status` | Skip status update (just create branch) |
-| `--team <name>` | Filter by team (default: Rarebit) |
-| `--project <name>` | Filter by project |
+| `--no-comment` | Skip the in-progress assign + comment |
+| `--label <name>` | Filter issue lists by label |
 
 ## Error Handling
 
 | Error | Solution |
 |-------|----------|
-| Linear MCP unavailable | Warn and offer to proceed with just git setup |
-| Issue not found | Verify identifier, check team access |
-| Issue already in progress | Ask if user wants to continue anyway |
-| Issue is done/canceled | Warn and suggest reopening or selecting different issue |
-| Status update fails | Offer to continue with local setup, retry, or cancel |
+| `gh` returns 401 | Retry once (transient token issue); if it persists, check `gh auth status` and ask the user |
+| `gh` unavailable / no repo access | Warn and offer to proceed with just git setup (user supplies issue context) |
+| Issue not found | Verify the number; confirm the repo is `rarebit-one/standard_id` |
+| Issue already has an assignee | Ask if user wants to continue anyway |
+| Issue is closed | Warn and suggest reopening or selecting a different issue |
+| In-progress signal fails | Offer to continue with local setup, retry, or cancel |
 | Branch already exists | Offer to checkout existing or create with suffix |
 | Worktree already exists | Offer to use existing worktree or create with suffix |
+| No origin remote | Warn but continue with local branch creation |
+| Blocking issues referenced and still open | Display blockers, offer options |
 
 ## Integration with Other Skills
 
-- After completing work, create a PR with `gh pr create`, or use `/publish-gem` when ready to release
-- The branch naming convention ensures the Linear issue can be auto-detected from the branch
+- After completing work, create a PR with `gh pr create` (or `/ship`); the PR body can say `Closes #NN` to auto-close the issue on merge (same-repo). Use `/publish-gem` when ready to release.
+- The `<n>/<slug>` branch naming convention ensures the issue number can be auto-detected from the branch.
