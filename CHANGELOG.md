@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.4] - 2026-06-22
+
 ### Fixed
 
 - **WebEngine controller redirects no longer drop the mount prefix on non-root
