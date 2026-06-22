@@ -16,7 +16,7 @@ module StandardId
         @account = current_account
 
         if @account.update(account_params)
-          redirect_to account_path, notice: "Account updated successfully"
+          redirect_to engine_path(account_path), notice: "Account updated successfully"
         else
           flash.now[:alert] = @account.errors.full_messages.join(", ")
           render :edit, status: :unprocessable_content

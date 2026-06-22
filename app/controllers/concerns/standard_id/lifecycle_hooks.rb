@@ -197,7 +197,9 @@ module StandardId
       # When raised without arguments, StandardError#message returns the class name
       message = "Sign-in was denied" if message.blank? || message == error.class.name
       login_path = begin
-        StandardId::WebEngine.routes.url_helpers.login_path
+        # Engine `_path` helpers are mount-relative and redirect_to won't prepend
+        # the mount's SCRIPT_NAME (no-op at root), so a non-root mount would 404.
+        "#{request.script_name}#{StandardId::WebEngine.routes.url_helpers.login_path}"
       rescue NameError, NoMethodError, ActionController::UrlGenerationError
         StandardId.config.login_url || "/"
       end

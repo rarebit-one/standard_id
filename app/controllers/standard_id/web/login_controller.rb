@@ -108,7 +108,7 @@ module StandardId
         redirect_uri = string_param(:redirect_uri)
         session[:return_to_after_authenticating] = redirect_uri if redirect_uri
 
-        redirect_to login_verify_path, status: :see_other
+        redirect_to engine_path(login_verify_path), status: :see_other
       end
 
       def redirect_if_authenticated
