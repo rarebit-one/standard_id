@@ -94,7 +94,7 @@ module StandardId
         signed_payload = session[:standard_id_otp_payload]
 
         if signed_payload.blank?
-          redirect_to login_path, alert: "Please start the login process"
+          redirect_to engine_path(login_path), alert: "Please start the login process"
           return
         end
 
@@ -102,7 +102,7 @@ module StandardId
           @otp_data = Rails.application.message_verifier(:otp).verify(signed_payload).symbolize_keys
         rescue ActiveSupport::MessageVerifier::InvalidSignature
           session.delete(:standard_id_otp_payload)
-          redirect_to login_path, alert: "Your verification session has expired. Please try again."
+          redirect_to engine_path(login_path), alert: "Your verification session has expired. Please try again."
         end
       end
 

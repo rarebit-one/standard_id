@@ -36,6 +36,21 @@ module StandardId
         redirect_to_login
       end
 
+      # Prefix an engine-relative path with the current mount point's SCRIPT_NAME.
+      #
+      # Isolated-engine `_path` helpers return paths relative to the engine mount
+      # (e.g. "/login_verify"), and `redirect_to` / `redirect_with_inertia` —
+      # unlike view URL generation (form_with / link_to / url_for) — do NOT
+      # prepend the mount's SCRIPT_NAME. So a bare `redirect_to login_verify_path`
+      # 404s when the engine is mounted at a non-root path (e.g. "/auth" yields
+      # "/login_verify" instead of "/auth/login_verify"). SCRIPT_NAME is "" for a
+      # root mount, so this is a no-op there. Apply ONLY to engine-relative paths
+      # — host destinations (after_authentication_url, safe_post_signin_default)
+      # are already absolute and must not be prefixed.
+      def engine_path(path)
+        "#{request.script_name}#{path}"
+      end
+
       # Read a top-level query/form param expected to be a scalar String, returning
       # nil for absent/blank values OR if Rails parsed it as an Array/Hash (e.g. from
       # `?redirect_uri[]=a&redirect_uri[]=b`). Without this guard, `redirect_to` is

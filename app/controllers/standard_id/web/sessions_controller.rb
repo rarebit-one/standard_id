@@ -19,10 +19,10 @@ module StandardId
         else
           # Revoke other session
           session.revoke!
-          redirect_to sessions_path, notice: "Session revoked successfully"
+          redirect_to engine_path(sessions_path), notice: "Session revoked successfully"
         end
       rescue ActiveRecord::RecordNotFound
-        redirect_to sessions_path, alert: "Session not found"
+        redirect_to engine_path(sessions_path), alert: "Session not found"
       end
     end
   end

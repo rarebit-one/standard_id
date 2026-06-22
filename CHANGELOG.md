@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **WebEngine controller redirects no longer drop the mount prefix on non-root
+  mounts.** Isolated-engine `_path` helpers are mount-relative, and
+  `redirect_to` / `redirect_with_inertia` (unlike `form_with` / `url_for` view
+  URL generation) do not prepend the mount's `SCRIPT_NAME`. So when the engine
+  was mounted at a non-root path (e.g. `mount StandardId::WebEngine => "/auth"`),
+  redirects produced prefix-less paths that 404'd — most visibly `POST
+  /auth/login` redirecting to `/login_verify` instead of `/auth/login_verify`,
+  breaking passwordless login. Form actions were never affected. All affected
+  redirects (`login` → `login_verify`; `login_verify` / reset-password →
+  `login`; session revoke → `sessions`; account update → `account`; and the
+  `after_sign_in` denial bounce) now prepend `request.script_name` via a new
+  `engine_path` helper (a no-op for root mounts). Regression test added to
+  `spec/integration/multi_mount_spec.rb`.
+
 ## [0.26.3] - 2026-06-15
 
 ### Fixed

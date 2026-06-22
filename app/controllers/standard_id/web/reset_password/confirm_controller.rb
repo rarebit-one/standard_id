@@ -20,7 +20,7 @@ module StandardId
 
           if form.submit
             flash[:notice] = "Your password has been successfully reset. Please sign in with your new password."
-            redirect_to login_path, status: :see_other
+            redirect_to engine_path(login_path), status: :see_other
           else
             flash.now[:alert] = form.errors.full_messages.to_sentence
             render :show, status: :unprocessable_content
@@ -41,7 +41,7 @@ module StandardId
           return if @password_credential.present?
 
           flash[:alert] = "Invalid or expired password reset link"
-          redirect_to login_path, status: :see_other
+          redirect_to engine_path(login_path), status: :see_other
         end
       end
     end

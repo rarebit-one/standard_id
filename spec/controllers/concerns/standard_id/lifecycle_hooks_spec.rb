@@ -35,7 +35,9 @@ RSpec.describe StandardId::LifecycleHooks do
   let(:controller) { controller_class.new }
 
   let(:mock_request) do
-    double("Request", path_parameters: {})
+    # script_name: "" — engine paths are prefixed with the mount's SCRIPT_NAME in
+    # handle_authentication_denied; the unit double mounts at root (no prefix).
+    double("Request", path_parameters: {}, script_name: "")
   end
 
   let(:mock_session_manager) do

@@ -21,7 +21,7 @@ module StandardId
 
           if form.submit
             flash[:notice] = "If an account with that email exists, we've sent password reset instructions."
-            redirect_to login_path, status: :see_other
+            redirect_to engine_path(login_path), status: :see_other
           else
             flash.now[:alert] = form.errors[:email].first || "Please enter your email address"
             render :show, status: :unprocessable_content
