@@ -418,6 +418,71 @@ RSpec.describe StandardId::ClientApplication, type: :model do
             expect(public_client.valid_redirect_uri?("https://example.com:8443/callback")).to be false
             expect(public_client.valid_redirect_uri?("https://example.com/callback/evil")).to be false
           end
+
+          # When BOTH sides are loopback URIs on a public PKCE client, the
+          # port is ignored in BOTH directions — a port baked into the
+          # *registration* is just as irrelevant as the ephemeral port in the
+          # request (RFC 8252 §7.3 compares host + path only). So a client
+          # registered with an explicit port still matches a portless request
+          # URI (and any other port).
+          it "ignores a port on the REGISTERED loopback URI too (ported registration, portless request)" do
+            ported_client = described_class.create!(
+              owner: account,
+              name: "Ported Native App",
+              redirect_uris: "http://127.0.0.1:8080/callback",
+              client_type: "public",
+              require_pkce: true,
+              code_challenge_methods: "S256"
+            )
+            expect(ported_client.valid_redirect_uri?("http://127.0.0.1/callback")).to be true
+            expect(ported_client.valid_redirect_uri?("http://127.0.0.1:8080/callback")).to be true
+            expect(ported_client.valid_redirect_uri?("http://127.0.0.1:53682/callback")).to be true
+          end
+
+          it "does not match a pathful request against an empty-path loopback registration" do
+            bare_client = described_class.create!(
+              owner: account,
+              name: "Bare Loopback App",
+              redirect_uris: "http://127.0.0.1",
+              client_type: "public",
+              require_pkce: true,
+              code_challenge_methods: "S256"
+            )
+            # "" (registered) != "/callback" (requested) — path comparison is
+            # an exact string compare even under the loopback relaxation.
+            expect(bare_client.valid_redirect_uri?("http://127.0.0.1:53682/callback")).to be false
+            # An equally path-less request URI does match (port still ignored).
+            expect(bare_client.valid_redirect_uri?("http://127.0.0.1:53682")).to be true
+          end
+
+          it "does not match trailing-slash path variants" do
+            expect(loopback_client.valid_redirect_uri?("http://127.0.0.1:53682/callback/")).to be false
+          end
+
+          it "matches each URI of a mixed registration independently without cross-matching" do
+            mixed_client = described_class.create!(
+              owner: account,
+              name: "Mixed Web + Native App",
+              redirect_uris: "https://app.example.com/callback http://127.0.0.1/cb",
+              client_type: "public",
+              require_pkce: true,
+              code_challenge_methods: "S256"
+            )
+
+            # The https non-loopback URI keeps strict scheme+host+port+path matching.
+            expect(mixed_client.valid_redirect_uri?("https://app.example.com/callback")).to be true
+            expect(mixed_client.valid_redirect_uri?("https://app.example.com:8443/callback")).to be false
+
+            # The loopback URI gets the any-port relaxation.
+            expect(mixed_client.valid_redirect_uri?("http://127.0.0.1:53682/cb")).to be true
+            expect(mixed_client.valid_redirect_uri?("http://127.0.0.1/cb")).to be true
+
+            # No cross-matching: the loopback path against the https host, or
+            # the https path against the loopback host, never matches.
+            expect(mixed_client.valid_redirect_uri?("http://127.0.0.1:53682/callback")).to be false
+            expect(mixed_client.valid_redirect_uri?("https://app.example.com/cb")).to be false
+            expect(mixed_client.valid_redirect_uri?("http://app.example.com/callback")).to be false
+          end
         end
       end
     end

@@ -316,6 +316,63 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
     end
   end
 
+  describe "concurrent rotation race (lost conditional UPDATE)" do
+    # Exercises the rows==0 branch of #rotate_current_refresh_token! and the
+    # #handle_concurrent_reuse! path: this flow reads an active token record
+    # in authenticate!, but a concurrent request completes its own rotation
+    # (revokes the record + mints a successor) before this flow's conditional
+    # UPDATE runs. The UPDATE then matches 0 rows, the mint transaction rolls
+    # back (no new token for the loser), and family revocation + the reuse
+    # event happen OUTSIDE the rolled-back transaction so they persist.
+    it "rolls back the losing mint, revokes the family, and raises reuse detected" do
+      record = create_refresh_token_record
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+
+      # Interleave the concurrent winner between this flow's read
+      # (authenticate! → validate_refresh_token_record!) and its conditional
+      # UPDATE (inside the rotation transaction): the winner revokes the
+      # current record and mints its successor.
+      winner_token = nil
+      allow(flow).to receive(:authenticate!).and_wrap_original do |original|
+        original.call
+        StandardId::RefreshToken.where(id: record.id, revoked_at: nil).update_all(revoked_at: Time.current)
+        winner_token = StandardId::RefreshToken.create!(
+          account: account,
+          token_digest: StandardId::RefreshToken.digest_for(SecureRandom.uuid),
+          expires_at: 30.days.from_now,
+          previous_token: record
+        )
+      end
+
+      events = []
+      subscriber = StandardId::Events.subscribe(StandardId::Events::OAUTH_REFRESH_TOKEN_REUSE_DETECTED) do |event|
+        events << event
+      end
+
+      begin
+        expect { flow.execute }.to raise_error(StandardId::InvalidGrantError, /reuse detected/)
+      ensure
+        StandardId::Events.unsubscribe(subscriber)
+      end
+
+      # The losing flow minted nothing: only the original record and the
+      # winner's successor exist (its transaction rolled back).
+      expect(StandardId::RefreshToken.count).to eq(2)
+
+      # Family revocation ran outside the rolled-back transaction, so it
+      # persists: both the reused record and the winner's live successor are
+      # revoked.
+      expect(record.reload.revoked?).to be true
+      expect(winner_token.reload.revoked?).to be true
+
+      expect(events.size).to eq(1)
+      expect(events.first.payload[:account_id]).to eq(sub)
+      expect(events.first.payload[:client_id]).to eq(client_id)
+      expect(events.first.payload[:refresh_token_id]).to eq(record.id)
+    end
+  end
+
   describe "session binding" do
     let(:session) do
       StandardId::BrowserSession.create!(
