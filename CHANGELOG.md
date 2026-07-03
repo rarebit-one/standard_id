@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-07-03
+
+### Added
+
+- **Loopback redirect URIs match on any port for public PKCE clients (RFC 8252
+  §7.3).** Native apps receive the authorization response on an ephemeral
+  local listener whose port cannot be known at registration time. When a
+  public client with `require_pkce` presents a redirect URI whose scheme is
+  `http` and whose host is a loopback literal (`127.0.0.1`, `::1`, or
+  `localhost`), and a registered redirect URI is likewise a loopback URI, the
+  comparison now ignores the port — host and path must still match exactly, so
+  `127.0.0.1` and `localhost` do not cross-match (RFC 8252 §8.3 recommends the
+  IP literals over `localhost`). Confidential clients and non-loopback URIs
+  keep strict scheme+host+port+path matching. Registration-time validation is
+  unchanged. Token exchange is unaffected: the redirect URI presented at the
+  token endpoint is still compared byte-for-byte against the value stored when
+  the code was issued.
+
 ## [0.26.4] - 2026-06-22
 
 ### Fixed

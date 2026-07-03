@@ -34,6 +34,11 @@ module StandardId
     scope :public_clients, -> { where(client_type: "public") }
     scope :for_owner, ->(owner) { where(owner: owner) }
 
+    # Loopback interface hosts per RFC 8252 §7.3 (native apps). "localhost" is
+    # included for compatibility but RFC 8252 §8.3 recommends clients use
+    # 127.0.0.1/::1 instead, since "localhost" can be remapped by the OS.
+    LOOPBACK_HOSTS = %w[127.0.0.1 ::1 localhost].freeze
+
     # Callbacks
     before_create :generate_client_id
     before_update :set_deactivated_at, if: :will_save_change_to_active?
@@ -99,6 +104,12 @@ module StandardId
     # (or, worse, a different path segment like /cb/evil).
     #
     # Subdomain wildcards are NOT supported — host must match exactly.
+    #
+    # Exception — loopback redirects for native apps (RFC 8252 §7.3): when this
+    # client is public + PKCE-required and BOTH the registered and requested
+    # URIs are http loopback URIs, the port is ignored (native apps bind an
+    # ephemeral port on a local listener at authorization time, so it cannot be
+    # known at registration). See #loopback_redirect_uri? below.
     def valid_redirect_uri?(uri)
       requested = self.class.parse_redirect_uri(uri)
       return false unless requested
@@ -107,11 +118,39 @@ module StandardId
         registered = self.class.parse_redirect_uri(registered_uri)
         next false unless registered
 
+        # RFC 8252 §7.3: for loopback interface redirects, "the authorization
+        # server MUST allow any port to be specified at the time of the request".
+        # Only host + path are compared; scheme is already pinned to "http" by
+        # the loopback predicate. Host equality is still required, so a client
+        # registered with 127.0.0.1 does not match localhost (or vice versa) —
+        # per §8.3, "localhost" is less trustworthy than the literal loopback
+        # IPs because the OS can remap it. This relaxation is gated to public
+        # PKCE clients: the redirect lands on an ephemeral listener on the
+        # user's own machine and PKCE binds the code to the initiating client,
+        # whereas confidential clients have stable callback URLs and keep
+        # strict port matching.
+        if public? && require_pkce? &&
+            self.class.loopback_redirect_uri?(registered) &&
+            self.class.loopback_redirect_uri?(requested)
+          next registered.host == requested.host && registered.path == requested.path
+        end
+
         registered.scheme == requested.scheme &&
           registered.host == requested.host &&
           registered.port == requested.port &&
           registered.path == requested.path
       end
+    end
+
+    # True when the parsed URI is an http URI targeting a loopback interface
+    # literal (RFC 8252 §7.3). IPv6 loopback hosts are normalized: URI.parse
+    # yields "[::1]" on some Ruby versions and "::1" on others, so surrounding
+    # brackets are stripped before comparison.
+    def self.loopback_redirect_uri?(parsed_uri)
+      return false unless parsed_uri.scheme == "http"
+
+      host = parsed_uri.host.to_s.delete_prefix("[").delete_suffix("]")
+      LOOPBACK_HOSTS.include?(host)
     end
 
     # Parse a redirect URI string into a URI object suitable for comparison.

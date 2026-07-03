@@ -327,6 +327,98 @@ RSpec.describe StandardId::ClientApplication, type: :model do
           expect(portful_client.valid_redirect_uri?("https://example.com:8443/cb")).to be true
           expect(portful_client.valid_redirect_uri?("https://example.com/cb")).to be false
         end
+
+        describe "loopback redirects (RFC 8252 §7.3)" do
+          let(:loopback_client) do
+            described_class.create!(
+              owner: account,
+              name: "Native App",
+              redirect_uris: "http://127.0.0.1/callback",
+              client_type: "public",
+              require_pkce: true,
+              code_challenge_methods: "S256"
+            )
+          end
+
+          it "matches a loopback request URI on any port for a public PKCE client" do
+            expect(loopback_client.valid_redirect_uri?("http://127.0.0.1:53682/callback")).to be true
+            expect(loopback_client.valid_redirect_uri?("http://127.0.0.1:1024/callback")).to be true
+            expect(loopback_client.valid_redirect_uri?("http://127.0.0.1/callback")).to be true
+          end
+
+          it "still requires an exact path match" do
+            expect(loopback_client.valid_redirect_uri?("http://127.0.0.1:53682/callback/evil")).to be false
+            expect(loopback_client.valid_redirect_uri?("http://127.0.0.1:53682/other")).to be false
+          end
+
+          it "requires the http scheme (no https loopback relaxation)" do
+            expect(loopback_client.valid_redirect_uri?("https://127.0.0.1:53682/callback")).to be false
+          end
+
+          it "does not cross-match 127.0.0.1 and localhost (RFC 8252 §8.3)" do
+            expect(loopback_client.valid_redirect_uri?("http://localhost:53682/callback")).to be false
+          end
+
+          it "rejects loopback look-alike hosts" do
+            expect(loopback_client.valid_redirect_uri?("http://127.0.0.1.evil.com:53682/callback")).to be false
+          end
+
+          it "rejects non-loopback hosts" do
+            expect(loopback_client.valid_redirect_uri?("http://192.168.1.10:53682/callback")).to be false
+            expect(loopback_client.valid_redirect_uri?("http://example.com:53682/callback")).to be false
+          end
+
+          it "matches localhost registrations against localhost request URIs only" do
+            localhost_client = described_class.create!(
+              owner: account,
+              name: "Localhost Native App",
+              redirect_uris: "http://localhost/callback",
+              client_type: "public",
+              require_pkce: true,
+              code_challenge_methods: "S256"
+            )
+            expect(localhost_client.valid_redirect_uri?("http://localhost:53682/callback")).to be true
+            expect(localhost_client.valid_redirect_uri?("http://127.0.0.1:53682/callback")).to be false
+          end
+
+          it "matches IPv6 loopback registrations on any port" do
+            ipv6_client = described_class.create!(
+              owner: account,
+              name: "IPv6 Native App",
+              redirect_uris: "http://[::1]/callback",
+              client_type: "public",
+              require_pkce: true,
+              code_challenge_methods: "S256"
+            )
+            expect(ipv6_client.valid_redirect_uri?("http://[::1]:53682/callback")).to be true
+            expect(ipv6_client.valid_redirect_uri?("http://127.0.0.1:53682/callback")).to be false
+          end
+
+          it "keeps strict port matching for confidential clients" do
+            confidential = described_class.create!(
+              owner: account,
+              name: "Confidential Loopback",
+              redirect_uris: "http://127.0.0.1/callback",
+              client_type: "confidential"
+            )
+            expect(confidential.valid_redirect_uri?("http://127.0.0.1:53682/callback")).to be false
+            expect(confidential.valid_redirect_uri?("http://127.0.0.1/callback")).to be true
+          end
+
+          it "keeps exact matching for a public client's non-loopback URIs (regression)" do
+            public_client = described_class.create!(
+              owner: account,
+              name: "Public Web",
+              redirect_uris: "https://example.com/callback",
+              client_type: "public",
+              require_pkce: true,
+              code_challenge_methods: "S256"
+            )
+            expect(public_client.valid_redirect_uri?("https://example.com/callback")).to be true
+            expect(public_client.valid_redirect_uri?("https://example.com:8443/callback")).to be false
+            expect(public_client.valid_redirect_uri?("https://example.com/callback/evil")).to be false
+          end
+        end
       end
     end
 

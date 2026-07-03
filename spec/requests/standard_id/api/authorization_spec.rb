@@ -137,6 +137,44 @@ RSpec.describe "StandardId API Authorization", type: :request do
             end
           end
 
+          context "for a public client with a loopback redirect (RFC 8252 §7.3)" do
+            let(:loopback_client) do
+              StandardId::ClientApplication.create!(
+                owner: client_account,
+                name: "Native Loopback Client",
+                client_id: "native_loopback_123",
+                redirect_uris: "http://127.0.0.1/callback",
+                scopes: "read write",
+                client_type: "public",
+                require_pkce: true,
+                code_challenge_methods: "S256",
+                require_consent: false
+              )
+            end
+
+            it "issues a code to a loopback redirect_uri on an ephemeral port" do
+              http_get "/api/authorize", params: valid_params.merge(
+                client_id: loopback_client.client_id,
+                redirect_uri: "http://127.0.0.1:53682/callback"
+              )
+
+              expect(response).to have_http_status(:found)
+              expect(response.location).to include("code=")
+              expect(response.location).to include("state=random_state_123")
+              expect(response.location).to start_with("http://127.0.0.1:53682/callback")
+            end
+
+            it "rejects a loopback redirect_uri with a different path" do
+              http_get "/api/authorize", params: valid_params.merge(
+                client_id: loopback_client.client_id,
+                redirect_uri: "http://127.0.0.1:53682/callback/evil"
+              )
+
+              expect(response).to have_http_status(:bad_request)
+              expect(json_body["error"]).to eq("invalid_request")
+            end
+          end
+
           context "for a public client" do
             before { client.update!(client_type: "public") }
 
