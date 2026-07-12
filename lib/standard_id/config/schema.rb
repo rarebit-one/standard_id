@@ -352,6 +352,15 @@ StandardId::ConfigSchema.define do
     field :verification_start_per_target, type: :integer, default: 3 # per 15 minutes
     field :verification_start_per_ip, type: :integer, default: 10    # per hour
 
+    # Password-reset request. The start endpoint emails a reset token, so an
+    # unthrottled endpoint is an email-flooding + account-enumeration vector.
+    # Mirrors the verification_start shape (per-IP hourly + per-target 15-min).
+    field :password_reset_start_per_ip, type: :integer, default: 10      # per hour
+    field :password_reset_start_per_target, type: :integer, default: 3   # per 15 minutes
+
+    # Password signup — throttle account-creation spam by IP.
+    field :signup_per_ip, type: :integer, default: 10                    # per hour
+
     # API equivalents
     field :api_passwordless_start_per_ip, type: :integer, default: 10    # per hour
     field :api_passwordless_start_per_target, type: :integer, default: 5 # per 15 minutes

@@ -23,6 +23,7 @@ module StandardId
 
         validate_username!(username)
         run_username_validator!(username)
+        enforce_retry_delay!(username)
         emit_code_requested(username)
         challenge = create_challenge!(
           username,
@@ -42,6 +43,29 @@ module StandardId
       end
 
       protected
+
+      # Reject a resend that arrives within passwordless.retry_delay seconds of
+      # the most recent still-active code for this target. A soft cooldown that
+      # complements the coarser per-target rate limits: it does not consume the
+      # active challenge, so the code already sent remains usable. Raises
+      # InvalidRequestError (rescued by the web login + API OAuth error handlers).
+      def enforce_retry_delay!(username)
+        delay = StandardId::Passwordless.retry_delay
+        return if delay <= 0
+
+        last = StandardId::CodeChallenge.active
+          .where(realm: @realm, channel: connection_type, target: username)
+          .order(created_at: :desc)
+          .first
+        return if last.nil?
+
+        elapsed = Time.current - last.created_at
+        return if elapsed >= delay
+
+        wait = (delay - elapsed).ceil
+        raise StandardId::InvalidRequestError,
+          "Please wait #{wait} #{'second'.pluralize(wait)} before requesting another code"
+      end
 
       def create_challenge!(username, code_length: nil, expires_in: nil, metadata: {})
         ActiveRecord::Base.transaction do

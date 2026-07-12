@@ -7,6 +7,23 @@ module StandardId
 
         layout "public"
 
+        # Rate limit reset-request generation by IP (10 per hour). The endpoint
+        # emails a reset token, so without a limit it's an email-flooding vector.
+        rate_limit to: StandardId.config.rate_limits.password_reset_start_per_ip,
+                   within: 1.hour,
+                   name: "reset-password-ip",
+                   only: :create,
+                   store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
+        # Rate limit reset requests by email target (3 per 15 minutes) to blunt
+        # account-enumeration probing of individual addresses.
+        rate_limit to: StandardId.config.rate_limits.password_reset_start_per_target,
+                   within: 15.minutes,
+                   by: -> { "reset-password:#{params[:email].to_s.strip.downcase}" },
+                   name: "reset-password-target",
+                   only: :create,
+                   store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
         skip_before_action :require_browser_session!, only: [:show, :create]
 
         def show

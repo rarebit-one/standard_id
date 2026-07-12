@@ -8,4 +8,10 @@ StandardId.configure do |c|
   # Optional: customize cache store and logger used internally by StandardId
   # c.cache_store = Rails.cache
   # c.logger = Rails.logger
+
+  # Disable the OTP-resend cooldown in the test suite so specs that request a
+  # second code for the same target (e.g. strategy "invalidates previous
+  # challenge" cases) aren't throttled. The dedicated retry_delay spec sets its
+  # own value. Mirrors how the test env neutralizes rate limiting (null_store).
+  c.passwordless.retry_delay = 0
 end

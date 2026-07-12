@@ -153,7 +153,10 @@ StandardId.configure do |c|
   # for backwards compatibility; new installs should set the newer key.
   # c.passwordless.max_attempts = 3
 
-  # Default: 30 — seconds before a new challenge can be requested.
+  # Default: 30 — OTP-resend cooldown: minimum seconds before the same target
+  # can request another code. Enforced in the passwordless start path; a resend
+  # inside the window is rejected (the already-sent code stays valid). Set to 0
+  # to disable the cooldown.
   # c.passwordless.retry_delay = 30
 
   # Custom username validator; return nil/false to accept, or an error message
