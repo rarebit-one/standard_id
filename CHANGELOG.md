@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Rate limiting on the last unprotected auth surfaces.** The web
+  password-reset request (`reset_password/start`), password signup, and the
+  email/phone code-*confirmation* endpoints now carry Rails-native
+  `rate_limit`s, closing email-flooding, account-enumeration,
+  account-creation-spam, and distributed code-guessing gaps. New config keys:
+  `rate_limits.password_reset_start_per_ip` (10/hr),
+  `rate_limits.password_reset_start_per_target` (3/15min), and
+  `rate_limits.signup_per_ip` (10/hr); the confirm endpoints reuse
+  `otp_verify_per_ip`. All use the existing `RateLimitStore` + centralized 429
+  handler.
+- **The `passwordless.retry_delay` OTP-resend cooldown is now enforced.**
+  Previously the setting existed but did nothing. A resend for the same target
+  within the window (default 30s) is rejected with an `InvalidRequestError`;
+  the already-issued code stays valid. Set `retry_delay = 0` to disable.
+
 ## [0.27.0] - 2026-07-03
 
 ### Added

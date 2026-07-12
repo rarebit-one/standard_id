@@ -9,6 +9,13 @@ module StandardId
 
       layout "public"
 
+      # Throttle account-creation spam by IP (10 per hour).
+      rate_limit to: StandardId.config.rate_limits.signup_per_ip,
+                 within: 1.hour,
+                 name: "signup-ip",
+                 only: :create,
+                 store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+
       skip_before_action :require_browser_session!, only: [:show, :create]
 
       before_action :redirect_if_authenticated, only: [:show]

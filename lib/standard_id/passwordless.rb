@@ -83,6 +83,14 @@ module StandardId
         legacy = StandardId.config.passwordless.max_attempts.to_i
         legacy.positive? ? legacy : 5
       end
+
+      # Minimum seconds that must elapse between successive code requests for
+      # the same target (the OTP-resend cooldown). Reads passwordless.retry_delay;
+      # 0 or negative disables the cooldown. Enforced in the passwordless strategy
+      # start path (see BaseStrategy#enforce_retry_delay!).
+      def retry_delay
+        StandardId.config.passwordless.retry_delay.to_i
+      end
     end
   end
 end
