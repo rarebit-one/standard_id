@@ -158,6 +158,52 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
     end
   end
 
+  describe "GET /login_verify resend UI" do
+    let!(:account) do
+      account = Account.create!(name: "Test User", email: email)
+      StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
+      account
+    end
+
+    before { initiate_passwordless_login! }
+
+    it "renders a resend form that re-submits the email to /login" do
+      http_get "/login_verify"
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include('id="resend-otp-form"')
+      expect(response.body).to include('name="login[email]"')
+      expect(response.body).to include(%(value="#{email}"))
+    end
+
+    it "renders the countdown button with data-retry-delay matching the configured cooldown" do
+      allow(StandardId.config.passwordless).to receive(:retry_delay).and_return(30)
+
+      http_get "/login_verify"
+
+      expect(response.body).to match(/id="resend-otp-button"[^>]*data-retry-delay="30"|data-retry-delay="30"[^>]*id="resend-otp-button"/)
+      expect(response.body).to include("Resend in ")
+    end
+
+    it "reflects a custom configured retry_delay in the countdown data attribute" do
+      allow(StandardId.config.passwordless).to receive(:retry_delay).and_return(45)
+
+      http_get "/login_verify"
+
+      expect(response.body).to include('data-retry-delay="45"')
+    end
+
+    it "re-issues an OTP when the resend form is submitted after the cooldown" do
+      allow(StandardId.config.passwordless).to receive(:retry_delay).and_return(0)
+
+      expect {
+        http_post "/login", params: { login: { email: email } }
+      }.to change(StandardId::CodeChallenge, :count).by(1)
+
+      expect(response).to redirect_to("/login_verify")
+    end
+  end
+
   describe "PATCH /login_verify" do
     it "redirects to login when no OTP session exists" do
       enable_passwordless!

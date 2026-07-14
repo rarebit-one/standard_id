@@ -17,7 +17,7 @@
       <p role="status"><%= flash[:notice] %></p>
     <% end %>
 
-    <%= form_with url: login_path, method: :post, local: true do |form| %>
+    <%= form_with url: login_path, method: :post, local: true, html: { id: "passwordless-login-form" } do |form| %>
       <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
 
       <p>
@@ -26,9 +26,32 @@
       </p>
 
       <p>
-        <%= form.submit "Continue" %>
+        <%= form.submit "Continue", data: { sending_label: "Sending…" } %>
       </p>
     <% end %>
+
+    <%#
+      Progressive-enhancement double-submit guard. With JS off the form submits
+      normally; with JS on we disable the submit button on the first submit so an
+      impatient double-click can't fire two OTP requests. Disabling happens IN the
+      submit handler — the browser has already serialized the form for the native
+      (non-AJAX) submit by then, so the request still goes through. Vanilla JS
+      only; the gem ships no JS framework.
+    %>
+    <script>
+      (function () {
+        var form = document.getElementById("passwordless-login-form");
+        if (!form) return;
+        form.addEventListener("submit", function () {
+          var btn = form.querySelector('input[type="submit"], button[type="submit"]');
+          if (!btn || btn.dataset.stdidSubmitting === "true") return;
+          btn.dataset.stdidSubmitting = "true";
+          btn.disabled = true;
+          var label = btn.getAttribute("data-sending-label") || "Sending…";
+          if (btn.tagName === "INPUT") { btn.value = label; } else { btn.textContent = label; }
+        });
+      })();
+    </script>
 
     <% if StandardId.config.google_client_id.present? || StandardId.config.apple_client_id.present? %>
       <%= render "standard_id/web/login/social_buttons" %>

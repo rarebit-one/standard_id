@@ -37,6 +37,22 @@ RSpec.describe "StandardId Web Login view modes", type: :request do
       end
     end
 
+    context "double-submit guard (passwordless form)" do
+      before do
+        allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
+        allow(StandardId.config.web).to receive(:password_login).and_return(false)
+      end
+
+      it "renders the progressive-enhancement guard script targeting the form" do
+        http_get "/login"
+
+        expect(response.body).to include('id="passwordless-login-form"')
+        expect(response.body).to include("passwordless-login-form")
+        expect(response.body).to include("addEventListener(\"submit\"")
+        expect(response.body).to include("btn.disabled = true")
+      end
+    end
+
     context "password mode (default) — regression guard" do
       before do
         allow(StandardId.config.web).to receive(:passwordless_login).and_return(false)
