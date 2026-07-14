@@ -10,17 +10,29 @@ module StandardId
 
       layout "public"
 
-      # RAR-51: Rate limit login attempts by IP (20 per 15 minutes)
-      rate_limit to: StandardId.config.rate_limits.password_login_per_ip,
+      # RAR-51: Rate limit login attempts by IP (20 per 15 minutes). Reads the
+      # mechanism-agnostic `login_per_ip` alias, falling back to the deprecated
+      # `password_login_per_ip` — this action branches password OR passwordless,
+      # so on a passwordless app this governs the OTP-send limit, not a password
+      # login. See StandardId::RateLimitHandling.login_per_ip.
+      rate_limit to: StandardId::RateLimitHandling.login_per_ip,
                  within: 15.minutes,
                  name: "login-ip",
                  only: :create,
                  store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
 
-      # RAR-51: Rate limit login attempts by email target (5 per 15 minutes)
-      rate_limit to: StandardId.config.rate_limits.password_login_per_email,
+      # RAR-51: Rate limit login attempts by email target (5 per 15 minutes).
+      # A blank email would otherwise collapse every blank-target request into
+      # one shared "login-email:" bucket (`.compact` does not drop a non-nil
+      # empty string), so blank spam throttles all users. Fall the key back to
+      # the remote IP when the target is blank, keeping it bounded per-IP while
+      # a well-formed email keeps its own per-target bucket.
+      rate_limit to: StandardId::RateLimitHandling.login_per_email,
                  within: 15.minutes,
-                 by: -> { "login-email:#{params.dig(:login, :email).to_s.strip.downcase}" },
+                 by: -> {
+                   email = params.dig(:login, :email).to_s.strip.downcase
+                   "login-email:#{email.presence || request.remote_ip}"
+                 },
                  name: "login-email",
                  only: :create,
                  store: StandardId::RateLimitHandling::RATE_LIMIT_STORE

@@ -16,10 +16,17 @@ module StandardId
                    store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
 
         # Rate limit reset requests by email target (3 per 15 minutes) to blunt
-        # account-enumeration probing of individual addresses.
+        # account-enumeration probing of individual addresses. A blank email
+        # would collapse into one shared "reset-password:" bucket (`.compact`
+        # does not drop a non-nil empty string), throttling everyone; fall the
+        # key back to the remote IP when blank so it stays bounded per-IP without
+        # poisoning real targets.
         rate_limit to: StandardId.config.rate_limits.password_reset_start_per_target,
                    within: 15.minutes,
-                   by: -> { "reset-password:#{params[:email].to_s.strip.downcase}" },
+                   by: -> {
+                     email = params[:email].to_s.strip.downcase
+                     "reset-password:#{email.presence || request.remote_ip}"
+                   },
                    name: "reset-password-target",
                    only: :create,
                    store: StandardId::RateLimitHandling::RATE_LIMIT_STORE

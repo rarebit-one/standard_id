@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **A rate-limited GET no longer drives an unbounded redirect loop.** The shared
+  rate-limit handler bounced every tripped action to `request.path`. That is
+  safe for a POST/PATCH (its sibling GET is a different action), but v0.28.0
+  shipped the first rate-limited GETs — the email/phone verification-code
+  *confirm* `#show` actions — so a tripped GET redirected to *itself*: the
+  browser followed the redirect, re-incremented the counter, and got redirected
+  again, an unbounded loop the victim's browser drives that also permanently
+  resets the window. The handler now renders a terminal `429 Too Many Requests`
+  on GET/HEAD (no redirect), and keeps the existing same-path redirect for
+  non-GET web actions. API responses are unchanged.
+- **The `Retry-After` header now reflects the tripped limit's real window.** It
+  was hardcoded to 15 minutes, which was 4x too short for every 1-hour limit
+  (`verification_start_per_ip`, `password_reset_start_per_ip`, `signup_per_ip`,
+  `api_passwordless_start_per_ip`, `dynamic_registration_per_ip`). Each
+  `rate_limit` declaration's `within:` is now threaded to the handler (captured
+  in the per-limit `with:` closure the instant that limit trips, since
+  `ActionController::TooManyRequests` carries no window and a controller may
+  declare several limits with different windows), so `Retry-After` matches the
+  window that actually fired. A hand-rolled `raise` that bypasses the macro
+  falls back to 15 minutes.
+- **Blank per-target rate-limit keys no longer collapse into one shared bucket.**
+  Five per-target limiters interpolated a param that can be blank, yielding a
+  stable key like `"reset-password:"` — a single global bucket (Rails'
+  `.compact` does not drop a non-nil empty string), so blank-target spam from
+  one source throttled every legitimate user. Affected: web login (by email),
+  API passwordless start (by target), email/phone verification start (by
+  target), and password-reset start (by email). Each now falls the key back to
+  the remote IP when the target is blank, keeping blank spam bounded per-IP
+  without poisoning real targets' buckets — mirroring the existing per-audience
+  token limiter's "only count well-formed values" shape.
+
+### Added
+
+- **Mechanism-agnostic login rate-limit config: `rate_limits.login_per_ip`
+  (default 20) and `rate_limits.login_per_email` (default 5).** The login
+  `#create` action branches password OR passwordless, so on a passwordless app
+  the existing `password_login_per_*` fields actually govern the OTP-send limit
+  — a misnomer that led four consumer apps to write false config comments. The
+  new names describe the action, not a mechanism. When unset they inherit the
+  deprecated `password_login_*` values, so existing behaviour is unchanged; when
+  set they win.
+
+### Deprecated
+
+- **`rate_limits.password_login_per_ip` / `rate_limits.password_login_per_email`
+  are deprecated in favour of `login_per_ip` / `login_per_email`.** They remain
+  fully honoured (the config schema rejects unknown fields at boot, so a host
+  still setting the old names keeps working); the login controller reads the new
+  alias and falls back to the deprecated field when the alias is left at its
+  default. Follows the `max_attempts` → `max_attempts_per_challenge` alias
+  precedent.
+
 ## [0.28.0] - 2026-07-12
 
 ### Added

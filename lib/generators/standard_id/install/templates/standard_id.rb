@@ -362,8 +362,14 @@ StandardId.configure do |c|
   # ---------------------------------------------------------------------------
   # Defaults are conservative; tune per environment.
 
-  # c.rate_limits.password_login_per_ip          = 20  # per 15 minutes
-  # c.rate_limits.password_login_per_email       = 5   # per 15 minutes
+  # Login limits. The login action branches password OR passwordless, so on a
+  # passwordless app these govern the OTP-SEND limit. Prefer the
+  # mechanism-agnostic names; the deprecated password_login_* names still work
+  # (the new name wins when both are set).
+  # c.rate_limits.login_per_ip                   = 20  # per 15 minutes
+  # c.rate_limits.login_per_email                = 5   # per 15 minutes
+  # c.rate_limits.password_login_per_ip          = 20  # deprecated alias of login_per_ip
+  # c.rate_limits.password_login_per_email       = 5   # deprecated alias of login_per_email
   # c.rate_limits.otp_verify_per_ip              = 20  # per 15 minutes
   # c.rate_limits.verification_start_per_target  = 3   # per 15 minutes
   # c.rate_limits.verification_start_per_ip      = 10  # per hour

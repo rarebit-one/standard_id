@@ -21,7 +21,9 @@ RSpec.describe "Rate limiting: Web Signup", type: :request do
       http_post "/signup", params: signup_params("over-the-limit@example.com")
       expect(response).to redirect_to("/signup")
       expect(flash[:alert]).to eq("Too many requests. Please try again later.")
-      expect(response.headers["Retry-After"]).to eq(15.minutes.to_i.to_s)
+      # Signup uses a 1-hour window, so Retry-After must reflect it (previously
+      # hardcoded to 15 minutes — 4x too short).
+      expect(response.headers["Retry-After"]).to eq(1.hour.to_i.to_s)
     end
 
     it "allows a signup within the IP limit" do

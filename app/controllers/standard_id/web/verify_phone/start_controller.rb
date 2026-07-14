@@ -9,10 +9,17 @@ module StandardId
                    only: :create,
                    store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
 
-        # RAR-56: Rate limit verification code generation by phone target (3 per 15 minutes)
+        # RAR-56: Rate limit verification code generation by phone target (3 per
+        # 15 minutes). A blank phone would collapse into one shared
+        # "verify-phone:" bucket (`.compact` does not drop a non-nil empty
+        # string), throttling everyone; fall the key back to the remote IP when
+        # blank so it stays bounded per-IP without poisoning real targets.
         rate_limit to: StandardId.config.rate_limits.verification_start_per_target,
                    within: 15.minutes,
-                   by: -> { "verify-phone:#{params[:phone_number].to_s.strip}" },
+                   by: -> {
+                     phone = params[:phone_number].to_s.strip
+                     "verify-phone:#{phone.presence || request.remote_ip}"
+                   },
                    name: "verify-phone-target",
                    only: :create,
                    store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
