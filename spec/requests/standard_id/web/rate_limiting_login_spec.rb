@@ -65,6 +65,23 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
       http_post "/login", params: { login: { email: other_email, password: "wrong" } }
       expect(response).not_to redirect_to("/login")
     end
+
+    # Regression for the blank-param shared-bucket bug: before v0.29.0 a blank
+    # email produced the stable key "login-email:" — a single global bucket —
+    # so blank spam from one IP would throttle every real login. The key now
+    # falls back to the remote IP when the target is blank, keeping blank spam
+    # bounded per-IP without poisoning any real target's bucket.
+    it "does not throttle a real email when blank-target spam exhausts the shared bucket" do
+      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+
+      (email_limit + 1).times do
+        http_post "/login", params: { login: { email: "" } }
+      end
+
+      http_post "/login", params: { login: { email: email, password: "wrong" } }
+      expect(response).not_to redirect_to("/login")
+      expect(response).to have_http_status(:unprocessable_content)
+    end
   end
 
   describe "rate limit response for web controllers" do

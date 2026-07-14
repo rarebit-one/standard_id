@@ -12,10 +12,17 @@ module StandardId
                  only: :start,
                  store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
 
-      # RAR-60: Rate limit OTP initiation by target (5 per 15 minutes)
+      # RAR-60: Rate limit OTP initiation by target (5 per 15 minutes). A blank
+      # target would collapse into one shared "api-passwordless:" bucket
+      # (`.compact` does not drop a non-nil empty string), throttling every
+      # caller; fall the key back to the remote IP when the target is blank so
+      # blank spam stays bounded per-IP without poisoning real targets.
       rate_limit to: StandardId.config.rate_limits.api_passwordless_start_per_target,
                  within: 15.minutes,
-                 by: -> { "api-passwordless:#{(params[:username] || params[:email] || params[:phone_number]).to_s.strip.downcase}" },
+                 by: -> {
+                   target = (params[:username] || params[:email] || params[:phone_number]).to_s.strip.downcase
+                   "api-passwordless:#{target.presence || request.remote_ip}"
+                 },
                  name: "passwordless-target",
                  only: :start,
                  store: StandardId::RateLimitHandling::RATE_LIMIT_STORE

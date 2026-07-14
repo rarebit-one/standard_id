@@ -341,9 +341,24 @@ StandardId::ConfigSchema.define do
 
   # Rate limiting defaults (used by Rails 8 built-in rate_limit DSL)
   scope :rate_limits do
-    # RAR-51: Password login
-    field :password_login_per_ip, type: :integer, default: 20        # per 15 minutes
-    field :password_login_per_email, type: :integer, default: 5      # per 15 minutes
+    # RAR-51: Login rate limits.
+    #
+    # Mechanism-agnostic aliases. The `rate_limit` macro that consumes these
+    # sits on Web::LoginController#create, which branches password OR
+    # passwordless — so on a passwordless app these govern the OTP-SEND limit,
+    # not a password login. Prefer these names for new config.
+    field :login_per_ip, type: :integer, default: 20                 # per 15 minutes
+    field :login_per_email, type: :integer, default: 5               # per 15 minutes
+
+    # Deprecated mechanism-specific names, retained for backwards compatibility.
+    # The schema raises ConfigurationError on unknown fields at boot, so these
+    # must NOT be removed while hosts still set them. When a host leaves the
+    # `login_per_*` alias at its default, the login controller falls back to
+    # these values (see StandardId::RateLimitHandling.login_per_ip). New name
+    # wins when explicitly set. Mirrors the max_attempts ->
+    # max_attempts_per_challenge deprecation-alias precedent.
+    field :password_login_per_ip, type: :integer, default: 20        # per 15 minutes; deprecated alias of login_per_ip
+    field :password_login_per_email, type: :integer, default: 5      # per 15 minutes; deprecated alias of login_per_email
 
     # RAR-60: OTP verification
     field :otp_verify_per_ip, type: :integer, default: 20            # per 15 minutes
@@ -361,9 +376,16 @@ StandardId::ConfigSchema.define do
     # Password signup — throttle account-creation spam by IP.
     field :signup_per_ip, type: :integer, default: 10                    # per hour
 
-    # API equivalents
+    # API OTP-initiation limits — the API counterpart of the web *login* limits
+    # (login_per_* / the deprecated password_login_*): the API passwordless
+    # `start` action and the web login action both drive the passwordless
+    # `start!` strategy. NOT the counterpart of verification_start_*
+    # (email/phone verification), which bypasses the strategy via a direct
+    # CodeChallenge.create!.
     field :api_passwordless_start_per_ip, type: :integer, default: 10    # per hour
     field :api_passwordless_start_per_target, type: :integer, default: 5 # per 15 minutes
+
+    # OAuth token endpoint — requests per IP.
     field :api_token_per_ip, type: :integer, default: 30                 # per 15 minutes
 
     # Optional per-audience tightening on top of the api_token_per_ip
