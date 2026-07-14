@@ -30,6 +30,54 @@
           <%= form.submit "Verify", class: "flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" %>
         </div>
       <% end %>
+
+      <%#
+        Resend code. Re-runs the passwordless start path (POST /login with the
+        same email), which re-issues an OTP and redirects back here. The server
+        enforces a resend cooldown (passwordless.retry_delay) and rejects an early
+        resend with a flash alert, so this is safe with JS off. With JS on we mirror
+        that cooldown as a visible "Resend in Ns" countdown and keep the button
+        disabled until it hits 0. @otp_data comes from require_otp_payload!.
+      %>
+      <div class="mt-6 text-center text-sm/6 text-gray-500 dark:text-gray-400">
+        <%= form_with url: login_path, method: :post, local: true, html: { id: "resend-otp-form", class: "inline" } do |resend_form| %>
+          <%= resend_form.hidden_field "login[email]", value: @otp_data[:username] %>
+          Didn't get a code?
+          <button type="submit" id="resend-otp-button" data-retry-delay="<%= otp_retry_delay %>" class="font-semibold text-indigo-600 hover:text-indigo-500 disabled:cursor-not-allowed disabled:text-gray-400 dark:text-indigo-400 dark:hover:text-indigo-300 dark:disabled:text-gray-500">
+            Resend code
+          </button>
+        <% end %>
+      </div>
     </div>
   </div>
 </div>
+
+<%#
+  Client-side resend cooldown. Progressive enhancement: with JS off the button is
+  always active and the server's retry_delay guard is the backstop. Vanilla JS only.
+%>
+<script>
+  (function () {
+    var btn = document.getElementById("resend-otp-button");
+    if (!btn) return;
+    var delay = parseInt(btn.getAttribute("data-retry-delay"), 10);
+    if (!delay || delay <= 0) return;
+
+    var label = "Resend code";
+    var remaining = delay;
+
+    function tick() {
+      if (remaining <= 0) {
+        btn.disabled = false;
+        btn.textContent = label;
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Resend in " + remaining + "s";
+      remaining -= 1;
+      window.setTimeout(tick, 1000);
+    }
+
+    tick();
+  })();
+</script>
