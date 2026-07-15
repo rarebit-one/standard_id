@@ -81,7 +81,7 @@ module StandardId
           fallback = after_authentication_url
           fallback = safe_post_signin_default unless safe_destination?(fallback)
           destination = redirect_override || (safe_destination?(redirect_uri) ? redirect_uri : nil) || fallback
-          redirect_to destination, status: :see_other, notice: "Successfully signed in"
+          redirect_after_authentication destination, notice: "Successfully signed in"
         else
           flash.now[:alert] = "Invalid email or password"
           render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content

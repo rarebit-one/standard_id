@@ -78,7 +78,7 @@ module StandardId
         # blocks Array/Hash but not "https://evil.com/phish". Validate before redirect.
         fallback = after_authentication_url
         destination = redirect_override || (safe_destination?(fallback) ? fallback : safe_post_signin_default)
-        redirect_to destination, status: :see_other, notice: "Successfully signed in"
+        redirect_after_authentication destination, notice: "Successfully signed in"
       rescue StandardId::AuthenticationDenied => e
         session.delete(:standard_id_otp_payload)
         handle_authentication_denied(e, account: account, newly_created: newly_created)
