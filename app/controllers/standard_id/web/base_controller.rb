@@ -75,12 +75,53 @@ module StandardId
         return true if destination.start_with?("/") && !destination.start_with?("//")
         return true if same_origin_url?(destination)
 
+        allow_listed_redirect?(destination)
+      end
+
+      # Whether the host has explicitly allow-listed `destination`'s prefix via
+      # `StandardId.config.allowed_redirect_url_prefixes`. This is the only way a
+      # cross-origin or custom-scheme destination (e.g. "myapp://done") clears
+      # `safe_destination?`, so it is also exactly the condition under which
+      # `redirect_to` needs `allow_other_host: true` — Rails otherwise raises
+      # UnsafeRedirectError. Mirrors the pattern already used by the social
+      # callback (Web::Auth::Callback::ProvidersController).
+      def allow_listed_redirect?(destination)
+        return false if destination.blank?
+
         Array(StandardId.config.allowed_redirect_url_prefixes).any? do |entry|
           case entry
           when Regexp then entry.match?(destination)
           else destination.start_with?(entry.to_s)
           end
         end
+      end
+
+      # Redirect a just-authenticated account to an already-validated `destination`.
+      #
+      # Uses `redirect_with_inertia` rather than `redirect_to` because the sign-in
+      # submit itself may be an Inertia XHR (hosts with `use_inertia` render the
+      # WebEngine's auth pages as Inertia components) while `destination` may not be
+      # an Inertia endpoint at all — the canonical case being the ApiEngine's
+      # /api/authorize in an OAuth flow. An Inertia client follows a 303 with its
+      # X-Inertia header still attached; inertia_rails' middleware then calls
+      # #inertia_configuration on the target controller, which ActionController::API
+      # controllers never receive (inertia_rails only includes its Controller module
+      # via `on_load(:action_controller_base)`), raising NoMethodError → 500.
+      # Emitting 409 + X-Inertia-Location instead makes the client do a full page
+      # visit, which drops the header. The destination being same-origin is not
+      # enough to make a plain redirect safe, so this deliberately keys off the
+      # request being Inertia rather than off the destination.
+      #
+      # `notice` is written to `flash` instead of being passed as a redirect option
+      # because `inertia_location` ignores redirect options — writing it to the
+      # session is what lets the message survive on both branches.
+      def redirect_after_authentication(destination, notice: nil, status: :see_other)
+        flash[:notice] = notice if notice.present?
+
+        options = { status: status }
+        options[:allow_other_host] = true if allow_listed_redirect?(destination)
+
+        redirect_with_inertia destination, **options
       end
 
       def same_origin_url?(destination)

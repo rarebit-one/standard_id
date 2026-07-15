@@ -56,7 +56,9 @@ module StandardId
           fallback = after_authentication_url
           fallback = safe_post_signin_default unless safe_destination?(fallback)
           destination = redirect_override || (safe_destination?(redirect_uri) ? redirect_uri : nil) || fallback
-          redirect_to destination, notice: "Account created successfully"
+          # status: :found preserves this action's long-standing 302 (the other
+          # post-auth redirects use 303); only the Inertia branch changes here.
+          redirect_after_authentication destination, notice: "Account created successfully", status: :found
         else
           @redirect_uri = string_param(:redirect_uri) || after_authentication_url
           @connection = params[:connection]
