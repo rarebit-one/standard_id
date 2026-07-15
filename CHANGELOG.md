@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-07-16
+
+### Fixed
+
+- **Signing in during an OAuth flow returned a 500 when `use_inertia` is on.**
+  With `config.use_inertia = true`, the WebEngine's auth pages are Inertia
+  components, so their form submits are Inertia XHRs. The three
+  post-authentication redirects — passwordless OTP verify, password login, and
+  signup — used a plain `redirect_to` to send the user on to whatever was
+  stashed in `session[:return_to_after_authenticating]`. When that destination
+  is a *non*-Inertia controller (the ApiEngine's `/api/authorize` in an OAuth
+  round-trip), the Inertia client follows the redirect with the `X-Inertia`
+  header still attached, and `inertia_rails`' middleware raises
+  `NoMethodError: undefined method 'inertia_configuration'` — a 500 that broke
+  MCP/OAuth sign-in outright.
+
+  The root asymmetry: `inertia_rails` mixes its controller module in via
+  `on_load(:action_controller_base)`, so `Web::BaseController`
+  (`ActionController::Base`) gets `inertia_configuration` while
+  `Api::BaseController` (`ActionController::API`) never does.
+
+  All three sites now route through a shared `redirect_after_authentication`
+  helper on `Web::BaseController`, which uses the existing
+  `InertiaSupport#redirect_with_inertia` — already used for social login and
+  signup — to emit a 409 + `X-Inertia-Location` so the browser performs a real
+  page visit. Note this is keyed on the *request* being Inertia, not on the
+  destination being cross-origin: the destination in the OAuth case is
+  same-origin, so an external-only check would not have fixed it.
+
+  The flash notice is now written before redirecting so it survives the
+  Inertia branch (which cannot carry `redirect_to`'s `notice:` option).
+
+- **Post-auth redirects to allow-listed deep links raised
+  `UnsafeRedirectError`.** `safe_destination?` admits configured non-HTTP
+  schemes (e.g. `myapp://`), but `redirect_to` rejects them without
+  `allow_other_host:`. Now passed conditionally — mirroring
+  `ProvidersController` — so Rails' same-origin backstop still applies to
+  everything else. `safe_destination?` itself is unchanged.
+
 ## [0.29.0] - 2026-07-15
 
 ### Fixed
