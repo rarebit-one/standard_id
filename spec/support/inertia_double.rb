@@ -20,16 +20,17 @@
 #       key? 'HTTP_X_INERTIA'
 #     end
 #
-# Depending on the real gem in the test group is not currently an option:
-# loading it defines ::InertiaRails globally, which unmasks the persistent
-# `config.use_inertia = true` in spec/lib/standard_id_spec.rb and makes
-# unrelated ERB specs render as Inertia components (12 failures). Fixing that
-# config-isolation leak is worth doing, but it is not this bug.
-#
 # Both modules are inert until a spec opts in: #inertia? is false without the
 # X-Inertia header, and #inertia_location is only reachable through
 # redirect_with_inertia when use_inertia? is true, which requires ::InertiaRails
 # to be defined — which only happens inside an example tagged `:inertia`.
+#
+# `use_inertia` is written to the real config rather than stubbed, because
+# spec/support/config_isolation.rb snapshots and restores the global config
+# around every example. That hook is also what makes swapping this double for
+# the real gem viable: adding inertia_rails to the test group defines
+# ::InertiaRails globally, which is only safe when no example can leave
+# `use_inertia = true` behind.
 module InertiaDouble
   module Request
     def inertia?
@@ -53,6 +54,6 @@ RSpec.configure do |config|
   # Send the X-Inertia header on the individual requests that should take it.
   config.before(:each, :inertia) do
     stub_const("InertiaRails", Module.new)
-    allow(StandardId.config).to receive(:use_inertia).and_return(true)
+    StandardId.config.use_inertia = true
   end
 end

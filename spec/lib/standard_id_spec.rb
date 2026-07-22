@@ -64,26 +64,10 @@ RSpec.describe StandardId do
     end
 
     context "dynamic configuration with multitenancy" do
-      # Save and restore the :social scope's resolver to prevent
-      # register(:social, ...) from leaking into other examples.
-      # Must capture the resolver value, not the Scope object reference, since
-      # register mutates the Scope in place.
-      around do |example|
-        saved_resolver = StandardId.config[:social].resolver
-        # These examples mutate static config (issuer, login_url) to simulate
-        # per-tenant setups. Restore them so the mutations don't leak into
-        # later specs that read these values (e.g. the OAuth consent gate
-        # derives the consent path from login_url).
-        saved_issuer = StandardId.config.issuer
-        saved_login_url = StandardId.config.login_url
-        example.run
-      ensure
-        StandardId.config[:social].resolver = saved_resolver
-        StandardId.configure do |c|
-          c.issuer = saved_issuer
-          c.login_url = saved_login_url
-        end
-      end
+      # These examples mutate static config (issuer, login_url) and register a
+      # resolver on the :social scope. No hand-rolled save/restore is needed —
+      # spec/support/config_isolation.rb snapshots and restores the whole
+      # config tree (values + scope resolvers) around every example.
 
       let(:tenant_configs) do
         {
