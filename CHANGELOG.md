@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`config.oauth.strict_redirect_uri_matching`** (default `false`). RFC 6749
+  §4.1.3 requires a `redirect_uri` that was present at `/authorize` to be
+  repeated, identically, at `/token`; the token endpoint previously only
+  compared the values when the client bothered to send one, so omitting the
+  parameter skipped the check entirely. Strictness is opt-in so the flip is
+  deliberate. While it is off, a code minted **with** a `redirect_uri` that is
+  redeemed **without** one logs a warning naming the `client_id` — watch for
+  it, then set the flag to `true`. Codes minted without a `redirect_uri` are
+  unaffected either way, and a *mismatched* value has always been (and remains)
+  rejected.
+
+- **`config.oauth.revocation_scope`** (default `:account`, the existing
+  behaviour). `POST /oauth/revoke` bulk-revoked **every** active `DeviceSession`
+  for the token's subject regardless of which token was presented, so one
+  client's logout signed the account out everywhere. Setting it to `:grant`
+  narrows revocation to the authorization grant behind the presented token
+  (RFC 7009 §2.1): the refresh-token family its `jti` resolves to, plus that
+  grant's `Session` when one is linked. A stateless access token resolves to no
+  stored artifact and therefore revokes nothing under `:grant` (still `200`,
+  per RFC 7009 §2.2) — present the refresh token. An unrecognised value logs a
+  warning and falls back to `:account`. `ServiceSession`s remain untouched
+  under both settings. The `OAUTH_TOKEN_REVOKED` event payload gains a
+  `refresh_tokens_revoked` count alongside `sessions_revoked` (additive).
+
+- **`Session.authenticate_by_token`** / **`Session#authenticate_token`**.
+  `Session.by_token` matches only the SHA256 `lookup_hash` — an index key, not
+  a credential — so every consumer hand-rolled the mandatory BCrypt verify
+  against `token_digest` (and the `BCrypt::Errors::InvalidHash` rescue). The
+  new entry point does the lookup and a constant-time digest comparison
+  (`ActiveSupport::SecurityUtils.secure_compare`), honours the current scope
+  (`Session.api_compatible.active.authenticate_by_token(token)`) and returns
+  `nil` rather than raising for blank, unknown, mismatched, or malformed-digest
+  tokens.
+
 ### Fixed
 
 - `CHANGELOG.md` is now included in the published gem. The gemspec's file glob

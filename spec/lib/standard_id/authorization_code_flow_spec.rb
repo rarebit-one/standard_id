@@ -130,6 +130,99 @@ RSpec.describe StandardId::Oauth::AuthorizationCodeFlow do
     end
   end
 
+  # RFC 6749 §4.1.3: a redirect_uri included at /authorize MUST be repeated,
+  # identically, at /token. Gated on config.oauth.strict_redirect_uri_matching
+  # so the historical leniency can be retired deliberately.
+  describe "omitted redirect_uri at the token endpoint" do
+    let(:params_without_redirect_uri) do
+      { client_id: client_id, client_secret: client_secret, code: code }
+    end
+
+    before do
+      allow_any_instance_of(described_class)
+        .to receive(:validate_client_secret!)
+        .with(client_id, client_secret)
+        .and_return(credential)
+
+      allow_any_instance_of(described_class)
+        .to receive(:find_authorization_code)
+        .with(code)
+        .and_return(authorization_code)
+    end
+
+    context "when strict_redirect_uri_matching is false (default)" do
+      it "defaults to false" do
+        expect(StandardId.config.oauth.strict_redirect_uri_matching).to be(false)
+      end
+
+      it "accepts the exchange for backward compatibility" do
+        flow = described_class.new(params_without_redirect_uri, request)
+
+        expect { flow.authenticate! }.not_to raise_error
+        expect(authorization_code).to have_received(:mark_as_used!)
+      end
+
+      it "warns, naming the client, so deployments can spot the reliance" do
+        logger = instance_double(Logger, warn: nil, error: nil, info: nil, debug: nil)
+        allow(Rails).to receive(:logger).and_return(logger)
+
+        described_class.new(params_without_redirect_uri, request).authenticate!
+
+        expect(logger).to have_received(:warn).with(/#{client_id}.*redirect_uri/m)
+      end
+
+      it "stays silent when the code was minted without a redirect_uri" do
+        allow(authorization_code).to receive(:redirect_uri).and_return(nil)
+        logger = instance_double(Logger, warn: nil, error: nil, info: nil, debug: nil)
+        allow(Rails).to receive(:logger).and_return(logger)
+
+        described_class.new(params_without_redirect_uri, request).authenticate!
+
+        expect(logger).not_to have_received(:warn)
+      end
+    end
+
+    context "when strict_redirect_uri_matching is true" do
+      # StandardId.config is process-global; restore it so the opt-in doesn't
+      # leak into the rest of the suite.
+      around do |example|
+        original = StandardId.config.oauth.strict_redirect_uri_matching
+        example.run
+      ensure
+        StandardId.config.oauth.strict_redirect_uri_matching = original
+      end
+
+      before { StandardId.configure { |c| c.oauth.strict_redirect_uri_matching = true } }
+
+      it "rejects a code minted with a redirect_uri that the token request omits" do
+        flow = described_class.new(params_without_redirect_uri, request)
+
+        expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError, /Redirect URI mismatch/)
+        expect(authorization_code).not_to have_received(:mark_as_used!)
+      end
+
+      it "still accepts a code minted without a redirect_uri" do
+        allow(authorization_code).to receive(:redirect_uri).and_return(nil)
+
+        flow = described_class.new(params_without_redirect_uri, request)
+
+        expect { flow.authenticate! }.not_to raise_error
+      end
+
+      it "still accepts a matching redirect_uri" do
+        flow = described_class.new(params, request)
+
+        expect { flow.authenticate! }.not_to raise_error
+      end
+
+      it "still rejects a mismatched redirect_uri" do
+        flow = described_class.new(params.merge(redirect_uri: "https://evil.example.com/cb"), request)
+
+        expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError, /Redirect URI mismatch/)
+      end
+    end
+  end
+
   describe "public clients (PKCE, no client_secret)" do
     let(:public_client) do
       instance_double(

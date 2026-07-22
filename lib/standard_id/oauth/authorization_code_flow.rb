@@ -22,9 +22,7 @@ module StandardId
           raise StandardId::InvalidGrantError, "Invalid or expired authorization code"
         end
 
-        if params[:redirect_uri].present? && @authorization_code.redirect_uri != params[:redirect_uri]
-          raise StandardId::InvalidGrantError, "Redirect URI mismatch"
-        end
+        validate_redirect_uri!
 
         # Fail closed: a public client's only authentication factor is PKCE, so a
         # code minted without a code_challenge offers no client authentication at
@@ -43,6 +41,42 @@ module StandardId
       end
 
       private
+
+      # RFC 6749 §4.1.3: when the authorization request carried a redirect_uri,
+      # the token request MUST repeat it and the values MUST be identical.
+      #
+      # A presented value is always compared (that has always been the case).
+      # An OMITTED value is the interesting one: strictly it must be rejected,
+      # but rejecting it unconditionally would break any live client that
+      # relies on the historical leniency, so it is gated on
+      # `config.oauth.strict_redirect_uri_matching` (default false) and logged
+      # loudly in the meantime. See the schema comment for the migration path.
+      def validate_redirect_uri!
+        stored = @authorization_code.redirect_uri
+        presented = params[:redirect_uri]
+
+        if presented.present?
+          raise StandardId::InvalidGrantError, "Redirect URI mismatch" if stored != presented
+          return
+        end
+
+        return if stored.blank?
+
+        unless StandardId.config.oauth.strict_redirect_uri_matching
+          # Rails.logger, not StandardId.logger: the rest of lib/standard_id
+          # logs through Rails directly, and config.logger is host-supplied
+          # (it need not be a Logger at all).
+          Rails.logger.warn(
+            "[StandardId::AuthorizationCodeFlow] client #{params[:client_id]} redeemed an " \
+            "authorization code minted with redirect_uri without sending one at the token " \
+            "endpoint. RFC 6749 §4.1.3 requires it; this is accepted only because " \
+            "config.oauth.strict_redirect_uri_matching is false."
+          )
+          return
+        end
+
+        raise StandardId::InvalidGrantError, "Redirect URI mismatch"
+      end
 
       def emit_code_consumed
         StandardId::Events.publish(

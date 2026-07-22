@@ -153,6 +153,103 @@ RSpec.describe StandardId::Session, type: :model do
     end
   end
 
+  describe ".authenticate_by_token" do
+    let(:account) { Account.create!(name: "Auth Token", email: "auth-token@example.com") }
+
+    let!(:session) do
+      StandardId::DeviceSession.create!(
+        account: account,
+        device_id: "device-#{SecureRandom.hex(4)}",
+        device_agent: "MyApp/1.0",
+        expires_at: 30.days.from_now
+      )
+    end
+
+    let(:token) { session.token }
+
+    it "returns the session for a correct token" do
+      expect(StandardId::Session.authenticate_by_token(token)).to eq(session)
+    end
+
+    it "returns nil for a blank token" do
+      expect(StandardId::Session.authenticate_by_token(nil)).to be_nil
+      expect(StandardId::Session.authenticate_by_token("")).to be_nil
+    end
+
+    it "returns nil when no row matches the lookup hash" do
+      expect(StandardId::Session.authenticate_by_token("no-such-token")).to be_nil
+    end
+
+    it "returns nil when the lookup hash matches but the digest does not" do
+      # The lookup_hash is only an index key: a row found by it is a candidate,
+      # never an authenticated session. Simulate a forged/rotated digest.
+      session.update_column(:token_digest, BCrypt::Password.create("a-different-token"))
+
+      expect(StandardId::Session.authenticate_by_token(token)).to be_nil
+    end
+
+    it "returns nil rather than raising on a malformed digest" do
+      session.update_column(:token_digest, "not-a-bcrypt-hash")
+
+      expect { StandardId::Session.authenticate_by_token(token) }.not_to raise_error
+      expect(StandardId::Session.authenticate_by_token(token)).to be_nil
+    end
+
+    it "honours the current scope" do
+      session.revoke!
+
+      expect(StandardId::Session.authenticate_by_token(token)).to eq(session)
+      expect(StandardId::Session.active.authenticate_by_token(token)).to be_nil
+    end
+
+    it "honours an STI/type scope" do
+      expect(StandardId::Session.api_compatible.authenticate_by_token(token)).to eq(session)
+      expect(StandardId::BrowserSession.authenticate_by_token(token)).to be_nil
+    end
+
+    it "uses a constant-time comparison of the digests" do
+      allow(ActiveSupport::SecurityUtils).to receive(:secure_compare).and_call_original
+
+      StandardId::Session.authenticate_by_token(token)
+
+      expect(ActiveSupport::SecurityUtils).to have_received(:secure_compare)
+    end
+  end
+
+  describe "#authenticate_token" do
+    let(:account) { Account.create!(name: "Auth Token", email: "auth-token-inst@example.com") }
+
+    let(:session) do
+      StandardId::DeviceSession.create!(
+        account: account,
+        device_id: "device-#{SecureRandom.hex(4)}",
+        device_agent: "MyApp/1.0",
+        expires_at: 30.days.from_now
+      )
+    end
+
+    it "is true for the issued token" do
+      expect(session.authenticate_token(session.token)).to be(true)
+    end
+
+    it "is false for a wrong token" do
+      expect(session.authenticate_token("wrong")).to be(false)
+    end
+
+    it "is false for a blank token" do
+      expect(session.authenticate_token(nil)).to be(false)
+    end
+
+    it "is false when the digest is blank" do
+      # The column is NOT NULL, so this is a defensive in-memory guard rather
+      # than a state the DB can hold.
+      token = session.token
+      session.token_digest = nil
+
+      expect(session.authenticate_token(token)).to be(false)
+    end
+  end
+
   describe "#generate_token_digest" do
     let(:account) { Account.create!(name: "Digest Cost Test", email: "digest@example.com") }
 
