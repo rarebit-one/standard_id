@@ -396,22 +396,52 @@ RSpec.describe "StandardId::Api::Oauth::TokensController", type: :request do
           expect(body["error_description"]).to eq("Redirect URI mismatch")
         end
 
-        # CURRENT (lenient) behavior, pinned deliberately: the flow only
-        # compares redirect_uri when the param is present
-        # (`params[:redirect_uri].present? && ...` in
-        # lib/standard_id/oauth/authorization_code_flow.rb), so omitting it
+        # DEFAULT (lenient) behavior, pinned deliberately: omitting redirect_uri
         # skips the check entirely and the exchange succeeds. RFC 6749 §4.1.3
         # says redirect_uri is REQUIRED at token time when it was included in
-        # the authorization request — tightening this to fail closed is
-        # tracked separately; this example exists so any future change is a
-        # conscious one.
-        it "currently succeeds when redirect_uri is omitted at token time (lenient; RFC 6749 §4.1.3 would require it)" do
+        # the authorization request, so this leniency is now opt-out via
+        # `config.oauth.strict_redirect_uri_matching` (see the strict example
+        # below). The default stays lenient for backward compatibility; this
+        # example exists so any change to the DEFAULT is a conscious one.
+        it "succeeds when redirect_uri is omitted at token time (lenient default; RFC 6749 §4.1.3 would require it)" do
           code = issue_code!(client_id: loopback_client.client_id, redirect_uri: authorize_time_redirect_uri)
 
           post path, params: exchange_params(code, nil), as: :json
 
           expect(response).to have_http_status(:ok)
           expect(JSON.parse(response.body)["access_token"]).to be_present
+        end
+
+        context "with config.oauth.strict_redirect_uri_matching enabled" do
+          # StandardId.config is process-global; restore it so the opt-in
+          # doesn't leak into the rest of the suite.
+          around do |example|
+            original = StandardId.config.oauth.strict_redirect_uri_matching
+            StandardId.config.oauth.strict_redirect_uri_matching = true
+            example.run
+          ensure
+            StandardId.config.oauth.strict_redirect_uri_matching = original
+          end
+
+          it "rejects the omitted redirect_uri with invalid_grant" do
+            code = issue_code!(client_id: loopback_client.client_id, redirect_uri: authorize_time_redirect_uri)
+
+            post path, params: exchange_params(code, nil), as: :json
+
+            expect(response).to have_http_status(:bad_request)
+            body = JSON.parse(response.body)
+            expect(body["error"]).to eq("invalid_grant")
+            expect(body["error_description"]).to eq("Redirect URI mismatch")
+          end
+
+          it "still succeeds when the token request echoes the redirect_uri" do
+            code = issue_code!(client_id: loopback_client.client_id, redirect_uri: authorize_time_redirect_uri)
+
+            post path, params: exchange_params(code, authorize_time_redirect_uri), as: :json
+
+            expect(response).to have_http_status(:ok)
+            expect(JSON.parse(response.body)["access_token"]).to be_present
+          end
         end
       end
 

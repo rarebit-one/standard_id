@@ -164,6 +164,56 @@ end
 
 `default_token_lifetime` is applied to every OAuth grant unless you override it in `oauth.token_lifetimes`. Keys map to OAuth grant types (for example `:password`, `:client_credentials`, `:refresh_token`) and should return durations in seconds. Non-token endpoint flows such as the implicit flow can be customized with their symbol key (e.g. `:implicit`). Refresh tokens can be tuned separately through `oauth.refresh_token_lifetime`.
 
+### OAuth Hardening Options
+
+Two spec-conformance settings default to the historical (looser) behaviour so
+that upgrading the gem never changes what a live client sees. **New
+deployments should turn both on.**
+
+```ruby
+StandardId.configure do |config|
+  # RFC 6749 §4.1.3 — reject a token exchange that omits redirect_uri when the
+  # authorization request included one. Default: false (accepted, with a
+  # warning logged naming the client_id). Watch your logs for that warning;
+  # once it stops appearing, flip this to true.
+  config.oauth.strict_redirect_uri_matching = true
+
+  # RFC 7009 — how much POST /oauth/revoke revokes.
+  #   :account (default) revokes EVERY active DeviceSession for the token's
+  #     subject, whichever token was presented — one client's logout signs the
+  #     account out everywhere.
+  #   :grant revokes only the authorization grant behind the presented token:
+  #     the refresh-token family its `jti` resolves to, plus that grant's
+  #     Session when one is linked.
+  config.oauth.revocation_scope = :grant
+end
+```
+
+Under `:grant`, revoking a **stateless access token is a no-op** — this engine
+has no per-access-token store, so it cannot invalidate one before its `exp`
+(the response is still `200`, per RFC 7009 §2.2). Clients that need revocation
+to bite must present the **refresh token**. `token_type_hint` is accepted and
+unused under both settings: the lookup is by `jti`, which is type-agnostic, and
+a wrong hint must not change the outcome.
+
+`ServiceSession`s are never touched by `/oauth/revoke` under either setting —
+machine credentials have their own lifecycle.
+
+### Authenticating Opaque Session Tokens
+
+`Session.by_token` is a **lookup**, not authentication: it matches the SHA256
+`lookup_hash` (an index key). The credential is the BCrypt `token_digest`.
+Use `authenticate_by_token`, which does both and compares in constant time:
+
+```ruby
+session = StandardId::Session.api_compatible.active.authenticate_by_token(token)
+raise Unauthorized if session.nil?
+```
+
+It honours the current scope, returns `nil` (never raises) for a blank,
+unknown, mismatched, or malformed-digest token, and has an instance-level
+counterpart, `session.authenticate_token(token)`.
+
 ### Custom Token Claims
 
 You can add additional JWT claims for any token issued through the OAuth token endpoint by mapping scopes to claim names and providing callbacks to resolve each claim. Scopes listed in `oauth.scope_claims` are evaluated against the requested token scopes; when a scope matches, every claim listed for that scope is resolved via the callable defined in `oauth.claim_resolvers`.

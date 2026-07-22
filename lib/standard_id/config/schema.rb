@@ -318,6 +318,45 @@ StandardId::ConfigSchema.define do
     #   "client_secret_basic" — confidential, secret via HTTP Basic
     #   "client_secret_post"  — confidential, secret in the request body
     field :dynamic_registration_default_auth_method, type: :string, default: "none"
+
+    # RFC 6749 §4.1.3 strictness at the token endpoint.
+    #
+    # The spec is unambiguous: if `redirect_uri` was included in the
+    # authorization request, the client MUST send it again at the token
+    # endpoint and the two values MUST be identical. Historically this engine
+    # only compared the values when the client bothered to send one, so a
+    # client could silently skip the check by omitting the parameter.
+    #
+    # When true, redeeming a code that was minted WITH a redirect_uri fails
+    # with invalid_grant unless the token request repeats the identical value.
+    # Codes minted WITHOUT a redirect_uri are unaffected either way.
+    #
+    # Default is false — the historical, lenient behaviour — because flipping
+    # it silently would break any live client that omits the parameter, and
+    # this gem is consumed by several production apps. In lenient mode the
+    # engine logs a warning naming the client_id every time a code with a
+    # stored redirect_uri is redeemed without one, so deployments can confirm
+    # no client relies on the leniency before opting in. Set it to true.
+    field :strict_redirect_uri_matching, type: :boolean, default: false
+
+    # Blast radius of POST /oauth/revoke (RFC 7009).
+    #
+    #   :account (default) — revoke every active DeviceSession belonging to the
+    #     token's `sub`, regardless of which token was presented. Historical
+    #     behaviour. Fail-safe (it over-revokes) but it means a single client's
+    #     logout signs the account out on every device.
+    #
+    #   :grant — revoke only the authorization grant the presented token
+    #     belongs to: the refresh-token family the token's `jti` resolves to,
+    #     plus that refresh token's Session when one is linked. A presented
+    #     ACCESS token resolves to no stored artifact (access tokens are
+    #     stateless JWTs this engine cannot individually invalidate), so in
+    #     :grant mode revoking an access token is a no-op returning 200 per
+    #     RFC 7009 §2.2 — clients that want revocation to bite must present
+    #     the refresh token.
+    #
+    # An unrecognised value logs a warning and falls back to :account.
+    field :revocation_scope, type: :symbol, default: :account
   end
 
   scope :social do

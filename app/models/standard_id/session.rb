@@ -19,6 +19,48 @@ module StandardId
       where(lookup_hash:)
     }
 
+    # Authenticate an opaque session token.
+    #
+    # `by_token` is NOT authentication on its own: it matches the SHA256
+    # `lookup_hash`, which exists only to find the candidate row from an
+    # indexed column. The credential is the BCrypt `token_digest`, and every
+    # consumer previously had to remember to verify it by hand (and to rescue
+    # BCrypt::Errors::InvalidHash). This is that step, done once, here.
+    #
+    # Honours the current scope, so callers keep their own filters:
+    #
+    #   StandardId::Session.api_compatible.active.authenticate_by_token(token)
+    #
+    # @param token [String, nil] the raw token presented by the client
+    # @return [StandardId::Session, nil] the session, or nil when the token is
+    #   blank, matches no row, or fails the digest verification
+    def self.authenticate_by_token(token)
+      return nil if token.blank?
+
+      session = by_token(token).first
+      return nil if session.nil?
+
+      session.authenticate_token(token) ? session : nil
+    end
+
+    # Timing-safe verification of `token` against this session's stored
+    # BCrypt digest. Re-hashes the presented token with the stored salt and
+    # compares the two digests with a constant-time compare, so the response
+    # time carries no information about how much of the digest matched.
+    #
+    # @return [Boolean] false for a blank or malformed digest — never raises.
+    def authenticate_token(token)
+      return false if token.blank? || token_digest.blank?
+
+      stored = BCrypt::Password.new(token_digest)
+      ActiveSupport::SecurityUtils.secure_compare(
+        stored.to_s,
+        BCrypt::Engine.hash_secret(token, stored.salt)
+      )
+    rescue BCrypt::Errors::InvalidHash, BCrypt::Errors::InvalidSalt
+      false
+    end
+
     attr_reader :token
 
     before_validation :generate_token, :generate_token_digest, :generate_lookup_hash, on: :create
