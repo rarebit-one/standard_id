@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `CHANGELOG.md` is now included in the published gem. The gemspec's file glob
+  omitted it, so every release to date shipped without one even though the file
+  has always existed in the repo — the only gem in the `standard_*` family
+  missing it. No code change; `lib/`, `app/`, `config/`, and `db/` are unaffected.
+
 ## [0.29.1] - 2026-07-16
 
 ### Fixed
