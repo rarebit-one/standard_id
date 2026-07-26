@@ -144,10 +144,35 @@ RSpec.describe StandardId::ControllerPolicy do
     end
 
     describe ".all_controllers" do
+      # Builds its own registry rather than reading whatever the ambient
+      # registry happens to hold. Under random ordering this example can run
+      # before any engine controller has been autoloaded, in which case the
+      # registry is empty and the union assertion is either vacuous or — when
+      # splatted into `include` — raises "include() is not supported".
       it "returns the union of public and authenticated controllers" do
-        all = StandardId::ControllerPolicy.all_controllers
-        expect(all).to include(*StandardId::ControllerPolicy.public_controllers)
-        expect(all).to include(*StandardId::ControllerPolicy.authenticated_controllers)
+        saved = StandardId::ControllerPolicy.registry_snapshot
+        begin
+          StandardId::ControllerPolicy.reset_registry!
+
+          public_controller = Class.new(ActionController::Base) do
+            include StandardId::ControllerPolicy
+            def self.name = "UnionPublicController"
+          end
+          authenticated_controller = Class.new(ActionController::Base) do
+            include StandardId::ControllerPolicy
+            def self.name = "UnionAuthenticatedController"
+          end
+
+          StandardId::ControllerPolicy.register(public_controller, :public)
+          StandardId::ControllerPolicy.register(authenticated_controller, :authenticated)
+
+          expect(StandardId::ControllerPolicy.all_controllers)
+            .to match_array([public_controller, authenticated_controller])
+        ensure
+          StandardId::AuthorizationBypass.reset!
+          StandardId::ControllerPolicy.reset_registry!
+          saved.each { |policy, set| set.each { |c| StandardId::ControllerPolicy.register(c, policy) } }
+        end
       end
     end
   end
