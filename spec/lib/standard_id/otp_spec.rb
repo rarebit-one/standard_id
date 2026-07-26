@@ -70,17 +70,11 @@ RSpec.describe StandardId::Otp do
 
       context "when c.passwordless.delivery is :built_in" do
         before do
-          # Reset subscribers to a clean fanout, then attach exactly one copy of
-          # the bundled delivery subscriber. Mirrors the pattern in
-          # passwordless_delivery_subscriber_spec; without it, the engine's
-          # auto-attach plus any previous-test attach would duplicate the
-          # subscription and inflate enqueue counts.
-          clear_event_subscribers!
-          StandardId::Events::Subscribers::PasswordlessDeliverySubscriber.attach
+          # The engine attaches exactly one PasswordlessDeliverySubscriber at
+          # boot, and spec/support/event_subscriber_isolation.rb restores that
+          # baseline after every example, so no manual clear/attach is needed.
           allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
         end
-
-        after { clear_event_subscribers! }
 
         # Before this regression was fixed, BaseStrategy#start! emitted
         # PASSWORDLESS_CODE_GENERATED unconditionally. PasswordlessDeliverySubscriber
@@ -140,11 +134,6 @@ RSpec.describe StandardId::Otp do
 
     context "delivery: :built_in" do
       before do
-        # Other specs may have replaced the Notifications fanout via
-        # clear_event_subscribers!, detaching the bundled delivery
-        # subscriber. Re-attach it here so this spec does not rely on
-        # test ordering.
-        StandardId::Events::Subscribers::PasswordlessDeliverySubscriber.attach
         allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
       end
 
