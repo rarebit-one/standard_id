@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-07-27
+
+### Fixed
+
+- **`EmailIdentifier` now rejects dot-atom violations in the local part.**
+  `URI::MailTo::EMAIL_REGEXP` models the local part as one flat character class
+  that happens to include `.`, so it accepted dot placements RFC 5322 forbids in
+  an unquoted local part — a leading dot, a trailing dot, and consecutive dots.
+  `a..b@example.com` passed it. Email service providers do not accept these:
+  Postmark rejects them at *send* time with `InvalidEmailRequestError`, so a
+  typo accepted at sign-up only surfaced much later as a failed delivery job,
+  long after the user could have corrected it. The domain pattern is
+  `URI::MailTo`'s own, unchanged; only the local part is stricter.
+
+  **Consumer impact.** Addresses your app previously accepted may now be
+  rejected at the identifier layer. The validation is scoped to a *changed*
+  value, so rows created under the looser rule keep saving until someone edits
+  the address — an existing account will not be locked out of a flow that merely
+  stamps `verified_at`. Check any test fixtures or seeds using addresses with
+  doubled or edge dots.
+
 ## [0.30.0] - 2026-07-26
 
 ### Added
