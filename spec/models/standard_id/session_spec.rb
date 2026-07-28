@@ -248,6 +248,46 @@ RSpec.describe StandardId::Session, type: :model do
 
       expect(session.authenticate_token(token)).to be(false)
     end
+
+    # The whole reason this change needs no migration and no token rotation:
+    # rows digested under the old BCrypt default (and rows written by an app
+    # that sets token_digest_cost) must keep authenticating unchanged.
+    context "with a legacy BCrypt digest" do
+      it "authenticates the issued token" do
+        token = session.token
+        session.update_column(:token_digest, BCrypt::Password.create(token, cost: BCrypt::Engine::MIN_COST))
+
+        expect(session.reload.authenticate_token(token)).to be(true)
+      end
+
+      it "rejects a wrong token" do
+        session.update_column(:token_digest, BCrypt::Password.create("a-different-token", cost: BCrypt::Engine::MIN_COST))
+
+        expect(session.reload.authenticate_token(session.token)).to be(false)
+      end
+
+      it "is selected by the stored digest, not by the current config" do
+        # Config says HMAC; the row says BCrypt. The row wins — otherwise a
+        # config flip would strand every session issued before it.
+        token = session.token
+        session.update_column(:token_digest, BCrypt::Password.create(token, cost: BCrypt::Engine::MIN_COST))
+        StandardId.config.session.token_digest_cost = nil
+
+        expect(session.reload.authenticate_token(token)).to be(true)
+      end
+    end
+
+    it "rejects an HMAC digest computed under a different secret" do
+      # Guards the keying: the digest must not be a bare unkeyed hash of the
+      # token, or anyone who could read a digest could forge one.
+      token = session.token
+      foreign = OpenSSL::HMAC.hexdigest(
+        "SHA256", "not-the-app-secret", "#{described_class::DIGEST_PREFIX}#{token}"
+      )
+      session.update_column(:token_digest, foreign)
+
+      expect(session.reload.authenticate_token(token)).to be(false)
+    end
   end
 
   describe "#generate_token_digest" do
@@ -255,12 +295,8 @@ RSpec.describe StandardId::Session, type: :model do
 
     after { StandardId.config.session.token_digest_cost = nil }
 
-    it "uses BCrypt's built-in default when token_digest_cost is nil" do
+    it "uses an HMAC digest when token_digest_cost is nil" do
       StandardId.config.session.token_digest_cost = nil
-
-      # Reference cost for BCrypt's built-in default in the current env.
-      # In test env BCrypt sets this to MIN_COST for speed; in prod it's 12.
-      reference_cost = BCrypt::Password.create("probe").cost
 
       session = StandardId::BrowserSession.create!(
         account: account,
@@ -268,7 +304,21 @@ RSpec.describe StandardId::Session, type: :model do
         expires_at: 30.days.from_now
       )
 
-      expect(BCrypt::Password.new(session.token_digest).cost).to eq(reference_cost)
+      expect(session.token_digest).to eq(described_class.hmac_token_digest(session.token))
+      expect(session.token_digest).not_to start_with("$2")
+    end
+
+    it "domain-separates the digest from the lookup_hash" do
+      # Both derive from the same token and the same secret, so a construction
+      # that let them coincide would turn the indexed lookup column into the
+      # credential itself.
+      session = StandardId::BrowserSession.create!(
+        account: account,
+        user_agent: "Chrome/120.0",
+        expires_at: 30.days.from_now
+      )
+
+      expect(session.token_digest).not_to eq(session.lookup_hash)
     end
 
     it "respects a configured cost when set" do

@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Session token digests now default to HMAC-SHA256 instead of BCrypt.**
+  `Session#token_digest` was a BCrypt hash at bcrypt-ruby's default cost 12.
+  BCrypt's cost factor exists to make brute-force of a *low-entropy* secret
+  expensive; session tokens are `SecureRandom.urlsafe_base64(32)` — 256 bits —
+  so guessing one is infeasible at any hash speed, and the stretching bought
+  nothing while costing real CPU on every authenticated request.
+
+  The cost was measured in a consuming app, and it is not small: **~181 ms per
+  verify**, paid per *request* rather than per session creation, which collapsed
+  API throughput **19.7×** versus the same requests authenticated by JWT (5.07
+  vs 99.95 rps at concurrency 1). Every endpoint in that mix shifted by the same
+  ~185 ms. Note this is CPU, not lock contention — bcrypt releases the GVL, so
+  four concurrent verifies complete in 3.87× less wall time than four serial
+  ones; it saturates cores rather than serializing requests.
+
+  The new digest is HMAC-SHA256 under `secret_key_base`, domain-separated from
+  `lookup_hash` by both construction and a versioned prefix so the two values
+  can never coincide. This aligns session tokens with how the gem already
+  handles comparable credentials: `RefreshToken` digests with SHA256, and
+  `Session#lookup_hash` is SHA256.
+
+  **Nothing is stranded.** Existing rows are never rewritten and no token
+  rotation is needed. `Session#authenticate_token` reads the scheme off the
+  *stored* digest — BCrypt digests are self-identifying by their `$2<x>$`
+  prefix — so old and new digests verify side by side indefinitely. Sessions
+  issued before upgrading keep working at their old cost until they expire or
+  are re-issued; sessions issued after are fast.
+
+  **Consumer impact — read this if you verify token digests yourself.** If you
+  authenticate opaque session tokens through `Session.authenticate_by_token` or
+  `Session#authenticate_token` (the API added in 0.30), there is nothing to do.
+
+  If you still hand-roll the pre-0.30 pattern —
+
+  ```ruby
+  BCrypt::Password.new(session.token_digest) == token
+  ```
+
+  — **this release breaks you**, and loudly: a newly-created session's digest is
+  a 64-character HMAC, so `BCrypt::Password.new` raises
+  `BCrypt::Errors::InvalidHash` (or, if you rescue that, rejects every new
+  session). That pattern was the only option before 0.30, so it is worth
+  grepping for. Two ways out, either fine:
+
+  1. **Switch to the gem's verifier** (recommended, and correct on both
+     schemes): `StandardId::Session.api_compatible.active.authenticate_by_token(token)`,
+     or `session.authenticate_token(token)` if you already hold the row.
+  2. **Stay on BCrypt for now** by setting `config.session.token_digest_cost`
+     to your preferred cost. New sessions keep being BCrypt-digested and your
+     existing code keeps working, so you can migrate callers on your own
+     schedule. You can flip it back at any time — the scheme is read off each
+     stored digest, so mixing the two is always safe.
+
+  **If you want BCrypt anyway**, set `config.session.token_digest_cost` to the
+  cost you want; that setting now opts *in* to BCrypt rather than merely tuning
+  it. Its previous meaning is preserved for anyone who set it deliberately, and
+  changing it remains safe in both directions because the scheme is read off the
+  stored digest, not off configuration.
+
 ## [0.31.0] - 2026-07-27
 
 ### Fixed
