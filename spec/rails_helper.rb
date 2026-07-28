@@ -75,7 +75,10 @@ Shoulda::Matchers.configure do |config|
   end
 end
 
-BCrypt::Engine.cost = 1
+# Hash at bcrypt's floor for speed. `1` used to be set here, which reads like
+# something faster than MIN_COST but isn't — generate_salt silently clamps
+# anything below MIN_COST (4) up to it.
+BCrypt::Engine.cost = BCrypt::Engine::MIN_COST
 
 # `clear_event_subscribers!` and the per-example notifier isolation that makes
 # it safe live in spec/support/event_subscriber_isolation.rb.
