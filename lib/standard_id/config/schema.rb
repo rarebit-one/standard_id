@@ -173,18 +173,24 @@ StandardId::ConfigSchema.define do
     field :device_session_lifetime, type: :integer, default: 2592000 # 30 days in seconds
     field :service_session_lifetime, type: :integer, default: 7776000 # 90 days in seconds
 
-    # BCrypt cost factor for the session token digest. Default `nil` means
-    # use bcrypt-ruby's built-in default (cost 12 in production, MIN_COST
-    # in the test env). Since session tokens are 256-bit random
-    # (`SecureRandom.urlsafe_base64(32)`), any cost >= 10 is well beyond
-    # realistic brute-force, and dropping from 12 to 10 saves ~200ms of
-    # CPU per session creation. Host apps with many logins-per-second can
-    # set this to `10`; apps that value hash work over login latency can
-    # leave it alone or raise it.
+    # Opt IN to BCrypt for the session token digest, at this cost factor.
     #
-    # When set, value is clamped to BCrypt::Engine::MIN_COST..MAX_COST.
-    # Applies only to newly-created sessions; existing token_digests keep
-    # their original cost.
+    # Default `nil` means HMAC-SHA256 under `secret_key_base`, which is the
+    # right primitive here: session tokens are 256-bit random
+    # (`SecureRandom.urlsafe_base64(32)`), and BCrypt's cost factor exists to
+    # slow brute-force of LOW-entropy secrets. Against a token that cannot be
+    # guessed at any hash speed the stretching bought nothing, while costing a
+    # measured ~181 ms of CPU on every authenticated API request at cost 12 —
+    # note this is paid per REQUEST, not merely per session creation.
+    #
+    # Set it only if you specifically want hash work on this path anyway. When
+    # set, the value is clamped to BCrypt::Engine::MIN_COST..MAX_COST.
+    #
+    # Changing it is always safe and never strands a session:
+    # Session#authenticate_token reads the scheme off the stored digest (BCrypt
+    # digests are self-identifying by their `$2<x>$` prefix), so both schemes
+    # verify side by side and existing rows are never rewritten. As before, a
+    # change applies only to newly-created sessions.
     field :token_digest_cost, type: :integer, default: nil
 
     # Callable that resolves the session class to create for a given auth flow.

@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Session token digests now default to HMAC-SHA256 instead of BCrypt.**
+  `Session#token_digest` was a BCrypt hash at bcrypt-ruby's default cost 12.
+  BCrypt's cost factor exists to make brute-force of a *low-entropy* secret
+  expensive; session tokens are `SecureRandom.urlsafe_base64(32)` — 256 bits —
+  so guessing one is infeasible at any hash speed, and the stretching bought
+  nothing while costing real CPU on every authenticated request.
+
+  The cost was measured in a consuming app, and it is not small: **~181 ms per
+  verify**, paid per *request* rather than per session creation, which collapsed
+  API throughput **19.7×** versus the same requests authenticated by JWT (5.07
+  vs 99.95 rps at concurrency 1). Every endpoint in that mix shifted by the same
+  ~185 ms. Note this is CPU, not lock contention — bcrypt releases the GVL, so
+  four concurrent verifies complete in 3.87× less wall time than four serial
+  ones; it saturates cores rather than serializing requests.
+
+  The new digest is HMAC-SHA256 under `secret_key_base`, domain-separated from
+  `lookup_hash` by both construction and a versioned prefix so the two values
+  can never coincide. This aligns session tokens with how the gem already
+  handles comparable credentials: `RefreshToken` digests with SHA256, and
+  `Session#lookup_hash` is SHA256.
+
+  **Consumer impact: none required, and nothing is stranded.** Existing rows are
+  never rewritten and no token rotation is needed.
+  `Session#authenticate_token` reads the scheme off the *stored* digest —
+  BCrypt digests are self-identifying by their `$2<x>$` prefix — so old and new
+  digests verify side by side indefinitely. Sessions issued before upgrading
+  keep working at their old cost until they expire or are re-issued; sessions
+  issued after are fast.
+
+  **If you want BCrypt anyway**, set `config.session.token_digest_cost` to the
+  cost you want; that setting now opts *in* to BCrypt rather than merely tuning
+  it. Its previous meaning is preserved for anyone who set it deliberately, and
+  changing it remains safe in both directions because the scheme is read off the
+  stored digest, not off configuration.
+
 ## [0.31.0] - 2026-07-27
 
 ### Fixed
