@@ -30,13 +30,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handles comparable credentials: `RefreshToken` digests with SHA256, and
   `Session#lookup_hash` is SHA256.
 
-  **Consumer impact: none required, and nothing is stranded.** Existing rows are
-  never rewritten and no token rotation is needed.
-  `Session#authenticate_token` reads the scheme off the *stored* digest —
-  BCrypt digests are self-identifying by their `$2<x>$` prefix — so old and new
-  digests verify side by side indefinitely. Sessions issued before upgrading
-  keep working at their old cost until they expire or are re-issued; sessions
-  issued after are fast.
+  **Nothing is stranded.** Existing rows are never rewritten and no token
+  rotation is needed. `Session#authenticate_token` reads the scheme off the
+  *stored* digest — BCrypt digests are self-identifying by their `$2<x>$`
+  prefix — so old and new digests verify side by side indefinitely. Sessions
+  issued before upgrading keep working at their old cost until they expire or
+  are re-issued; sessions issued after are fast.
+
+  **Consumer impact — read this if you verify token digests yourself.** If you
+  authenticate opaque session tokens through `Session.authenticate_by_token` or
+  `Session#authenticate_token` (the API added in 0.30), there is nothing to do.
+
+  If you still hand-roll the pre-0.30 pattern —
+
+  ```ruby
+  BCrypt::Password.new(session.token_digest) == token
+  ```
+
+  — **this release breaks you**, and loudly: a newly-created session's digest is
+  a 64-character HMAC, so `BCrypt::Password.new` raises
+  `BCrypt::Errors::InvalidHash` (or, if you rescue that, rejects every new
+  session). That pattern was the only option before 0.30, so it is worth
+  grepping for. Two ways out, either fine:
+
+  1. **Switch to the gem's verifier** (recommended, and correct on both
+     schemes): `StandardId::Session.api_compatible.active.authenticate_by_token(token)`,
+     or `session.authenticate_token(token)` if you already hold the row.
+  2. **Stay on BCrypt for now** by setting `config.session.token_digest_cost`
+     to your preferred cost. New sessions keep being BCrypt-digested and your
+     existing code keeps working, so you can migrate callers on your own
+     schedule. You can flip it back at any time — the scheme is read off each
+     stored digest, so mixing the two is always safe.
 
   **If you want BCrypt anyway**, set `config.session.token_digest_cost` to the
   cost you want; that setting now opts *in* to BCrypt rather than merely tuning
