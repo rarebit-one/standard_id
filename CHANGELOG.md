@@ -19,7 +19,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from inside itself and the guarantee evaporated. It now checks the logger
   responds to `error` first.
 
+- **Provider plugin config fields are now declared before host initializers
+  run**, so `config.social.google_client_id = ...` works in a plain
+  `config/initializers/standard_id.rb` — the way the install template, this
+  README, and both plugin READMEs all said it did.
+
+  It did not. `social.google_client_id` is not in the core schema; the plugin
+  declares it via `Providers::Google.config_schema`, which reached
+  `ConfigSchema.add_field` only through `ProviderRegistry.register`, called from
+  the plugin Railtie's `config.after_initialize` — long after
+  `:load_config_initializers`. The host's write therefore hit
+  `ConfigSchema::Scope#[]=` → `validate!` against a schema that did not yet know
+  the field and raised `StandardId::ConfigurationError: Unknown field
+  'google_client_id' for scope 'social'`, with nothing in the message to suggest
+  the cause was boot ordering. Every consuming app that used a provider plugin
+  independently rediscovered the same
+  `Rails.application.config.after_initialize { ... }` workaround, and the three
+  documented forms disagreed with each other — two of them raised.
+
+  A new core Engine initializer, `standard_id.provider_config_schemas`, runs
+  `before: :load_config_initializers` and declares the fields of every loaded
+  provider class. **No plugin release is required**: provider classes are
+  required at gem-require time, so they are already loaded at that point.
+
+  Only *field declaration* moved earlier. Full `ProviderRegistry.register` —
+  which also runs `validate_provider!` and the provider's `setup` — stays in
+  `after_initialize`, where host configuration is complete.
+
+  **Existing `after_initialize` wrappers keep working verbatim.**
+  `add_field` is retroactive: `Scope#validate!` and `Scope#[]` both consult the
+  schema live, the latter falling back to the field's declared default for an
+  unwritten key, so declaring a field late is indistinguishable from declaring
+  it early. There is nothing to migrate.
+
+  The dummy app now loads a stand-in provider at application-require time and
+  writes its fields from an ordinary initializer, so a regression stops the app
+  booting rather than failing one assertion.
+
 ### Added
+
+- `StandardId::ProviderRegistry.declare_config_schemas!`,
+  `.declare_config_schema(provider_class)` and `.provider_classes` — public
+  entry points for the above. Useful if you define a provider somewhere the
+  boot-time sweep cannot see it (e.g. under `app/`, autoloaded) and need to
+  declare its fields yourself.
 
 - **`StandardId::Session.revoke_all_for!(account, reason:)`** — bulk session
   revocation that cascades to refresh tokens, promoted from the private
@@ -59,6 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`StandardId::Session.revoke_sessions!(sessions, account:, reason:)`** — the
   same set-based core over an explicit collection, for callers that have already
   selected the sessions (e.g. the tokens of a single authorization grant).
+### Documentation
+
+- The install template's social-login section now states that these fields come
+  from the plugin gems, that omitting the gem is what makes them raise, and that
+  the `after_initialize` workaround is no longer needed. Documenting "requires
+  0.33.0" alone would have been wrong: uncommenting a line without the provider
+  gem in the Gemfile still raises.
 
 ## [0.32.0] - 2026-07-28
 

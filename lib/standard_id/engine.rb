@@ -10,6 +10,33 @@ module StandardId
   class Engine < ::Rails::Engine
     isolate_namespace StandardId
 
+    # Declare provider plugins' `social` config fields BEFORE the host app's
+    # `config/initializers/standard_id.rb` runs, so an initializer can write
+    # `c.social.google_client_id` the way every doc says it can.
+    #
+    # Without this, the only thing that declared those fields was
+    # `ProviderRegistry.register`, called from each plugin Railtie's
+    # `config.after_initialize` — which runs long after
+    # `:load_config_initializers`. The host's write hit
+    # `ConfigSchema::Scope#[]=` → `validate!` against a schema that did not yet
+    # know the field and raised `StandardId::ConfigurationError`, with nothing
+    # in the message to hint that the cause was boot ordering. Consuming apps
+    # each independently rediscovered the same
+    # `Rails.application.config.after_initialize { ... }` wrapper to get around
+    # it, and the install template plus two plugin READMEs documented three
+    # mutually inconsistent forms, two of which raised.
+    #
+    # `before:` rather than a plain positional declaration: engine initializers
+    # otherwise run in `Rails::Engine`-collection order relative to the
+    # application's own, and `:load_config_initializers` is an application
+    # bootstrap step, so an explicit edge is the only ordering guarantee.
+    #
+    # This needs no plugin release — provider classes are required at
+    # gem-require time, so they are already loaded here.
+    initializer "standard_id.provider_config_schemas", before: :load_config_initializers do
+      StandardId::ProviderRegistry.declare_config_schemas!
+    end
+
     initializer "standard_id.filter_parameters" do |app|
       app.config.filter_parameters += %i[
         code_verifier

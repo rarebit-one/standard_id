@@ -237,6 +237,20 @@ Resolvers receive keyword arguments with the context containing `client`, `accou
 
 ### Social Login Setup
 
+The `social.google_*` and `social.apple_*` fields are declared by the **provider
+plugin gems**, not by `standard_id` itself — add `standard_id-google` and/or
+`standard_id-apple` to your Gemfile first. Writing a field whose gem is absent
+raises `StandardId::ConfigurationError` ("Unknown field ... for scope
+`social`"), because nothing declared it.
+
+With the gem present, a plain initializer is correct: since 0.33.0 `standard_id`
+declares every loaded provider's fields before `:load_config_initializers`, so
+these writes happen after the schema knows about them. On 0.32.0 and earlier the
+fields were declared only from the plugin Railtie's `after_initialize`, so the
+same code raised and apps wrapped the writes in
+`Rails.application.config.after_initialize { ... }`. That wrapper is no longer
+necessary; existing ones keep working unchanged.
+
 ```ruby
 StandardId.configure do |config|
   # Google OAuth

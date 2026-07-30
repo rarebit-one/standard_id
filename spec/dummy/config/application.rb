@@ -13,6 +13,10 @@ require "action_mailer/railtie"
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
 
+# Stand-in for a provider plugin gem's entry file, required here so the provider
+# class is loaded at the same point in boot a real plugin loads it.
+require_relative "dummy_social_provider"
+
 module Dummy
   class Application < Rails::Application
     config.load_defaults Rails::VERSION::STRING.to_f
