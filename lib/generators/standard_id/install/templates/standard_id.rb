@@ -44,6 +44,31 @@ StandardId.configure do |c|
   # Default: false
   # c.alias_current_user = true
 
+  # Opt StandardId's OWN associations out of an app-wide
+  # `strict_loading_by_default = true`.
+  #
+  # Affects Account#identifiers/credentials/sessions/refresh_tokens/
+  # client_applications, StandardId::Session#refresh_tokens and
+  # StandardId::Identifier#credentials. Set it to false if strict loading is on
+  # app-wide and you don't want to eager-load the gem's internals at every call
+  # site (the gem lazy-loads some of them itself).
+  #
+  # Tri-state, and nil is NOT the same as false:
+  #   nil   — declare no `strict_loading:` option at all; the associations
+  #           inherit your model's setting, exactly as before this option
+  #           existed. This is the default and preserves existing behaviour.
+  #   false — opt out: these associations may lazy-load even with strict
+  #           loading on app-wide.
+  #   true  — opt in: force strict loading on them even if it is off app-wide.
+  #
+  # Must be set HERE, in an initializer — not in an `after_initialize` block.
+  # The associations read it when your Account class body runs, so a later
+  # assignment has no effect. StandardId raises a ConfigurationError at boot if
+  # it detects that, rather than letting it fail silently.
+  #
+  # Default: nil
+  # c.association_strict_loading = false
+
   # Default scope applied when loading the current account — eager-load the
   # associations your views/controllers touch to avoid N+1s.
   # Default: nil

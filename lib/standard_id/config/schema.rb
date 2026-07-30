@@ -19,6 +19,22 @@ StandardId::ConfigSchema.define do
     field :inertia_component_namespace, type: :string, default: "standard_id"
     field :alias_current_user, type: :boolean, default: false
 
+    # Opt the gem's own associations out of an app-wide
+    # `strict_loading_by_default = true`.
+    #
+    # `nil` (default) means "say nothing": the `strict_loading:` option is
+    # omitted from the association declarations entirely, so they inherit the
+    # owner's setting exactly as they always have. `false` opts them out; `true`
+    # forces them on even in an app that has strict loading off.
+    #
+    # This must stay tri-state and `nil` must mean OMITTED, not `false`. Rails
+    # checks `reflection.options.key?(:strict_loading)` before consulting the
+    # owner (ActiveRecord::Associations::Association#violates_strict_loading?),
+    # so declaring `strict_loading: nil` would put the key in the hash and make
+    # `reflection.strict_loading?` return false — silently disabling strict
+    # loading for every app that never asked for it.
+    field :association_strict_loading, type: :any, default: nil
+
     # Scope-aware authentication: maps scope names to profile-based access config.
     # Each scope is a hash with keys: :profile_types (Array<String>), :after_sign_in_path,
     # :no_profile_message, :label, :allow_registration, :authorizer.

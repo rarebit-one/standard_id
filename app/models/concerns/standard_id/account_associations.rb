@@ -3,11 +3,24 @@ module StandardId
     extend ActiveSupport::Concern
 
     included do
-      has_many :identifiers, class_name: "StandardId::Identifier", dependent: :restrict_with_exception
-      has_many :credentials, class_name: "StandardId::Credential", through: :identifiers, source: :credentials, dependent: :restrict_with_exception
-      has_many :sessions, class_name: "StandardId::Session", dependent: :restrict_with_exception
-      has_many :refresh_tokens, class_name: "StandardId::RefreshToken", dependent: :restrict_with_exception
-      has_many :client_applications, class_name: "StandardId::ClientApplication", as: :owner, dependent: :restrict_with_exception
+      # `strict_loading:` is passed at declaration time — the supported Rails
+      # API, and the only thing that works for the `:through` association below,
+      # where re-declaration in the host risks ordering breakage. It resolves to
+      # NO OPTION AT ALL unless `config.association_strict_loading` is set, so
+      # these associations keep inheriting the owner's setting by default. See
+      # StandardId::AssociationStrictLoading for why `nil` must not become
+      # `strict_loading: nil`.
+      #
+      # This block runs when the HOST's Account class body runs, so the config
+      # must already be set by then; `AssociationStrictLoading.verify_consistency!`
+      # turns a too-late assignment into a boot failure instead of a silent one.
+      strict_loading_option = StandardId::AssociationStrictLoading.option
+
+      has_many :identifiers, class_name: "StandardId::Identifier", dependent: :restrict_with_exception, **strict_loading_option
+      has_many :credentials, class_name: "StandardId::Credential", through: :identifiers, source: :credentials, dependent: :restrict_with_exception, **strict_loading_option
+      has_many :sessions, class_name: "StandardId::Session", dependent: :restrict_with_exception, **strict_loading_option
+      has_many :refresh_tokens, class_name: "StandardId::RefreshToken", dependent: :restrict_with_exception, **strict_loading_option
+      has_many :client_applications, class_name: "StandardId::ClientApplication", as: :owner, dependent: :restrict_with_exception, **strict_loading_option
 
       accepts_nested_attributes_for :identifiers
     end

@@ -5,7 +5,10 @@ module StandardId
     self.table_name = "standard_id_sessions"
 
     belongs_to :account, class_name: StandardId.config.account_class_name
-    has_many :refresh_tokens, class_name: "StandardId::RefreshToken", dependent: :nullify
+    # See StandardId::AssociationStrictLoading — resolves to no option at all
+    # unless config.association_strict_loading is set.
+    has_many :refresh_tokens, class_name: "StandardId::RefreshToken", dependent: :nullify,
+             **StandardId::AssociationStrictLoading.option
 
     before_destroy :revoke_active_refresh_tokens, prepend: true
 
