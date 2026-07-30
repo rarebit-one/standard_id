@@ -66,16 +66,15 @@ module StandardId
                           "Set StandardId.config.issuer in your initializer for production use.")
       end
 
-      # Validate configured callables have the right shape and that every
-      # claim listed in scope_claims has a resolver registered. Raising here
-      # surfaces typos at boot instead of at callback time in production.
-      StandardId::AssociationStrictLoading.verify_consistency!
       # Fail loudly if `association_strict_loading` was assigned after the
       # host's Account class body already ran — that assignment has no effect,
       # and its only symptom otherwise is a StrictLoadingViolationError deep in
       # a request or a silent N+1 in production.
       StandardId::AssociationStrictLoading.verify_consistency!
 
+      # Validate configured callables have the right shape and that every
+      # claim listed in scope_claims has a resolver registered. Raising here
+      # surfaces typos at boot instead of at callback time in production.
       StandardId::Config::CallableValidator.validate!
       StandardId::Config::ScopeClaimsValidator.validate!
 
