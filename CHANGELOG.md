@@ -7,56 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- `Session.revoke_sessions!` no longer aborts the revocation loop when logging
-  itself fails. The rescue around each `SESSION_REVOKED` publish exists so a
-  failing subscriber cannot short-circuit the loop and leave later sessions
-  without their event — but it logged via `StandardId.logger.error`, and
-  `StandardId.logger` is a *memoized* `config.logger || Rails.logger`, so
-  whatever the first reader in the process saw is what every later caller gets,
-  including a value that is not a logger at all. In that case the rescue raised
-  from inside itself and the guarantee evaporated. It now checks the logger
-  responds to `error` first.
-
-- **Provider plugin config fields are now declared before host initializers
-  run**, so `config.social.google_client_id = ...` works in a plain
-  `config/initializers/standard_id.rb` — the way the install template, this
-  README, and both plugin READMEs all said it did.
-
-  It did not. `social.google_client_id` is not in the core schema; the plugin
-  declares it via `Providers::Google.config_schema`, which reached
-  `ConfigSchema.add_field` only through `ProviderRegistry.register`, called from
-  the plugin Railtie's `config.after_initialize` — long after
-  `:load_config_initializers`. The host's write therefore hit
-  `ConfigSchema::Scope#[]=` → `validate!` against a schema that did not yet know
-  the field and raised `StandardId::ConfigurationError: Unknown field
-  'google_client_id' for scope 'social'`, with nothing in the message to suggest
-  the cause was boot ordering. Every consuming app that used a provider plugin
-  independently rediscovered the same
-  `Rails.application.config.after_initialize { ... }` workaround, and the three
-  documented forms disagreed with each other — two of them raised.
-
-  A new core Engine initializer, `standard_id.provider_config_schemas`, runs
-  `before: :load_config_initializers` and declares the fields of every loaded
-  provider class. **No plugin release is required**: provider classes are
-  required at gem-require time, so they are already loaded at that point.
-
-  Only *field declaration* moved earlier. Full `ProviderRegistry.register` —
-  which also runs `validate_provider!` and the provider's `setup` — stays in
-  `after_initialize`, where host configuration is complete.
-
-  **Existing `after_initialize` wrappers keep working verbatim.**
-  `add_field` is retroactive: `Scope#validate!` and `Scope#[]` both consult the
-  schema live, the latter falling back to the field's declared default for an
-  unwritten key, so declaring a field late is indistinguishable from declaring
-  it early. There is nothing to migrate.
-
-  The dummy app now loads a stand-in provider at application-require time and
-  writes its fields from an ordinary initializer, so a regression stops the app
-  booting rather than failing one assertion.
-
 ### Added
+
+- **RFC 7662 token introspection** — `POST /oauth/introspect`, behind
+  `config.oauth.introspection_enabled` (default **false**). When off the
+  endpoint returns 404 and `introspection_endpoint` is not advertised in either
+  discovery document, mirroring how `dynamic_registration_enabled` gates
+  `/oauth/register`.
+
+  Confidential clients only: `client_id` + `client_secret`, via HTTP Basic or
+  the form body (RFC 6749 §2.3.1 — never both). Every failure mode renders
+  `{"active": false}` with **no other members**, per RFC 7662 §2.2.
+
+  Throttled per IP via `config.rate_limits.introspection_per_ip` (default 30 per
+  15 minutes).
+
+  Two properties are load-bearing and deliberately not what you would reach for:
+
+  - **The rate limit renders `{"active": false}` / 200, never 429.** A 429
+    distinguishes "you are throttled" from "that token is not valid", which turns
+    the limiter into a token-validity oracle — an attacker probes until throttled
+    and then reads the *status code* to classify tokens. This opts out of
+    `RateLimitHandling.rate_limit`'s wrapper by passing an explicit `with:`. The
+    reason is commented at the call site, because it reads like a bug otherwise.
+  - **The limit keys on `request.remote_ip`** — not Rack's `request.ip`, which
+    resolves the forwarding chain against Rack's own trusted-proxy list rather
+    than `config.action_dispatch.trusted_proxies` and therefore collapses every
+    caller behind a CDN into one bucket. And never on the `Authorization` header
+    or `client_id`: `rate_limit` is a `before_action` that runs *before* client
+    authentication, so a header-derived key is attacker-controlled and a caller
+    could mint a fresh bucket per request by rotating it.
+
+  **Know this limit before building an authorization gate on it.** Access tokens
+  are stateless — never persisted, carrying no `sid` — so **a revoked session's
+  access token introspects as `active: true` until its `exp`**. Introspection
+  answers "did we mint this, and is it unexpired?", not "is it still honoured?".
+  The only mitigation is a short access-token lifetime. Refresh tokens *are*
+  persisted (as `SHA256(jti)`) and are checked against the row, so a revoked or
+  expired refresh token introspects as inactive immediately, and is reported with
+  `token_type: "refresh_token"`. Both halves are asserted by specs, the access-token
+  one deliberately, so nobody later "corrects" the documentation to overclaim.
+
+- `config.oauth.introspection_enabled` and
+  `config.rate_limits.introspection_per_ip`, both documented inline in the
+  install template.
+
 
 - `StandardId::ProviderRegistry.declare_config_schemas!`,
   `.declare_config_schema(provider_class)` and `.provider_classes` — public
@@ -146,6 +141,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`StandardId::Session.revoke_sessions!(sessions, account:, reason:)`** — the
   same set-based core over an explicit collection, for callers that have already
   selected the sessions (e.g. the tokens of a single authorization grant).
+
+### Fixed
+
+- `Session.revoke_sessions!` no longer aborts the revocation loop when logging
+  itself fails. The rescue around each `SESSION_REVOKED` publish exists so a
+  failing subscriber cannot short-circuit the loop and leave later sessions
+  without their event — but it logged via `StandardId.logger.error`, and
+  `StandardId.logger` is a *memoized* `config.logger || Rails.logger`, so
+  whatever the first reader in the process saw is what every later caller gets,
+  including a value that is not a logger at all. In that case the rescue raised
+  from inside itself and the guarantee evaporated. It now checks the logger
+  responds to `error` first.
+
+- **Provider plugin config fields are now declared before host initializers
+  run**, so `config.social.google_client_id = ...` works in a plain
+  `config/initializers/standard_id.rb` — the way the install template, this
+  README, and both plugin READMEs all said it did.
+
+  It did not. `social.google_client_id` is not in the core schema; the plugin
+  declares it via `Providers::Google.config_schema`, which reached
+  `ConfigSchema.add_field` only through `ProviderRegistry.register`, called from
+  the plugin Railtie's `config.after_initialize` — long after
+  `:load_config_initializers`. The host's write therefore hit
+  `ConfigSchema::Scope#[]=` → `validate!` against a schema that did not yet know
+  the field and raised `StandardId::ConfigurationError: Unknown field
+  'google_client_id' for scope 'social'`, with nothing in the message to suggest
+  the cause was boot ordering. Every consuming app that used a provider plugin
+  independently rediscovered the same
+  `Rails.application.config.after_initialize { ... }` workaround, and the three
+  documented forms disagreed with each other — two of them raised.
+
+  A new core Engine initializer, `standard_id.provider_config_schemas`, runs
+  `before: :load_config_initializers` and declares the fields of every loaded
+  provider class. **No plugin release is required**: provider classes are
+  required at gem-require time, so they are already loaded at that point.
+
+  Only *field declaration* moved earlier. Full `ProviderRegistry.register` —
+  which also runs `validate_provider!` and the provider's `setup` — stays in
+  `after_initialize`, where host configuration is complete.
+
+  **Existing `after_initialize` wrappers keep working verbatim.**
+  `add_field` is retroactive: `Scope#validate!` and `Scope#[]` both consult the
+  schema live, the latter falling back to the field's declared default for an
+  unwritten key, so declaring a field late is indistinguishable from declaring
+  it early. There is nothing to migrate.
+
+  The dummy app now loads a stand-in provider at application-require time and
+  writes its fields from an ordinary initializer, so a regression stops the app
+  booting rather than failing one assertion.
+
 ### Documentation
 
 - The install template's social-login section now states that these fields come

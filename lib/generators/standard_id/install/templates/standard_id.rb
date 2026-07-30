@@ -266,6 +266,29 @@ StandardId.configure do |c|
   # Must return a Hash. Reserved JWT keys (sub, exp, iat, etc.) are excluded.
   # c.oauth.custom_claims = ->(account:, **) { { channel_id: account.channel_id } }
 
+  # RFC 7662 token introspection (POST /oauth/introspect).
+  #
+  # Off by default: the endpoint returns 404 and `introspection_endpoint` is not
+  # advertised in the discovery documents. An endpoint that answers questions
+  # about other people's tokens is not something to expose by accident.
+  #
+  # Confidential clients only — the caller presents client_id + client_secret
+  # (HTTP Basic or form body). Every failure renders `{"active": false}` with no
+  # other members, per RFC 7662 §2.2, including a tripped rate limit (a 429
+  # would distinguish "throttled" from "token invalid" and make the limiter a
+  # token-validity oracle).
+  #
+  # KNOW THE LIMIT BEFORE BUILDING AN AUTHORIZATION GATE ON THIS. Access tokens
+  # are stateless — never persisted, and carrying no `sid` — so a revoked
+  # session's access token introspects as `active: true` until its `exp`.
+  # Introspection answers "did we mint this, and is it unexpired?", NOT "is it
+  # still honoured?". The mitigation is a short access-token lifetime. Refresh
+  # tokens ARE persisted and are checked against the row, so a revoked refresh
+  # token introspects as inactive immediately.
+  #
+  # Default: false
+  # c.oauth.introspection_enabled = true
+
   # JWT signing configuration.
   #
   # Default: :hs256 symmetric signing with Rails.application.secret_key_base.
@@ -413,6 +436,12 @@ StandardId.configure do |c|
   # c.rate_limits.api_passwordless_start_per_ip  = 10  # per hour
   # c.rate_limits.api_passwordless_start_per_target = 5  # per 15 minutes
   # c.rate_limits.api_token_per_ip               = 30  # per 15 minutes
+
+  # Token introspection (only relevant with c.oauth.introspection_enabled).
+  # Throttles by IP so the endpoint can't be used to bulk-classify stolen
+  # tokens. Note the limit renders the ordinary {"active": false} / 200 rather
+  # than 429 — see the introspection_enabled comment above for why.
+  # c.rate_limits.introspection_per_ip           = 30  # per 15 minutes
 
   # Optional per-audience tightening on top of api_token_per_ip. Only token
   # requests targeting a configured audience count toward its cap (per IP,

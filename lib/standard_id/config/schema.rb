@@ -316,6 +316,27 @@ StandardId::ConfigSchema.define do
     # OAuth clients), so it is opt-in: a deployment must explicitly turn it on.
     field :dynamic_registration_enabled, type: :boolean, default: false
 
+    # Enable the RFC 7662 token introspection endpoint (POST /oauth/introspect).
+    #
+    # When false (the default), the endpoint is fully absent (404) and
+    # `introspection_endpoint` is NOT advertised in the discovery documents. An
+    # endpoint that answers questions about other people's tokens is not something
+    # to expose by accident, so it is opt-in — same posture as
+    # `dynamic_registration_enabled`.
+    #
+    # Confidential clients only: the caller authenticates with client_id +
+    # client_secret (HTTP Basic or form body). Every failure renders
+    # `{"active": false}` with no other members, per RFC 7662 §2.2.
+    #
+    # KNOW THE LIMIT BEFORE BUILDING ON IT: access tokens are stateless — never
+    # persisted, and carrying no `sid` — so a revoked session's access token
+    # introspects as `active: true` until its `exp`. Introspection answers "did we
+    # mint this, and is it unexpired?", NOT "is it still honoured?". Keep
+    # `access_token_lifetime` short. Refresh tokens ARE persisted and are checked
+    # against the row, so a revoked refresh token introspects as inactive
+    # immediately.
+    field :introspection_enabled, type: :boolean, default: false
+
     # Callable resolving the polymorphic owner assigned to clients created via
     # Dynamic Client Registration (the `owner` association on ClientApplication
     # is required). Example: `-> { Organization.default }`.
@@ -461,5 +482,12 @@ StandardId::ConfigSchema.define do
     # Dynamic client registration (RFC 7591) — throttle the open registration
     # endpoint by IP so an enabled deployment can't be flooded with client rows.
     field :dynamic_registration_per_ip, type: :integer, default: 10      # per hour
+
+    # Token introspection (RFC 7662) — throttle by IP so the endpoint cannot be
+    # used to bulk-classify stolen tokens. Note the limit renders the ordinary
+    # `{"active": false}` / 200 rather than 429: a 429 would distinguish
+    # "throttled" from "token invalid" and turn the limiter into a token-validity
+    # oracle.
+    field :introspection_per_ip, type: :integer, default: 30              # per 15 minutes
   end
 end

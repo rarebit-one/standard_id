@@ -18,6 +18,11 @@ StandardId::ApiEngine.routes.draw do
       resource :token, only: [:create]
       resource :revoke, only: [:create], controller: :revocations
 
+      # RFC 7662 Token Introspection -> POST /oauth/introspect.
+      # The controller returns 404 when oauth.introspection_enabled is false, so
+      # the endpoint is fully absent unless explicitly enabled.
+      resource :introspect, only: [:create], controller: :introspections
+
       # RFC 7591 Dynamic Client Registration -> POST /oauth/register.
       # The controller returns 404 when oauth.dynamic_registration_enabled is
       # false, so the endpoint is fully absent unless explicitly enabled.

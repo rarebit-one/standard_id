@@ -24,8 +24,13 @@ module StandardId
       #   `StandardId.config.oauth.dynamic_registration_enabled` here, so the
       #   `registration_endpoint` is emitted only when DCR is turned on. Defaults
       #   to false so callers (and tests) that omit it get no registration_endpoint.
+      # @param introspection_enabled [Boolean] when true, advertises the RFC 7662
+      #   introspection endpoint. The well-known controllers pass
+      #   `StandardId.config.oauth.introspection_enabled`, so it is advertised only
+      #   when the endpoint actually exists (the controller 404s when off).
+      #   Defaults to false, matching registration_enabled.
       # @return [Hash]
-      def build(issuer, registration_enabled: false)
+      def build(issuer, registration_enabled: false, introspection_enabled: false)
         base = issuer.to_s.chomp("/")
 
         doc = {
@@ -55,6 +60,7 @@ module StandardId
         doc[:jwks_uri] = "#{base}/.well-known/jwks.json" if StandardId::JwtService.asymmetric?
 
         doc[:registration_endpoint] = "#{base}/oauth/register" if registration_enabled
+        doc[:introspection_endpoint] = "#{base}/oauth/introspect" if introspection_enabled
 
         doc
       end
