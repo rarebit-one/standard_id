@@ -4,6 +4,9 @@ module StandardId
       class RevocationsController < BaseController
         VALID_REVOCATION_SCOPES = %i[account grant].freeze
 
+        # Carried on every SESSION_REVOKED event this endpoint causes.
+        REVOCATION_REASON = "token_revocation".freeze
+
         public_controller
 
         skip_before_action :validate_content_type!
@@ -56,14 +59,15 @@ module StandardId
         # credentials with their own lifecycle, not something an interactive
         # client's logout should silently kill.
         def revoke_account_sessions!(account_id)
-          sessions = StandardId::DeviceSession.where(account_id: account_id).active.to_a
-          return if sessions.empty?
+          result = StandardId::DeviceSession
+            .active
+            .revoke_all_for!(account_id, reason: REVOCATION_REASON)
+          return if result.sessions_revoked.zero?
 
-          refresh_tokens_revoked = revoke_sessions!(sessions)
           emit_token_revoked(
             account_id: account_id,
-            sessions_revoked: sessions.size,
-            refresh_tokens_revoked: refresh_tokens_revoked
+            sessions_revoked: result.sessions_revoked,
+            refresh_tokens_revoked: result.refresh_tokens_revoked
           )
         end
 
@@ -100,68 +104,15 @@ module StandardId
           # (RefreshToken#session_id is nil unless the flow sets it).
           session = record.session
           sessions = (session && session.active?) ? [session] : []
-          refresh_tokens_revoked += revoke_sessions!(sessions, account: record.account)
+          refresh_tokens_revoked += StandardId::Session.revoke_sessions!(
+            sessions, account: record.account, reason: REVOCATION_REASON
+          ).refresh_tokens_revoked
 
           emit_token_revoked(
             account_id: payload[:sub],
             sessions_revoked: sessions.size,
             refresh_tokens_revoked: refresh_tokens_revoked
           )
-        end
-
-        # Bulk-revoke in two queries (one UPDATE per table) instead of
-        # issuing session.revoke! per row, which would be O(N) UPDATEs plus
-        # another O(N) cascades to refresh_tokens.
-        #
-        # Tradeoff: update_all skips ActiveRecord callbacks, so the per-row
-        # SESSION_REVOKED event emitted by Session#revoke! is not fired
-        # automatically. We re-emit it explicitly below so audit-trail
-        # subscribers (account status/locking, etc.) still see one event
-        # per revoked session — the semantics are preserved, only the SQL
-        # shape has changed.
-        #
-        # @return [Integer] number of refresh-token rows revoked by the cascade
-        def revoke_sessions!(sessions, account: nil)
-          return 0 if sessions.empty?
-
-          now = Time.current
-          session_ids = sessions.map(&:id)
-          refresh_tokens_revoked = 0
-
-          ActiveRecord::Base.transaction do
-            StandardId::Session.where(id: session_ids).update_all(revoked_at: now)
-            refresh_tokens_revoked = StandardId::RefreshToken
-              .where(session_id: session_ids, revoked_at: nil)
-              .update_all(revoked_at: now)
-          end
-
-          # DB state is already committed above; event publishing is best-effort
-          # audit emission. A failing subscriber must not short-circuit the loop
-          # and leave later sessions without their SESSION_REVOKED event, which
-          # would permanently desync audit-trail consumers from the DB.
-          #
-          # All sessions here belong to the same account (both callers scope by
-          # account), so we load the account once rather than calling
-          # session.account per row, which would issue N extra SELECTs.
-          shared_account = account || sessions.first.account
-          sessions.each do |session|
-            session.revoked_at = now
-            begin
-              StandardId::Events.publish(
-                StandardId::Events::SESSION_REVOKED,
-                session: session,
-                account: shared_account,
-                reason: "token_revocation"
-              )
-            rescue StandardError => e
-              StandardId.logger.error(
-                "[StandardId::Revocations] Failed to publish SESSION_REVOKED " \
-                "for session #{session.id}: #{e.class}: #{e.message}"
-              )
-            end
-          end
-
-          refresh_tokens_revoked
         end
 
         def emit_token_revoked(account_id:, sessions_revoked:, refresh_tokens_revoked:)

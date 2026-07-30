@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`StandardId::Session.revoke_all_for!(account, reason:)`** — bulk session
+  revocation that cascades to refresh tokens, promoted from the private
+  `RevocationsController#revoke_sessions!` where it had lived since the RFC 7009
+  endpoint was built.
+
+  Consuming apps that bulk-revoked with a bare
+  `Session.where(account:).update_all(revoked_at:)` were silently skipping the
+  refresh-token cascade that `Session#revoke!` performs, leaving the holder of a
+  refresh token able to keep minting access tokens after a password reset or
+  account deactivation — and skipping the `session.revoked` event, so
+  audit-trail and account-locking subscribers never learned. This gives them a
+  supported API instead of a local re-implementation.
+
+  Two set-based UPDATEs (one per table) rather than `sessions.each(&:revoke!)`,
+  which is O(N) UPDATEs plus O(N) cascades — these call sites are admin bulk
+  actions and password resets.
+
+  ```ruby
+  result = StandardId::Session.revoke_all_for!(account, reason: "password_reset")
+  result.sessions_revoked       # => 3
+  result.refresh_tokens_revoked # => 5
+  ```
+
+  Honours the current scope, so callers narrow as they need:
+  `StandardId::DeviceSession.active.revoke_all_for!(account, reason: "logout")`.
+  Accepts an account record or a bare id.
+
+  **Events: one `SESSION_REVOKED` per revoked session, never a single
+  aggregate** — subscribers must not need a second code path for bulk
+  revocation. Because `update_all` skips callbacks, each event is re-emitted
+  explicitly after the transaction commits, and each is individually rescued: a
+  raising subscriber must not short-circuit the loop and leave later sessions
+  without their event, which would permanently desync audit consumers from the
+  DB. Callers emit their own aggregate from the returned counts.
+
+- **`StandardId::Session.revoke_sessions!(sessions, account:, reason:)`** — the
+  same set-based core over an explicit collection, for callers that have already
+  selected the sessions (e.g. the tokens of a single authorization grant).
+
 ## [0.32.0] - 2026-07-28
 
 ### Changed

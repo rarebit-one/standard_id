@@ -97,6 +97,109 @@ module StandardId
       false
     end
 
+    # Counts returned by the bulk-revocation class methods. Callers use these to
+    # emit their own aggregate event (see
+    # StandardId::Api::Oauth::RevocationsController#emit_token_revoked) — the
+    # bulk methods deliberately do NOT publish an aggregate themselves.
+    RevocationResult = Struct.new(:sessions_revoked, :refresh_tokens_revoked, keyword_init: true)
+
+    # Revoke every not-yet-revoked session for an account, cascading to refresh
+    # tokens, in two set-based UPDATEs.
+    #
+    # Honours the current scope, so callers narrow as they need:
+    #
+    #   StandardId::Session.revoke_all_for!(account, reason: "password_reset")
+    #   StandardId::DeviceSession.active.revoke_all_for!(account, reason: "logout")
+    #
+    # Why this exists rather than `sessions.each(&:revoke!)`: the loop is O(N)
+    # UPDATEs plus O(N) refresh-token cascades, and the call sites are admin bulk
+    # actions and password resets.
+    #
+    # Events: one SESSION_REVOKED per revoked session, never a single aggregate —
+    # subscribers must not need a second code path for bulk revocation. Each is
+    # published individually and individually rescued (see .revoke_sessions!).
+    #
+    # @param account [ActiveRecord::Base, String, Integer] the account, or its id
+    # @param reason [String, nil] carried on each SESSION_REVOKED event
+    # @return [RevocationResult] counts of revoked sessions and refresh tokens
+    def self.revoke_all_for!(account, reason: nil)
+      account_id = account.is_a?(ActiveRecord::Base) ? account.id : account
+      sessions = where(account_id: account_id).where(revoked_at: nil).to_a
+      account_record = account.is_a?(ActiveRecord::Base) ? account : nil
+
+      revoke_sessions!(sessions, account: account_record, reason: reason)
+    end
+
+    # Set-based revocation of an explicit collection of sessions.
+    #
+    # Bulk-revoke in two queries (one UPDATE per table) instead of issuing
+    # session.revoke! per row, which would be O(N) UPDATEs plus another O(N)
+    # cascades to refresh_tokens.
+    #
+    # Tradeoff: update_all skips ActiveRecord callbacks, so the per-row
+    # SESSION_REVOKED event emitted by #revoke! (via its after_commit) does not
+    # fire automatically. We re-emit it explicitly below so audit-trail
+    # subscribers (account status/locking, etc.) still see one event per revoked
+    # session — the semantics are preserved, only the SQL shape has changed.
+    #
+    # @param sessions [Enumerable<StandardId::Session>] sessions to revoke; all
+    #   must belong to the same account
+    # @param account [ActiveRecord::Base, nil] the shared account, when the
+    #   caller already has it loaded. Passed through rather than read per row:
+    #   `session.account` would issue N extra SELECTs. Falls back to
+    #   `sessions.first.account`.
+    # @param reason [String, nil] carried on each SESSION_REVOKED event
+    # @return [RevocationResult] counts of revoked sessions and refresh tokens
+    def self.revoke_sessions!(sessions, account: nil, reason: nil)
+      sessions = sessions.to_a
+      return RevocationResult.new(sessions_revoked: 0, refresh_tokens_revoked: 0) if sessions.empty?
+
+      now = Time.current
+      session_ids = sessions.map(&:id)
+      refresh_tokens_revoked = 0
+
+      ActiveRecord::Base.transaction do
+        StandardId::Session.where(id: session_ids).update_all(revoked_at: now)
+        refresh_tokens_revoked = StandardId::RefreshToken
+          .where(session_id: session_ids, revoked_at: nil)
+          .update_all(revoked_at: now)
+      end
+
+      publish_session_revocations(sessions, account: account, reason: reason, now: now)
+
+      RevocationResult.new(
+        sessions_revoked: sessions.size,
+        refresh_tokens_revoked: refresh_tokens_revoked
+      )
+    end
+
+    # DB state is already committed by the time this runs; event publishing is
+    # best-effort audit emission. A failing subscriber must not short-circuit the
+    # loop and leave later sessions without their SESSION_REVOKED event, which
+    # would permanently desync audit-trail consumers from the DB.
+    def self.publish_session_revocations(sessions, account:, reason:, now:)
+      shared_account = account || sessions.first.account
+
+      sessions.each do |session|
+        session.revoked_at = now
+
+        begin
+          StandardId::Events.publish(
+            StandardId::Events::SESSION_REVOKED,
+            session: session,
+            account: shared_account,
+            reason: reason
+          )
+        rescue StandardError => e
+          StandardId.logger&.error(
+            "[StandardId::Session] Failed to publish SESSION_REVOKED " \
+            "for session #{session.id}: #{e.class}: #{e.message}"
+          )
+        end
+      end
+    end
+    private_class_method :publish_session_revocations
+
     attr_reader :token
 
     before_validation :generate_token, :generate_token_digest, :generate_lookup_hash, on: :create
