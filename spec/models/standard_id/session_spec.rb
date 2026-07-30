@@ -366,4 +366,176 @@ RSpec.describe StandardId::Session, type: :model do
       expect(captured_cost).to eq(BCrypt::Engine::MAX_COST)
     end
   end
+
+  describe "bulk revocation" do
+    let(:other_account) { Account.create!(name: "Other", email: "other@example.com") }
+
+    def create_session(klass: StandardId::BrowserSession, owner: account, **attrs)
+      klass.create!({
+        account: owner,
+        user_agent: "Chrome/120.0",
+        expires_at: 30.days.from_now
+      }.merge(attrs))
+    end
+
+    def create_refresh_token(session:, owner: account, **attrs)
+      StandardId::RefreshToken.create!({
+        account: owner,
+        session: session,
+        token_digest: Digest::SHA256.hexdigest(SecureRandom.uuid),
+        expires_at: 30.days.from_now
+      }.merge(attrs))
+    end
+
+    describe ".revoke_all_for!" do
+      it "revokes every unrevoked session for the account and returns counts" do
+        one = create_session
+        two = create_session
+        already = create_session(revoked_at: 1.hour.ago)
+
+        result = described_class.revoke_all_for!(account, reason: "password_reset")
+
+        expect(result.sessions_revoked).to eq(2)
+        expect(one.reload).to be_revoked
+        expect(two.reload).to be_revoked
+        expect(already.reload.revoked_at).to be_within(1.second).of(1.hour.ago)
+      end
+
+      it "cascades to the sessions' active refresh tokens" do
+        session = create_session
+        active = create_refresh_token(session: session)
+        revoked = create_refresh_token(session: session, revoked_at: 1.hour.ago)
+        unrelated = create_refresh_token(session: create_session(owner: other_account), owner: other_account)
+
+        result = described_class.revoke_all_for!(account, reason: "logout")
+
+        expect(result.refresh_tokens_revoked).to eq(1)
+        expect(active.reload.revoked_at).to be_present
+        expect(revoked.reload.revoked_at).to be_within(1.second).of(1.hour.ago)
+        expect(unrelated.reload.revoked_at).to be_nil
+      end
+
+      it "leaves other accounts' sessions alone" do
+        mine = create_session
+        theirs = create_session(owner: other_account)
+
+        described_class.revoke_all_for!(account, reason: "logout")
+
+        expect(mine.reload).to be_revoked
+        expect(theirs.reload).not_to be_revoked
+      end
+
+      it "accepts an account id as well as a record" do
+        session = create_session
+
+        result = described_class.revoke_all_for!(account.id, reason: "logout")
+
+        expect(result.sessions_revoked).to eq(1)
+        expect(session.reload).to be_revoked
+      end
+
+      it "returns zero counts and publishes nothing when there is nothing to revoke" do
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) { |p| events << p }
+
+        result = described_class.revoke_all_for!(account, reason: "logout")
+
+        expect(result.sessions_revoked).to eq(0)
+        expect(result.refresh_tokens_revoked).to eq(0)
+        expect(events).to be_empty
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+      end
+
+      it "honours the current scope, so a subclass revokes only its own type" do
+        browser = create_session
+        device = StandardId::DeviceSession.create!(
+          account: account,
+          device_id: "device-#{SecureRandom.hex(4)}",
+          device_agent: "MyApp/1.0",
+          expires_at: 30.days.from_now
+        )
+
+        result = StandardId::DeviceSession.revoke_all_for!(account, reason: "logout")
+
+        expect(result.sessions_revoked).to eq(1)
+        expect(device.reload).to be_revoked
+        expect(browser.reload).not_to be_revoked
+      end
+
+      it "publishes one SESSION_REVOKED per session, not a single aggregate" do
+        one = create_session
+        two = create_session
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) { |p| events << p }
+
+        described_class.revoke_all_for!(account, reason: "password_reset")
+
+        expect(events.size).to eq(2)
+        expect(events.map { |p| p[:session].id }).to match_array([one.id, two.id])
+        expect(events.map { |p| p[:reason] }.uniq).to eq(["password_reset"])
+        expect(events.map { |p| p[:account].id }.uniq).to eq([account.id])
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+      end
+
+      it "carries the committed revoked_at on the published session objects" do
+        create_session
+        captured = nil
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) { |p| captured = p[:session] }
+
+        described_class.revoke_all_for!(account, reason: "logout")
+
+        expect(captured.revoked_at).to be_present
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+      end
+    end
+
+    describe ".revoke_sessions!" do
+      it "revokes the given collection and returns counts" do
+        session = create_session
+        create_refresh_token(session: session)
+        untouched = create_session
+
+        result = described_class.revoke_sessions!([session], account: account, reason: "logout")
+
+        expect(result.sessions_revoked).to eq(1)
+        expect(result.refresh_tokens_revoked).to eq(1)
+        expect(untouched.reload).not_to be_revoked
+      end
+
+      it "falls back to sessions.first.account when no account is passed" do
+        session = create_session
+        captured = nil
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) { |p| captured = p[:account] }
+
+        described_class.revoke_sessions!([session], reason: "logout")
+
+        expect(captured.id).to eq(account.id)
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+      end
+
+      it "keeps revoking after a subscriber raises, so no session loses its event" do
+        one = create_session
+        two = create_session
+        seen = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) do |payload|
+          seen << payload[:session].id
+          raise "subscriber exploded"
+        end
+
+        expect {
+          described_class.revoke_sessions!([one, two], account: account, reason: "logout")
+        }.not_to raise_error
+
+        expect(seen).to match_array([one.id, two.id])
+        expect(one.reload).to be_revoked
+        expect(two.reload).to be_revoked
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+      end
+    end
+  end
 end
