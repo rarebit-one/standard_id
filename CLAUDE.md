@@ -32,6 +32,11 @@ See the `/worktree` and `/start` skills for full conventions and flags.
 - `fundbright-web`
 - `luminality-web`
 - `nutripod-web`
-- `jumpdrive-web` (the control-plane app, formerly `workspace-os`; Gemfile lives under `control-plane/`. Its local checkout dir is still `~/Workspace/rarebit-one/workspace-os` — the directory rename was deferred.)
+- `sidekick-web`
+- `jumpdrive-web` (the control-plane app, formerly `workspace-os`; its `Gemfile`/`Gemfile.lock` live under `control-plane/`, **not** the repo root — a `*/Gemfile` glob misses it, which is how an audit can drop this consumer without noticing. Its local checkout is `~/Workspace/rarebit-one/jumpdrive-web` — the directory rename is done; the old `workspace-os` dir was retired 2026-07-14.)
+
+Note that the provider plugins have a narrower consumer set than the engine itself: `standard_id-apple` and `standard_id-google` are consumed only by `luminality-web` and `sidekick-web`.
+
+Three consumers live in sibling workspaces — `fundbright-web` in `~/Workspace/fundbright/`, `luminality-web` in `~/Workspace/luminalityai/`, `sidekick-web` in `~/Workspace/sidekick-labs/` — so don't assume every consumer sits beside this repo.
 
 After publishing a new version via `/publish-gem`, roll it out with the workspace-level `/rollout-gem standard_id [<version>]` skill (defined at the rarebit-one workspace root, one directory above this repo). The canonical consumer matrix — including version constraints and any non-rubygems sources — lives in that skill's `SKILL.md`; the list here is a summary so version pins don't drift between two files.
