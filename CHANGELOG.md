@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `Session.revoke_sessions!` no longer aborts the revocation loop when logging
+  itself fails. The rescue around each `SESSION_REVOKED` publish exists so a
+  failing subscriber cannot short-circuit the loop and leave later sessions
+  without their event — but it logged via `StandardId.logger.error`, and
+  `StandardId.logger` is a *memoized* `config.logger || Rails.logger`, so
+  whatever the first reader in the process saw is what every later caller gets,
+  including a value that is not a logger at all. In that case the rescue raised
+  from inside itself and the guarantee evaporated. It now checks the logger
+  responds to `error` first.
+
 ### Added
 
 - **`StandardId::Session.revoke_all_for!(account, reason:)`** — bulk session

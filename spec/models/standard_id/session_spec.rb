@@ -536,6 +536,29 @@ RSpec.describe StandardId::Session, type: :model do
       ensure
         ActiveSupport::Notifications.unsubscribe(subscription) if subscription
       end
+
+      # StandardId.logger is a memoized `config.logger || Rails.logger`, so
+      # whatever the FIRST reader in the process saw is what every later caller
+      # gets — including a value that is not a logger. If logging in the rescue
+      # can raise, the rescue's whole guarantee (a failing subscriber must not
+      # short-circuit the loop) evaporates on the first bad log call.
+      it "still revokes every session when the logger cannot log" do
+        one = create_session
+        two = create_session
+        allow(StandardId).to receive(:logger).and_return("not-a-logger")
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) do
+          raise "subscriber exploded"
+        end
+
+        expect {
+          described_class.revoke_sessions!([one, two], account: account, reason: "logout")
+        }.not_to raise_error
+
+        expect(one.reload).to be_revoked
+        expect(two.reload).to be_revoked
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+      end
     end
   end
 end
