@@ -313,8 +313,20 @@ StandardId.configure do |c|
   # ---------------------------------------------------------------------------
   # Social login
   # ---------------------------------------------------------------------------
-  # Requires the standard_id-google and/or standard_id-apple provider gems to
-  # be installed and registered.
+  # These fields are declared by the PROVIDER PLUGIN GEMS, not by standard_id
+  # itself, so each line below requires the matching gem in your Gemfile:
+  # `standard_id-google` for the google_* fields, `standard_id-apple` for the
+  # apple_* fields. Uncommenting a line without its gem raises
+  # StandardId::ConfigurationError ("Unknown field ... for scope 'social'") —
+  # the field genuinely does not exist, because nothing declared it.
+  #
+  # With the gem present, writing them here — in a plain initializer, in the
+  # `social` scope, exactly as shown — is correct and supported. standard_id
+  # >= 0.33.0 declares every loaded provider's fields before initializers run.
+  # On 0.32.0 and earlier these same lines raised, because the fields were only
+  # declared later from the plugin's Railtie, and apps worked around it by
+  # wrapping the writes in `Rails.application.config.after_initialize`. That
+  # wrapper is no longer needed, and it still works if you have one.
 
   # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]
   # c.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]

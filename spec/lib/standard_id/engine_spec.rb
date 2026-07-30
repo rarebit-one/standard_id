@@ -12,6 +12,45 @@ RSpec.describe StandardId::Engine do
     end
   end
 
+  describe "provider_config_schemas initializer" do
+    subject(:initializer) do
+      described_class.initializers.find { |i| i.name == "standard_id.provider_config_schemas" }
+    end
+
+    it "is declared" do
+      expect(initializer).not_to be_nil
+    end
+
+    # The whole point of the initializer. If this edge is lost, a host app's
+    # `config/initializers/standard_id.rb` runs before provider fields exist and
+    # `c.social.google_client_id = ...` raises ConfigurationError again.
+    it "runs before :load_config_initializers" do
+      expect(initializer.before).to eq(:load_config_initializers)
+    end
+
+    it "declares provider config schemas when run" do
+      expect(StandardId::ProviderRegistry).to receive(:declare_config_schemas!)
+
+      initializer.run(Rails.application)
+    end
+
+    # Scoped to NAMED provider classes on purpose. Anonymous providers built by
+    # other specs linger in `Providers::Base.subclasses` until GC, and those
+    # specs clean their fields out of the (process-global, un-snapshotted)
+    # schema — so sweeping every subclass here makes this order-dependent.
+    it "has already declared the loaded providers' fields by the time the app is booted" do
+      named = StandardId::ProviderRegistry.provider_classes.select(&:name)
+      expect(named).to include(StandardId::Providers::DummySocial)
+
+      named.each do |provider_class|
+        provider_class.config_schema.each_key do |field|
+          expect(StandardId::ConfigSchema.instance.field?(:social, field)).to be(true),
+            "expected social.#{field} (from #{provider_class}) to be declared"
+        end
+      end
+    end
+  end
+
   describe ".verify_host_cookie_encryption!" do
     let(:logger) { instance_double(ActiveSupport::Logger, warn: nil) }
 
