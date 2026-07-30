@@ -142,7 +142,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   same set-based core over an explicit collection, for callers that have already
   selected the sessions (e.g. the tokens of a single authorization grant).
 
+
+- **`config.oauth.discovery_endpoint_base`** — where the advertised endpoints
+  actually live.
+
+  | value | meaning |
+  |---|---|
+  | `nil` (default) | the issuer — byte-identical to 0.32.0 |
+  | `:request` | `request.base_url` + the detected mount path |
+  | `"https://…"` | verbatim |
+  | `->(request:) { … }` | for a proxy that rewrites `base_url`, or an app mounting `ApiEngine` more than once (e.g. under host constraints) where no single detected path is right |
+
+  Request-derived is **opt-in, not the default**, on purpose: defaulting to it
+  would silently rewrite the document of every app whose issuer host differs from
+  the host serving the request — the split-host setup a separate issuer exists to
+  express.
+
+  Inside the mount the mount path needs no configuring or detecting: Rails sets
+  `SCRIPT_NAME` to the mount prefix, so `request.script_name` *is* the mount
+  path, exactly.
+
+- **`standard_id_well_known_routes at: "<mount path>"`** — a routes-file mapper
+  helper that serves the documents at the **origin root**.
+
+  RFC 8615 clients probe the origin root, which is outside every engine mount, so
+  the gem could not draw those routes itself — this has to live in the host's
+  routes file.
+
+  For each metadata document it draws **both** the bare root form and the RFC
+  8414 §3.1 **path-inserted** form:
+
+  ```
+  /.well-known/oauth-authorization-server
+  /.well-known/oauth-authorization-server/api/v1
+  ```
+
+  The second looks redundant and is not. §3.1 inserts the well-known segment
+  *before* a path-carrying issuer's path rather than appending to it, and that is
+  the URL Claude Code actually requests in production. Without it the client 404s,
+  falls back to issuer-relative defaults — hitting the engine's own `/authorize`
+  rather than a host audience shim — and every subsequent authenticated request
+  401s, a long way from the cause. It is drawn for you rather than documented as
+  an extra step.
+
+  `only:` / `except:` select among `:oauth_authorization_server`,
+  `:openid_configuration`, `:jwks` — `only: :jwks` for an app that keeps its own
+  metadata controller but wants the gem's JWKS at the root. `extra_paths:` adds
+  further path-inserted suffixes. `path_inserted: false` draws only the bare root
+  forms. No path-inserted JWKS is drawn: it is a concrete file path, not a
+  document whose location §3.1 relocates.
+
+- **`config.oauth.discovery_metadata_overrides`** — the members that cannot be
+  derived: an authorization endpoint pointing at a host-owned audience-injecting
+  shim (needed by all five apps, and the original reason they each wrote a
+  controller), a scope list deliberately narrower than what the server can mint,
+  an auth-method list that must mirror the host's dynamic-registration policy.
+
+  Values are static or callable; a callable receives
+  `{ origin:, endpoint_base:, issuer:, request: }` with `origin` carrying no
+  path. A **`nil` value removes the member** rather than emitting `null` — real
+  apps omit `scopes_supported` entirely, and a typed RFC 8414 member set to null
+  is worse than either alternative.
+
+  **Setting `issuer` raises `StandardId::ConfigurationError`**, naming
+  `discovery_endpoint_base` as the thing you probably wanted. It is refused
+  rather than ignored because an issuer diverging from what the token service
+  stamps yields a document that validates against nothing, failing far from its
+  cause.
+
+  See `docs/MIGRATION_GUIDE.md` for how to retire a hand-rolled controller.
+
 ### Fixed
+
+- **The discovery documents no longer ignore the `ApiEngine` mount prefix.**
+
+  `Oauth::DiscoveryDocument` derived every endpoint from the issuer
+  (`base = issuer.to_s.chomp("/")`). An app mounting `ApiEngine` under a prefix
+  its issuer does not carry — `/api`, `/api/v1` — therefore advertised
+  `<issuer>/oauth/token` while the endpoint actually lived at
+  `<origin>/api/oauth/token`. **Every advertised endpoint 404'd.** Both documents
+  were affected; the OIDC one had the identical bug.
+
+  All five consuming apps hand-rolled a replacement controller because of it.
+
+  `issuer` and the endpoint base are now separate values, and stay separate.
+  `issuer` is a stable security identifier (RFC 8414 §2) that clients match
+  byte-for-byte against both their discovery URL and the `iss` claim of issued
+  tokens: it is never derived from the request and cannot be overridden.
+
 
 - `Session.revoke_sessions!` no longer aborts the revocation loop when logging
   itself fails. The rescue around each `SESSION_REVOKED` publish exists so a
