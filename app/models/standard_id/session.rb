@@ -191,7 +191,16 @@ module StandardId
             reason: reason
           )
         rescue StandardError => e
-          StandardId.logger&.error(
+          # The rescue exists so a failing subscriber cannot short-circuit the
+          # loop. Logging must therefore not be able to raise either, or the
+          # guarantee evaporates on the first bad log call: StandardId.logger is
+          # a memoized `config.logger || Rails.logger`, so whatever the first
+          # reader saw is what every later caller gets — including a value that
+          # is not a logger at all.
+          logger = StandardId.logger
+          next unless logger.respond_to?(:error)
+
+          logger.error(
             "[StandardId::Session] Failed to publish SESSION_REVOKED " \
             "for session #{session.id}: #{e.class}: #{e.message}"
           )
