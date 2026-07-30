@@ -2,7 +2,10 @@ module StandardId
   class Identifier < ApplicationRecord
     belongs_to :account, class_name: StandardId.config.account_class_name
 
-    has_many :credentials, class_name: "StandardId::Credential", dependent: :restrict_with_exception
+    # See StandardId::AssociationStrictLoading — resolves to no option at all
+    # unless config.association_strict_loading is set.
+    has_many :credentials, class_name: "StandardId::Credential", dependent: :restrict_with_exception,
+             **StandardId::AssociationStrictLoading.option
 
     scope :verified, -> { where.not(verified_at: nil) }
     scope :unverified, -> { where(verified_at: nil) }

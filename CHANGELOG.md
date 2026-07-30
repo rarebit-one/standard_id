@@ -64,6 +64,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   boot-time sweep cannot see it (e.g. under `app/`, autoloaded) and need to
   declare its fields yourself.
 
+- **`config.association_strict_loading`** — a supported way to opt the gem's own
+  associations out of an app-wide `strict_loading_by_default = true`.
+
+  Two consuming apps were reaching into Rails internals to do this:
+
+  ```ruby
+  Account.reflect_on_association(assoc)&.options&.[]=(:strict_loading, false)
+  ```
+
+  both with a comment asking for exactly this hook. They could not simply
+  re-declare the associations: they are declared inside
+  `StandardId::AccountAssociations`, and `credentials` is a `has_many :through`,
+  where re-declaration risks ordering breakage. Passing `strict_loading:` at
+  declaration time is the supported Rails API, and unlike re-declaration it
+  works for the `:through` association.
+
+  Covers `Account#identifiers`, `#credentials`, `#sessions`, `#refresh_tokens`,
+  `#client_applications`, plus `Session#refresh_tokens` and
+  `Identifier#credentials`.
+
+  **Tri-state, and `nil` is not `false`:**
+
+  | value | effect |
+  |---|---|
+  | `nil` (default) | no `strict_loading:` option is declared at all — the associations inherit the owner's setting, exactly as before |
+  | `false` | opt out; may lazy-load even with strict loading on app-wide |
+  | `true` | opt in; strict loading enforced even if off app-wide |
+
+  That distinction is load-bearing rather than stylistic. Rails checks
+  `reflection.options.key?(:strict_loading)` *before* consulting the owner
+  (`Association#violates_strict_loading?`), so declaring `strict_loading: nil`
+  would put the key in the options hash and make `reflection.strict_loading?`
+  return `false` — silently disabling strict loading on every gem association in
+  every app that never asked for it. The option is therefore omitted entirely
+  when unconfigured, and a spec asserts the key's absence.
+
+  **Set it in `config/initializers/standard_id.rb`, not in an
+  `after_initialize` block.** The associations read it when your `Account` class
+  body runs. StandardId raises a `ConfigurationError` at boot naming the ordering
+  problem if a declaration disagrees with the configured value — otherwise a
+  too-late assignment fails silently, surfacing as an
+  `ActiveRecord::StrictLoadingViolationError` deep inside a request or a quiet
+  N+1 in production.
+
 - **`StandardId::Session.revoke_all_for!(account, reason:)`** — bulk session
   revocation that cascades to refresh tokens, promoted from the private
   `RevocationsController#revoke_sessions!` where it had lived since the RFC 7009
