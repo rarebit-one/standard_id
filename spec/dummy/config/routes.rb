@@ -1,4 +1,10 @@
 Rails.application.routes.draw do
+  # RFC 8615 clients probe the ORIGIN ROOT, which is outside any engine mount —
+  # so these cannot be drawn by the gem and have to come from the host's routes
+  # file. `at:` is the ApiEngine mount path below; it both builds the RFC 8414
+  # §3.1 path-inserted variants and tells the resolver where endpoints live.
+  standard_id_well_known_routes at: "/api"
+
   mount StandardId::WebEngine => "/", as: :standard_id_web
 
   # Playground root

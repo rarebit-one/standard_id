@@ -20,6 +20,60 @@ StandardId.configure do |c|
   # Default: nil
   # c.issuer = "https://auth.example.com"
 
+  # ---------------------------------------------------------------------------
+  # Discovery documents (/.well-known/openid-configuration and
+  # /.well-known/oauth-authorization-server)
+  # ---------------------------------------------------------------------------
+  # READ THIS IF YOU MOUNT ApiEngine UNDER A PREFIX (/api, /api/v1, ...).
+  #
+  # The issuer and the endpoint base are different things. `issuer` is a stable
+  # security identifier (RFC 8414 §2) that clients compare byte-for-byte with the
+  # URL they used for discovery and with the `iss` claim of issued tokens. It is
+  # never derived from the request and cannot be overridden.
+  #
+  # `discovery_endpoint_base` is where /authorize, /oauth/token etc. ACTUALLY
+  # are. It defaults to the issuer, which is right only if your issuer carries
+  # the mount path (e.g. "https://host/auth/api"). If it does not, the document
+  # advertises endpoints at the bare origin and every one of them 404s.
+  #
+  #   nil (default) — the issuer
+  #   :request      — request.base_url + the detected mount path  <- prefixed mounts
+  #   "https://..." — verbatim
+  #   callable      — receives (request:); for a proxy that rewrites base_url, or
+  #                   an app mounting ApiEngine more than once
+  #
+  # Default: nil
+  # c.oauth.discovery_endpoint_base = :request
+
+  # Members that cannot be derived. Values static or callable; a callable gets
+  # { origin:, endpoint_base:, issuer:, request: } (origin has no path). A nil
+  # value REMOVES the member rather than emitting null. Setting `issuer` raises.
+  # Default: {}
+  # c.oauth.discovery_metadata_overrides = {
+  #   # a host-owned shim that injects the audience before handing off to the
+  #   # engine's /authorize
+  #   authorization_endpoint: ->(ctx) { "#{ctx[:origin]}/oauth/authorize" },
+  #   # narrower than everything the server can mint
+  #   scopes_supported: %w[mcp mcp:read],
+  #   # MUST mirror your dynamic-registration policy, or spec-following clients
+  #   # register in a way that policy then rejects
+  #   token_endpoint_auth_methods_supported: %w[none],
+  #   # omit a member entirely
+  #   userinfo_endpoint: nil
+  # }
+  #
+  # RFC 8615 clients probe the ORIGIN ROOT, which is outside every engine mount,
+  # so those routes must be drawn in config/routes.rb — the gem cannot:
+  #
+  #   standard_id_well_known_routes at: "/api"   # your ApiEngine mount path
+  #
+  # That draws the root form AND the RFC 8414 §3.1 path-inserted form
+  # (/.well-known/oauth-authorization-server/api). The second looks redundant
+  # and is not: it is the URL Claude Code actually requests against a
+  # path-carrying issuer. Accepts only:/except: (:oauth_authorization_server,
+  # :openid_configuration, :jwks) — e.g. `only: :jwks` if you keep your own
+  # metadata controller. See docs/MIGRATION_GUIDE.md.
+
   # Login URL used for redirects when authentication is required but missing.
   # Default: "/login"
   # c.login_url = "/login"

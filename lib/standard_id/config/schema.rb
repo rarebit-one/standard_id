@@ -337,6 +337,59 @@ StandardId::ConfigSchema.define do
     # immediately.
     field :introspection_enabled, type: :boolean, default: false
 
+    # Where the discovery documents say the ENDPOINTS live.
+    #
+    # The issuer and the endpoint base are different things. The issuer is a
+    # stable security identifier (RFC 8414 §2) that clients match byte-for-byte
+    # against their discovery URL and against the `iss` claim; it is never
+    # derived from the request and cannot be overridden. This says where
+    # /authorize, /oauth/token etc. actually are.
+    #
+    #   nil (default) — the issuer. Byte-identical to the behaviour before this
+    #                   option existed. Already correct if your issuer carries
+    #                   the ApiEngine mount path (e.g. "https://host/auth/api").
+    #                   WRONG if it does not: the document then advertises
+    #                   endpoints at the bare origin, which 404.
+    #   :request      — request.base_url + the detected mount path. What you want
+    #                   when ApiEngine is mounted under a prefix ("/api",
+    #                   "/api/v1") the issuer does not carry.
+    #   "https://..." — used verbatim.
+    #   callable      — receives (request:). Use when a proxy rewrites
+    #                   request.base_url, or when ApiEngine is mounted more than
+    #                   once (e.g. under host constraints) so no single detected
+    #                   path is right.
+    #
+    # Request-derived is opt-in rather than the default on purpose: defaulting to
+    # it would silently rewrite the document of every app whose issuer host
+    # differs from the host serving the request — the split-host setup a separate
+    # issuer exists to express.
+    field :discovery_endpoint_base, type: :any, default: nil
+
+    # Members of the discovery documents that cannot be derived, as
+    # `{ member => value }`. Values may be static or callable.
+    #
+    # A callable receives one Hash — `{ origin:, endpoint_base:, issuer:,
+    # request: }`, where `origin` is scheme+host+port with no path.
+    #
+    # A `nil` value REMOVES the member rather than emitting null.
+    #
+    # Setting `issuer` RAISES — see discovery_endpoint_base above.
+    #
+    #   c.oauth.discovery_metadata_overrides = {
+    #     # a host-owned shim that injects the audience before handing off to the
+    #     # engine's /authorize
+    #     authorization_endpoint: ->(ctx) { "#{ctx[:origin]}/oauth/authorize" },
+    #     # deliberately narrower than everything the server can mint
+    #     scopes_supported: %w[mcp mcp:read],
+    #     # MUST mirror your dynamic-registration policy: advertising
+    #     # client_secret_* while DCR only accepts public clients makes
+    #     # spec-following clients register in a way DCR then rejects
+    #     token_endpoint_auth_methods_supported: %w[none],
+    #     # omit a member entirely
+    #     grant_types_supported: nil
+    #   }
+    field :discovery_metadata_overrides, type: :hash, default: -> { {} }
+
     # Callable resolving the polymorphic owner assigned to clients created via
     # Dynamic Client Registration (the `owner` association on ClientApplication
     # is required). Example: `-> { Organization.default }`.

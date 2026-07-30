@@ -5,20 +5,41 @@ module StandardId
     #   * /.well-known/oauth-authorization-server (RFC 8414)
     #
     # Both well-known controllers render this single builder so the two
-    # documents cannot drift. Endpoint URLs are derived from the configured
-    # issuer.
+    # documents cannot drift.
     #
-    # NOTE on mounting (RFC 8414 caveat): the ApiEngine is consumer-mounted at
-    # a sub-path (e.g. `/auth/api`), so the gem can only serve
-    # `/auth/api/.well-known/oauth-authorization-server`. A strict RFC 8414
-    # client that derives a *root-anchored* metadata URL from a path-carrying
-    # issuer would probe `<host>/.well-known/oauth-authorization-server/auth/api`,
-    # which falls outside any engine mount. Hosts that need the root-anchored
-    # form must add their own root route — the gem cannot.
+    # ## `issuer` and the endpoint base are two different things
+    #
+    # This used to derive every endpoint from the issuer
+    # (`base = issuer.to_s.chomp("/")`), which is wrong for any app mounting
+    # `ApiEngine` under a prefix its issuer does not carry: the document
+    # advertised `<issuer>/oauth/token` while the endpoint actually lived at
+    # `<origin>/api/oauth/token`. Every consuming app hand-rolled a replacement
+    # controller because of it.
+    #
+    # The two are now separate, and must stay separate:
+    #
+    #   * `issuer` is a stable **security identifier** (RFC 8414 §2). Clients
+    #     compare it byte-for-byte with the URL they used for discovery and with
+    #     the `iss` claim of issued tokens. It is never derived from the request
+    #     and can never be overridden — see .apply_overrides!.
+    #   * `endpoint_base` is where the endpoints actually are. It defaults to the
+    #     issuer, which preserves the previous behaviour exactly for apps whose
+    #     issuer already carries the mount path.
+    #
+    # ## Overrides
+    #
+    # Some members are not derivable at all — a host-owned authorization shim
+    # that injects an audience, a scope list deliberately narrower than what the
+    # server can mint, an auth-method list that must mirror the host's dynamic
+    # registration policy. `overrides` covers those; see
+    # StandardId::Oauth::DiscoveryResolver for the config surface.
     module DiscoveryDocument
       module_function
 
-      # @param issuer [String] the configured issuer (e.g. "https://auth.example.com")
+      # @param issuer [String] the configured issuer, emitted verbatim
+      # @param endpoint_base [String, nil] base URL for the endpoints. Defaults
+      #   to `issuer` — the previous behaviour — so existing callers are
+      #   unaffected.
       # @param registration_enabled [Boolean] when true, advertises the RFC 7591
       #   dynamic client registration endpoint. The well-known controllers pass
       #   `StandardId.config.oauth.dynamic_registration_enabled` here, so the
@@ -29,9 +50,12 @@ module StandardId
       #   `StandardId.config.oauth.introspection_enabled`, so it is advertised only
       #   when the endpoint actually exists (the controller 404s when off).
       #   Defaults to false, matching registration_enabled.
+      # @param overrides [Hash] members to replace, add, or (with a nil value)
+      #   remove. Already resolved — callables are evaluated by the caller.
       # @return [Hash]
-      def build(issuer, registration_enabled: false, introspection_enabled: false)
-        base = issuer.to_s.chomp("/")
+      def build(issuer, endpoint_base: nil, registration_enabled: false,
+        introspection_enabled: false, overrides: {})
+        base = (endpoint_base.presence || issuer).to_s.chomp("/")
 
         doc = {
           issuer: issuer,
@@ -61,6 +85,37 @@ module StandardId
 
         doc[:registration_endpoint] = "#{base}/oauth/register" if registration_enabled
         doc[:introspection_endpoint] = "#{base}/oauth/introspect" if introspection_enabled
+
+        apply_overrides!(doc, overrides)
+      end
+
+      # Merge resolved overrides into the document.
+      #
+      # A `nil` value REMOVES the member rather than emitting `null`. Real apps
+      # need that — one omits `scopes_supported` entirely — and a `null` would be
+      # worse than either alternative, since RFC 8414 members are typed.
+      #
+      # `issuer` is REFUSED rather than silently dropped. It is a security
+      # identifier clients match byte-for-byte against both their discovery URL
+      # and the `iss` claim; letting a metadata override diverge it from what the
+      # token service actually stamps would produce a document that validates
+      # against nothing, and the failure would surface a long way from here.
+      def apply_overrides!(doc, overrides)
+        return doc if overrides.blank?
+
+        overrides = overrides.symbolize_keys
+        if overrides.key?(:issuer)
+          raise StandardId::ConfigurationError,
+            "discovery_metadata_overrides cannot set `issuer`. The issuer is a stable " \
+            "security identifier (RFC 8414 §2): clients compare it byte-for-byte with " \
+            "the URL they used for discovery and with the `iss` claim of issued tokens, " \
+            "so it must stay exactly StandardId.config.issuer. To move where the " \
+            "ENDPOINTS live, set config.oauth.discovery_endpoint_base instead."
+        end
+
+        overrides.each do |key, value|
+          value.nil? ? doc.delete(key) : doc[key] = value
+        end
 
         doc
       end
