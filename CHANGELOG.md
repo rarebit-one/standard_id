@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-07-31
+
+### Security
+
+- **A refresh token is now refused when its parent session is revoked or expired.** `Oauth::RefreshTokenFlow` validated the `RefreshToken` row only — found, not revoked, not expired — and never consulted the session it belongs to.
+
+  So "revoking a session ends that session's access" was not a property of the gem. It was an emergent consequence of every caller reaching for `Session#revoke!` (a transaction that ALSO does `refresh_tokens.active.update_all(revoked_at:)`) rather than the obvious-looking `session.update!(revoked_at: ...)`, which revokes the session row and leaves its refresh tokens live. Two apps wrote the second form independently and shipped it (rarebit-one/nutripod-web#1100, luminalityai/luminality-web#1048), because the natural spec asserts the session's own `revoked_at` — exactly the half that does work.
+
+  On the device path that meant a refresh-token holder kept minting access tokens after the user had explicitly signed that device out. Checking the parent in the flow makes the property true by construction: it now holds however the session was revoked — `revoke!`, a bare `update!`, a bulk `update_all`, a DBA, a data fix — and covers session expiry too.
+
+  **Unaffected:** refresh tokens with no session (`session_id` nil) — the machine-to-machine shape, including `client_credentials`. There is no parent to outlive, so nothing is checked. No configuration flag was added because no flow in the gem legitimately needs a refresh to outlive its session; every token that carries a `session_id` was minted against that session, and rotation carries the same `session_id` forward.
+
+  The refusal reuses the existing `invalid_grant` / `"Refresh token is no longer valid"` response verbatim (RFC 6749 §5.2). A distinct error would be an oracle — it would tell a holder that the token itself is still good and only the session was pulled.
+
+  The parent session is fetched by `eager_load` in the same query as the token row, so the hot `/oauth/token` path gains no extra round trip.
+
+  Tracked in rarebit-one/rarebit-ops#297.
+
+- **`POST /oauth/introspect` reports the same refresh token as `active: false`.** The RFC 7662 endpoint (off by default, behind `config.oauth.introspection_enabled`) checked the `RefreshToken` row and not its session, so it had the identical gap. Left alone it would have reported `active: true` for a token `/oauth/token` now refuses — introspection contradicting the endpoint it describes. Access tokens are unchanged and still introspect as active until their `exp`; that documented limit is unaffected, because they are stateless and carry no `sid`.
+
 ## [0.34.0] - 2026-07-31
 
 ### Added

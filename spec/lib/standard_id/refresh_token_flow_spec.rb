@@ -396,4 +396,91 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       expect(new_record.session_id).to eq(session.id)
     end
   end
+
+  # rarebit-one/rarebit-ops#297 — a refresh must not outlive its parent
+  # session, HOWEVER that session was revoked. Session#revoke! cascades to
+  # refresh tokens; a bare update!/update_all does not, and two apps shipped
+  # exactly that. The point of these specs is that the flow no longer depends
+  # on the caller having used the cascading form.
+  describe "parent session validation" do
+    let(:session) do
+      StandardId::DeviceSession.create!(
+        account: account,
+        device_id: "device-297",
+        device_agent: "StandardIdSpec/1.0",
+        expires_at: 30.days.from_now
+      )
+    end
+
+    def authenticate_with_session_bound_token!
+      create_refresh_token_record(session: session)
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+      described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).authenticate!
+    end
+
+    it "accepts a refresh on a live session" do
+      expect { authenticate_with_session_bound_token! }.not_to raise_error
+    end
+
+    it "rejects a refresh when the session was revoked via revoke!" do
+      session.revoke!
+
+      expect { authenticate_with_session_bound_token! }
+        .to raise_error(StandardId::InvalidGrantError)
+    end
+
+    it "rejects a refresh when the session was revoked via a bare update! (no cascade)" do
+      create_refresh_token_record(session: session)
+      # Deliberately NOT revoke! — this is the form that leaves refresh tokens
+      # live, and the whole reason the check moved into the flow.
+      session.update!(revoked_at: Time.current)
+      expect(session.refresh_tokens.reload.first.revoked_at).to be_nil
+
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError)
+    end
+
+    it "rejects a refresh when the session was revoked via a bulk update_all (no cascade)" do
+      create_refresh_token_record(session: session)
+      StandardId::Session.where(id: session.id).update_all(revoked_at: Time.current)
+      expect(session.refresh_tokens.reload.first.revoked_at).to be_nil
+
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError)
+    end
+
+    it "rejects a refresh when the session has expired" do
+      create_refresh_token_record(session: session)
+      StandardId::Session.where(id: session.id).update_all(expires_at: 1.hour.ago)
+
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError)
+    end
+
+    it "does not leak WHY the grant was refused" do
+      # Same message as a plain inactive token: a distinct one would tell a
+      # holder that the token itself is still good and only the session went.
+      session.update!(revoked_at: Time.current)
+      create_refresh_token_record(session: session)
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+
+      expect { flow.authenticate! }
+        .to raise_error(StandardId::InvalidGrantError, "Refresh token is no longer valid")
+    end
+
+    it "still accepts a refresh token with no parent session (machine-to-machine)" do
+      create_refresh_token_record
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+
+      expect { flow.authenticate! }.not_to raise_error
+    end
+  end
 end

@@ -47,7 +47,11 @@ module StandardId
         # once all pre-jti tokens have expired (refresh_token_lifetime after deploy).
         return if jti.blank?
 
-        @current_refresh_token_record = StandardId::RefreshToken.find_by_jti(jti)
+        # eager_load (not includes/lazy) so the parent session arrives in the
+        # SAME query via a LEFT OUTER JOIN. #validate_parent_session! below
+        # reads it on every refresh, and /oauth/token is a hot path — a lazy
+        # `.session` would add a second SELECT per request.
+        @current_refresh_token_record = StandardId::RefreshToken.eager_load(:session).find_by_jti(jti)
 
         unless @current_refresh_token_record
           raise StandardId::InvalidGrantError, "Refresh token not found"
@@ -63,6 +67,41 @@ module StandardId
         unless @current_refresh_token_record.active?
           raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
         end
+
+        validate_parent_session!
+      end
+
+      # Refuse a refresh whose parent session is no longer active.
+      #
+      # Without this, "revoking a session ends that session's access" was not a
+      # property of the gem at all — it was an emergent consequence of every
+      # caller reaching for Session#revoke! (a transaction that ALSO does
+      # `refresh_tokens.active.update_all(revoked_at:)`) rather than the
+      # obvious-looking `session.update!(revoked_at:)`, which revokes the
+      # session row and leaves its refresh tokens live. Two apps wrote the
+      # second form independently and shipped it, because a spec asserting the
+      # session's own `revoked_at` passes against the buggy code.
+      #
+      # Checking the parent here makes the property true by construction: it
+      # holds however the session was revoked — `revoke!`, a bare `update!`, a
+      # bulk `update_all`, a DBA, a data fix — and it covers expiry as well.
+      # See rarebit-one/rarebit-ops#297.
+      #
+      # A refresh token with no session (`session_id` nil) is unaffected: that
+      # is the machine-to-machine shape (client_credentials and any other grant
+      # the gem issues without persisting a session), where there is no parent
+      # to outlive and nothing to check.
+      #
+      # The message is deliberately IDENTICAL to the inactive-token case above.
+      # A distinct error would be an oracle: it would tell an attacker holding a
+      # stolen refresh token that the token itself is still good and only the
+      # session was pulled. RFC 6749 §5.2 wants `invalid_grant` either way.
+      def validate_parent_session!
+        session = @current_refresh_token_record.session
+        return if session.nil?
+        return if session.active?
+
+        raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
       end
 
       # Atomically revoke the current token as part of rotation.

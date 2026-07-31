@@ -32,8 +32,12 @@ module StandardId
       # lifetime.
       #
       # Refresh tokens ARE persisted (as `SHA256(jti)`), so those are checked
-      # against the row: a revoked or expired refresh token introspects as
-      # inactive, correctly and immediately.
+      # against the row AND against the parent session: a refresh token that is
+      # itself revoked or expired — or whose session is — introspects as
+      # inactive, correctly and immediately. That second half matters because
+      # the session can be revoked without the cascade ever running (a bare
+      # `update!`, a bulk `update_all`); see Oauth::RefreshTokenFlow and
+      # rarebit-one/rarebit-ops#297.
       class IntrospectionsController < BaseController
         public_controller
 
@@ -86,8 +90,21 @@ module StandardId
           return render_inactive if payload.nil?
 
           # Persisted refresh tokens are checkable; access tokens are not.
-          persisted = StandardId::RefreshToken.find_by_jti(payload[:jti].to_s) if payload[:jti].present?
+          #
+          # eager_load the parent session in the same query: the answer must
+          # match what Oauth::RefreshTokenFlow would do with the same token, and
+          # that flow refuses a refresh whose session is revoked or expired
+          # (rarebit-one/rarebit-ops#297). Reporting `active: true` here for a
+          # token /oauth/token would refuse would make introspection an
+          # authority that disagrees with the endpoint it describes.
+          #
+          # A nil session means no parent — the machine-to-machine shape — and
+          # is not a reason to call the token inactive.
+          if payload[:jti].present?
+            persisted = StandardId::RefreshToken.eager_load(:session).find_by_jti(payload[:jti].to_s)
+          end
           return render_inactive if persisted && !persisted.active?
+          return render_inactive if persisted&.session && !persisted.session.active?
 
           render json: active_response(payload, persisted), status: :ok
         end
