@@ -186,6 +186,46 @@ RSpec.describe "StandardId::Api::Oauth::IntrospectionsController", type: :reques
 
         expect(response.parsed_body).to eq({ "active" => false })
       end
+
+      # The answer here must match what /oauth/token would do with the same
+      # token. RefreshTokenFlow refuses a refresh whose session is revoked or
+      # expired HOWEVER it was revoked (rarebit-one/rarebit-ops#297) — including
+      # the forms that never run the cascade, so the token row itself stays
+      # clean. Introspection has to see the same thing, or it becomes an
+      # authority that disagrees with the endpoint it describes.
+      it "reports inactive when the session was revoked WITHOUT the cascade (bare update!)" do
+        session.update!(revoked_at: Time.current)
+        expect(refresh_token.reload.revoked_at).to be_nil
+
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+
+        expect(response.parsed_body).to eq({ "active" => false })
+      end
+
+      it "reports inactive when the session was revoked WITHOUT the cascade (bulk update_all)" do
+        StandardId::Session.where(id: session.id).update_all(revoked_at: Time.current)
+        expect(refresh_token.reload.revoked_at).to be_nil
+
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+
+        expect(response.parsed_body).to eq({ "active" => false })
+      end
+
+      it "reports inactive when the parent session has merely expired" do
+        StandardId::Session.where(id: session.id).update_all(expires_at: 1.hour.ago)
+
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+
+        expect(response.parsed_body).to eq({ "active" => false })
+      end
+
+      it "still reports active for a refresh token with no parent session" do
+        refresh_token.update!(session: nil)
+
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+
+        expect(response.parsed_body["active"]).to be true
+      end
     end
 
     # This is the documented, unavoidable limit. It is asserted rather than

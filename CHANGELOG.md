@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   Tracked in rarebit-one/rarebit-ops#297.
 
+- **`POST /oauth/introspect` reports the same refresh token as `active: false`.** The RFC 7662 endpoint (off by default, behind `config.oauth.introspection_enabled`) checked the `RefreshToken` row and not its session, so it had the identical gap. Left alone it would have reported `active: true` for a token `/oauth/token` now refuses — introspection contradicting the endpoint it describes. Access tokens are unchanged and still introspect as active until their `exp`; that documented limit is unaffected, because they are stateless and carry no `sid`.
+
 ## [0.34.0] - 2026-07-31
 
 ### Added
