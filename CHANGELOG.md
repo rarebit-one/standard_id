@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-07-31
+
 ### Added
 
 - **`config.verify_issuer`** — decouples MINTING an `iss` claim from REQUIRING one. `nil` (default) follows `config.issuer`, which is the historic behaviour and changes nothing. Set `false` to stamp `iss` on new tokens without yet verifying it.
