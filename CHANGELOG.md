@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`config.verify_issuer`** — decouples MINTING an `iss` claim from REQUIRING one. `nil` (default) follows `config.issuer`, which is the historic behaviour and changes nothing. Set `false` to stamp `iss` on new tokens without yet verifying it.
+
+  This exists because the two were one switch, which made adopting an issuer a flag day: every token already in flight was minted without an `iss`, so setting `config.issuer` rejected all of them at once — every access token and, far worse, every refresh token. An app that had never configured an issuer had no safe single step, which is where `nutripod-web` was stuck (rarebit-one/nutripod-web#1111) and why it could not retire its hand-rolled discovery controller with the rest of the estate.
+
+  Migration: set `issuer` with `verify_issuer = false`, wait out `refresh_token_lifetime` (the long pole — access tokens are short), then remove the override. Setting `true` with no issuer raises at boot rather than silently verifying against `nil` and accepting anything.
+
 ## [0.33.0] - 2026-07-30
 
 ### Added
