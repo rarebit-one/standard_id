@@ -52,6 +52,30 @@ module StandardId
       SUPPORTED_ALGORITHMS[algorithm] || raise(ArgumentError, "Unsupported algorithm: #{algorithm}. Supported: #{SUPPORTED_ALGORITHMS.keys.join(', ')}")
     end
 
+    # Whether decode REQUIRES a matching `iss`. `nil` (the default) follows the
+    # issuer, which is the historic behaviour: verification on exactly when an
+    # issuer is configured.
+    #
+    # The override exists so an app can START MINTING an `iss` without yet
+    # REQUIRING one. Coupled, adopting an issuer is a flag day — every token
+    # already in flight was minted without the claim, so enabling the issuer
+    # rejects all of them at once, refresh tokens included. Decoupled, the app
+    # sets `verify_issuer = false`, waits out `refresh_token_lifetime`, and then
+    # drops the override with no window in which valid tokens are refused.
+    def self.verify_issuer?
+      configured = StandardId.config.verify_issuer
+      return StandardId.config.issuer.present? if configured.nil?
+
+      if configured && StandardId.config.issuer.blank?
+        raise StandardId::ConfigurationError,
+              "verify_issuer is true but no issuer is configured — decode would " \
+              "verify against nil and accept any token. Set config.issuer, or " \
+              "leave verify_issuer nil to follow it."
+      end
+
+      configured
+    end
+
     def self.asymmetric?
       algorithm_config[:type] == :asymmetric
     end
@@ -152,7 +176,7 @@ module StandardId
     def self.decode(token, allowed_audiences: nil)
       options = { algorithms: [algorithm] }
 
-      if StandardId.config.issuer.present?
+      if StandardId.config.issuer.present? && verify_issuer?
         options[:iss] = StandardId.config.issuer
         options[:verify_iss] = true
       end

@@ -288,6 +288,85 @@ RSpec.describe StandardId::JwtService do
 
         expect(decoded["iss"]).to eq("https://custom.example.com")
       end
+
+      # The reason `verify_issuer` exists. Minting and verifying used to be the
+      # same switch, so an app that had never configured an issuer had no safe
+      # way to adopt one: turning it on rejected every token already in flight.
+      it "rejects an issuer-less token once verification is on" do
+        legacy = JWT.encode(
+          { sub: "user-123", exp: 1.hour.from_now.to_i },
+          Rails.application.secret_key_base,
+          "HS256"
+        )
+
+        expect(described_class.decode(legacy)).to be_nil
+      end
+    end
+
+    describe "verify_issuer (the adoption window)" do
+      before do
+        allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:hs256)
+        allow(StandardId.config.oauth).to receive(:signing_key).and_return(nil)
+        allow(StandardId.config).to receive(:issuer).and_return("https://auth.example.com")
+      end
+
+      context "when false — mint the claim, don't require it" do
+        before { allow(StandardId.config).to receive(:verify_issuer).and_return(false) }
+
+        it "still stamps iss on newly minted tokens" do
+          decoded = JWT.decode(described_class.encode({ sub: "user-123" }), nil, false).first
+
+          expect(decoded["iss"]).to eq("https://auth.example.com")
+        end
+
+        # The whole point: tokens minted before the issuer existed keep working
+        # through the rotation window instead of being rejected on deploy.
+        it "accepts a token that carries no iss at all" do
+          legacy = JWT.encode(
+            { sub: "user-123", exp: 1.hour.from_now.to_i },
+            Rails.application.secret_key_base,
+            "HS256"
+          )
+
+          expect(described_class.decode(legacy)).to be_present
+        end
+
+        # Honest about the cost of the window: while verification is off, a
+        # token bearing someone else's issuer is also accepted. That is why this
+        # is a temporary migration setting and not a permanent posture.
+        it "also accepts a token bearing a foreign issuer" do
+          foreign = JWT.encode(
+            { sub: "user-123", iss: "https://wrong.example.com", exp: 1.hour.from_now.to_i },
+            Rails.application.secret_key_base,
+            "HS256"
+          )
+
+          expect(described_class.decode(foreign)).to be_present
+        end
+      end
+
+      it "follows the issuer when nil, which is the historic behaviour" do
+        allow(StandardId.config).to receive(:verify_issuer).and_return(nil)
+
+        expect(described_class.verify_issuer?).to be(true)
+      end
+
+      it "is off when nil and no issuer is set" do
+        allow(StandardId.config).to receive(:verify_issuer).and_return(nil)
+        allow(StandardId.config).to receive(:issuer).and_return(nil)
+
+        expect(described_class.verify_issuer?).to be(false)
+      end
+
+      # Fail loudly rather than verifying against nil, which would accept
+      # anything while looking like it was enforcing something.
+      it "raises when true but no issuer is configured" do
+        allow(StandardId.config).to receive(:verify_issuer).and_return(true)
+        allow(StandardId.config).to receive(:issuer).and_return(nil)
+
+        expect { described_class.verify_issuer? }
+          .to raise_error(StandardId::ConfigurationError, /no issuer is configured/)
+      end
     end
   end
 

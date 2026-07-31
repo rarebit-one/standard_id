@@ -12,6 +12,26 @@ StandardId::ConfigSchema.define do
     field :passwordless_email_sender, type: :any, default: nil
     field :passwordless_sms_sender, type: :any, default: nil
     field :issuer, type: :string, default: nil
+
+    # Whether `JwtService.decode` REQUIRES a matching `iss` claim.
+    #
+    # `nil` (default) means "follow the issuer": verification is on exactly
+    # when `issuer` is set. That is the historic behaviour and is what you
+    # want once an issuer has always been configured.
+    #
+    # Set `false` to MINT an `iss` claim without yet REQUIRING one. This
+    # exists because the two were coupled, and that coupling makes adopting an
+    # issuer an all-or-nothing flag day: every token already in flight was
+    # minted without an `iss`, so turning the issuer on rejected all of them at
+    # once — every access token and, far worse, every refresh token. For an app
+    # that had never set an issuer there was no safe single step, which is
+    # exactly the position nutripod-web was stuck in (rarebit-one/nutripod-web#1111).
+    #
+    # The migration is then: set `issuer` with `verify_issuer = false`, wait
+    # out `refresh_token_lifetime` (the long pole — access tokens are short),
+    # then remove the override. Setting `true` with no issuer raises at boot
+    # rather than silently verifying nothing.
+    field :verify_issuer, type: :boolean, default: nil
     field :login_url, type: :string, default: nil
     field :allowed_post_logout_redirect_uris, type: :array, default: []
     field :account_scope, type: :any, default: nil
