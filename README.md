@@ -788,10 +788,22 @@ When an inactive account attempts to authenticate — at sign-in, at token mint,
 
 > **What the engine's own routes do.** You are responsible for **your** controllers only. The engine handles its own:
 >
-> - **`ApiEngine` routes** (`/api/v1/sessions`, `/api/v1/userinfo`, …) answer **`401` with `error: "invalid_token"`** per RFC 6750 — `StandardId::Api::BaseController` descends from `ActionController::API`, so your `rescue_from` is not in its ancestry and could never have covered it.
+> - **`ApiEngine` resource routes** (`/api/v1/sessions`, `/api/v1/userinfo`, …) answer **`401` with `error: "invalid_token"`** plus a `WWW-Authenticate` challenge, per RFC 6750 §3.1 — the caller *presented* an access token and must be told to discard it. `StandardId::Api::BaseController` descends from `ActionController::API`, so your `rescue_from` is not in its ancestry and could never have covered it.
+> - **`ApiEngine` OAuth protocol routes** (`POST /api/oauth/token`, `/introspect`, `/revoke`, `/register`) answer **`400` with `error: "invalid_grant"`** per RFC 6749 §5.2 — a client at the token endpoint is *obtaining* a credential, not presenting one, so there is no bearer token to challenge. The `error_description` is deliberately generic (`"The provided authorization grant is invalid, expired or revoked"`) and identical for deactivated and locked accounts: whoever presents a grant may not be its legitimate holder, so the response must not confirm account state. `lock_reason` is never surfaced.
 > - **`WebEngine` routes** (`/sessions`, `/account`, `/logout`) are covered by the `rescue_from` you write on `ApplicationController` below, because `StandardId::Web::BaseController` descends from it. The engine deliberately registers no handler of its own there — one would take precedence over yours and override your UX.
 >
 > So: write the `ApplicationController` handler (it covers your pages *and* the web engine's), and write the `Api::BaseController` handler only for **your own** API controllers.
+
+> **⚠️ Never guard a `rescue_from` with a `rescue_handlers` check.** A shim written like this looks defensive and is a trap:
+>
+> ```ruby
+> # DON'T — silently becomes a no-op the moment the gem registers its own handler
+> unless StandardId::Api::BaseController.rescue_handlers.any? { |k, _| k == "StandardId::AccountDeactivatedError" }
+>   StandardId::Api::BaseController.rescue_from(StandardId::AccountDeactivatedError) { ... }
+> end
+> ```
+>
+> When a superclass in the gem gains a handler for that class — as `Api::BaseController` did in 0.36.1 — the guard stops matching, your block never registers, and *the gem's* response shape silently replaces yours with no error, no deprecation, and nothing in the diff. Register unconditionally instead: Rails resolves `rescue_from` handlers most-recently-registered-first, so a later registration already wins over the gem's without any guard. This is exactly how one consumer's `400 invalid_grant` token-endpoint shim was defeated by the gem's `401 invalid_token`.
 
 ```ruby
 # app/controllers/application_controller.rb
@@ -907,7 +919,7 @@ User.unlocked.active  # => Users who can log in
 
 ### Handling AccountLockedError
 
-When a locked account attempts to authenticate, `StandardId::AccountLockedError` is raised. The error includes metadata about the lock. The same engine-owned-route rules described under [Handling AccountDeactivatedError](#handling-accountdeactivatederror) apply: `ApiEngine` routes answer `401 invalid_token` themselves (never echoing `lock_reason`), `WebEngine` routes defer to your `ApplicationController` handler.
+When a locked account attempts to authenticate, `StandardId::AccountLockedError` is raised. The error includes metadata about the lock. The same engine-owned-route rules described under [Handling AccountDeactivatedError](#handling-accountdeactivatederror) apply: `ApiEngine` resource routes answer `401 invalid_token` themselves, `ApiEngine` OAuth protocol routes answer `400 invalid_grant`, and `WebEngine` routes defer to your `ApplicationController` handler. Neither engine-owned response ever echoes `lock_reason`.
 
 ```ruby
 # app/controllers/application_controller.rb
