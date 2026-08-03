@@ -40,6 +40,18 @@ module StandardIdConfigIsolation
       state[:scope].resolver = state[:resolver]
     end
   end
+
+  # Replace the memoized Concurrent::Delays behind StandardId.logger and
+  # StandardId.cache_store with fresh, unforced ones. They are lazy, so this
+  # costs nothing until something reads them, at which point they resolve
+  # against whatever the config says *then*.
+  def rearm_delays!
+    singleton = StandardId.singleton_class
+    singleton.send(:remove_const, :LOGGER)
+    singleton.const_set(:LOGGER, Concurrent::Delay.new { StandardId.config.logger || Rails.logger })
+    singleton.send(:remove_const, :CACHE_STORE)
+    singleton.const_set(:CACHE_STORE, Concurrent::Delay.new { StandardId.config.cache_store || Rails.cache })
+  end
 end
 
 RSpec.configure do |config|
@@ -48,5 +60,17 @@ RSpec.configure do |config|
     example.run
   ensure
     StandardIdConfigIsolation.restore(saved)
+    # `StandardId.logger` / `.cache_store` are Concurrent::Delays derived from
+    # the config, and a Delay memoizes for the life of the PROCESS. Restoring
+    # the config hash above does not un-force them, so an example that forces
+    # one against a doctored config poisons every later example — spec/lib/
+    # standard_id_spec.rb sets `config.logger = 'test_logger'` and calls
+    # `reset_standard_id_logger!` on the way in but nothing on the way out, so
+    # `StandardId.logger` stayed the String "test_logger" for the rest of the
+    # run. Any `StandardId.logger&.warn` reached afterwards died with
+    # "private method 'warn' called for an instance of String" — seed-dependent,
+    # so it surfaced on exactly one Ruby of the CI matrix (rarebit-ops#306).
+    # Re-arming both delays here makes that unleakable, per this file's remit.
+    StandardIdConfigIsolation.rearm_delays!
   end
 end

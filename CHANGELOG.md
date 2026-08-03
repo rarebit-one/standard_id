@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`SESSION_VALIDATING` now carries the `account:` its subscribers guard on, so `AccountStatus` and `AccountLocking` finally stop a LIVE authenticated request.** Both concerns subscribe to `OAUTH_TOKEN_ISSUING`, `SESSION_CREATING` and `SESSION_VALIDATING` and branch on `event[:account]&.inactive?` / `&.locked?`. Neither publisher of `SESSION_VALIDATING` ever sent an `account:` — `Web::AuthenticationGuard#emit_session_validating` and `Api::AuthenticationGuard#emit_session_validating` both published `session:` alone. `Events#enrich_payload` injects `:current_account`, a *different* key, so `event[:account]` was `nil` and that leg of both guards never fired.
+
+  That it was an omission rather than a design is plain from the sibling emitters in the same two files: `emit_session_validated` and `emit_session_expired` each pass `account:`. Only the *validating* hook — the one that runs before the request is allowed to proceed, and therefore the only one of the three that can stop it — left it out.
+
+  **Upgrade implication — expect previously-working sessions and tokens to start failing. That is the fix.** Three shapes were getting through and now do not:
+
+  1. **API bearer tokens, the big one.** `AccountStatusSubscriber` / `AccountLockingSubscriber` revoke `account.sessions.active` on `deactivate!` / `lock!`, but an access token is a stateless JWT with no `Session` row — revoking sessions does nothing to it. Until its `exp`, `SESSION_VALIDATING` was the only thing that could refuse it, and it was inert. Any client holding an access token minted before the account went bad kept working; it now gets `AccountDeactivatedError` / `AccountLockedError` on the next request.
+  2. **A status change that skips the callbacks** — `update_all`, `update_column`, a data migration, direct SQL, an admin bulk action. No `ACCOUNT_DEACTIVATED` / `ACCOUNT_LOCKED` event fires, so no session revocation happens, and the browser session stayed live until it expired.
+  3. **A session minted after the account went bad by a path that emits no `SESSION_CREATING`.** `Web::SessionManager#load_session_from_remember_token` calls `create_browser_session` directly and publishes nothing, so remember-me re-auth walked straight past the sign-in guard.
+
+  Hosts that lock or deactivate accounts should expect support traffic from users whose sessions used to survive. `sidekick-web`'s `LockAccountModal` copy — *"The user will be immediately locked out / All active sessions will be terminated"* — is now true rather than aspirational.
+
+  **No new query on either hot path.** The web guard reads the `:account` association only when it is already loaded (`SessionManager` loads the session with `eager_load(:account)`) and otherwise falls back to a single indexed `find_by` — it must never lazily touch the association, because several consumers run `strict_loading_by_default` and this emitter is on the path of *every* authenticated request, where a `StrictLoadingViolationError` would turn an inert guard into a 500. It also runs *before* the blank/expired/revoked checks, so it handles a nil session. The API guard threads its `SessionManager` through to reuse the memoized, strict-loading-cleared `#current_account` that `emit_session_validated` resolves anyway.
+
+  The spec that let this survive for so long asserted enforcement by publishing `SESSION_VALIDATING` **by hand** with the very key the real publisher omitted — proof that the subscriber reacts to a correctly-shaped payload, not that any caller produces one. Those examples now drive the real guards over real HTTP requests (`spec/requests/standard_id/live_session_account_guard_spec.rb`), and were confirmed to fail with the `account:` key removed.
+
+  Tracked in rarebit-one/rarebit-ops#306.
+
+### Added
+
+- **`POST /oauth/revoke` logs a warning when `revocation_scope: :grant` resolves a presented `jti` to no `RefreshToken`.** Under `:grant`, presenting an access token is a deliberate no-op that still answers 200 (RFC 7009 §2.2) — correct, because access tokens are stateless and never persisted, but until now completely silent. A client that only ever presents access tokens looked like it was revoking when it was not. As `:grant` is adopted across the estate, post-flip no-ops need to be visible. Emitted via `StandardId.logger&.warn`, consistent with the existing `revocation_scope` fallback warning. No behaviour change. Relates to rarebit-one/rarebit-ops#304.
+
 ## [0.35.0] - 2026-07-31
 
 ### Security
