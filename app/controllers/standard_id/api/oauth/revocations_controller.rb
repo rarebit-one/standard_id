@@ -93,10 +93,27 @@ module StandardId
             .where(token_digest: StandardId::RefreshToken.digest_for(jti))
             .includes(:session, :account)
             .first
+          # No persisted grant for this jti. Per RFC 7009 §2.2 the endpoint
+          # still answers 200, and for an access token that is the correct
+          # no-op (access tokens are stateless JWTs and are never persisted).
+          # But under :grant the no-op is otherwise completely silent, so a
+          # client that only ever presents access tokens looks like it is
+          # revoking when it is not. Log it so post-flip no-ops are visible.
+          if record.nil?
+            StandardId.logger&.warn(
+              "[StandardId::Revocations] revocation_scope=:grant — presented jti " \
+              "resolved to no RefreshToken for account #{payload[:sub]}; nothing " \
+              "revoked (RFC 7009 §2.2 still returns 200). This is expected when " \
+              "an access token is presented; present the refresh token for " \
+              "revocation to take effect."
+            )
+            return
+          end
+
           # A jti that resolves to another subject's grant must never revoke
           # it — the token was signature-verified, but bind the two identities
           # anyway rather than trusting a single claim.
-          return if record.nil? || record.account_id.to_s != payload[:sub].to_s
+          return if record.account_id.to_s != payload[:sub].to_s
 
           refresh_tokens_revoked = record.revoke_family!
 

@@ -3,7 +3,7 @@ module StandardId
     class AuthenticationGuard
       def require_session!(session_manager, request: nil)
         api_session = session_manager.current_session
-        emit_session_validating(api_session, request)
+        emit_session_validating(api_session, request, session_manager: session_manager)
 
         if api_session.blank?
           raise StandardId::NotAuthenticatedError, "Invalid or missing access token"
@@ -55,10 +55,16 @@ module StandardId
         end
       end
 
-      def emit_session_validating(api_session, request)
+      # Mirrors emit_session_validated/expired below. The session_manager is
+      # threaded through so resolve_account takes its memoized, strict-loading-
+      # cleared #current_account rather than a lazy `api_session.account` —
+      # this emitter runs on every authenticated request, before the
+      # blank/expired/revoked checks, so it must not be able to raise.
+      def emit_session_validating(api_session, request, session_manager: nil)
         StandardId::Events.publish(
           StandardId::Events::SESSION_VALIDATING,
-          session: api_session
+          session: api_session,
+          account: resolve_account(api_session, session_manager)
         )
       end
 

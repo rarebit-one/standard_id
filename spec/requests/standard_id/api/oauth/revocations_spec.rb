@@ -384,6 +384,30 @@ RSpec.describe "StandardId::Api::Oauth::RevocationsController", type: :request d
           expect(refresh_token.reload).not_to be_revoked
         end
 
+        # rarebit-ops#304 — the no-op above is correct per RFC 7009 §2.2 but
+        # was completely silent, so a client that only ever presents access
+        # tokens looked like it was revoking when it was not. As :grant is
+        # adopted across the estate, post-flip no-ops must be visible.
+        it "warns when a presented jti resolves to no RefreshToken" do
+          logger = instance_double(Logger, warn: nil, error: nil, info: nil, debug: nil)
+          allow(StandardId).to receive(:logger).and_return(logger)
+
+          post "/api/oauth/revoke", params: { token: access_jwt }
+
+          expect(response).to have_http_status(:ok)
+          expect(logger).to have_received(:warn).with(/resolved to no RefreshToken/)
+        end
+
+        it "does not warn when the presented jti resolves to a grant" do
+          logger = instance_double(Logger, warn: nil, error: nil, info: nil, debug: nil)
+          allow(StandardId).to receive(:logger).and_return(logger)
+
+          post "/api/oauth/revoke", params: { token: refresh_jwt }
+
+          expect(response).to have_http_status(:ok)
+          expect(logger).not_to have_received(:warn)
+        end
+
         it "revokes nothing for a token with no jti" do
           token = StandardId::JwtService.encode({ sub: account.id, client_id: "test-client" })
 

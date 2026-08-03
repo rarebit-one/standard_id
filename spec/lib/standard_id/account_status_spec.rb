@@ -148,10 +148,15 @@ RSpec.describe StandardId::AccountStatus do
         }.to raise_error(StandardId::AccountDeactivatedError)
       end
 
-      it "raises AccountDeactivatedError on SESSION_VALIDATING" do
+      # NOT `Events.publish(SESSION_VALIDATING, account: account)`. That form
+      # supplied the very key the real publisher omitted, so it passed for
+      # months while the guard was inert in production (rarebit-ops#306).
+      # Drive the real publisher instead. Full HTTP coverage of both engines
+      # lives in spec/requests/standard_id/live_session_account_guard_spec.rb.
+      it "raises AccountDeactivatedError when the real web guard validates a live session" do
         expect {
-          StandardId::Events.publish(StandardId::Events::SESSION_VALIDATING, account: account)
-        }.to raise_error(StandardId::AccountDeactivatedError)
+          validate_live_browser_session(account)
+        }.to raise_error(StandardId::AccountDeactivatedError, "Account is deactivated")
       end
     end
 
@@ -170,9 +175,9 @@ RSpec.describe StandardId::AccountStatus do
         }.not_to raise_error
       end
 
-      it "does not raise on SESSION_VALIDATING" do
+      it "does not raise when the real web guard validates a live session" do
         expect {
-          StandardId::Events.publish(StandardId::Events::SESSION_VALIDATING, account: account)
+          validate_live_browser_session(account)
         }.not_to raise_error
       end
     end
