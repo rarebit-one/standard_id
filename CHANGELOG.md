@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.1] - 2026-08-04
+
+**A follow-up to 0.36.0's own regression, released the same day.** 0.36.0 is correct and stays — read its entry first for why `SESSION_VALIDATING` had to start carrying `account:`. This release repairs the fallout of that fix on the gem's own API routes. Two releases land together because the second is only reachable *because* of the first.
+
+### Fixed
+
+- **`StandardId::Api::BaseController` now answers `401` — not `500` — when the authenticated account is deactivated or locked.** 0.36.0 made `AccountStatus` / `AccountLocking` fire on a live authenticated request for the first time, which is the intended behaviour. But `AccountDeactivatedError` and `AccountLockedError` are bare `StandardError` subclasses, under neither `InvalidSessionError` nor `OAuthError`, and the API base controller rescued only those three families. So the very change that started refusing a disabled account's bearer token turned every route under `ApiEngine` — `/api/v1/sessions`, `/api/v1/userinfo`, all of it — into an unhandled exception for that account. Every consumer mounting `ApiEngine` inherited it. Before 0.36.0 the guard was inert on that path, so the hole existed but was unreachable; the release is what exposed it.
+
+  Observed independently in two consumers during the 0.36.0 rollout: `luminality-web`, which has an app-side handler on `Api::ErrorHandling` and so saw only the *gem-owned* routes fail, and `sidekick-web`, which has none and saw its whole API tree fail.
+
+  A 500 is not a refusal. It carries no `WWW-Authenticate`, tells the client nothing about discarding a token that will never work again, and pages the on-call for a routine account state. Both errors now render the established bearer shape — `401`, `{ "error": "invalid_token", "error_description": … }`, plus the matching `WWW-Authenticate` challenge — via the same `render_bearer_unauthorized!` the other credential failures use. No new response shape was invented.
+
+  **Why `invalid_token`.** RFC 6750 §3.1 defines exactly three codes. `invalid_token` covers a token "expired, revoked, malformed, or **invalid for other reasons**", and a token whose subject account has been disabled is invalid for one of those other reasons; it also carries the right client instruction — discard the token and re-authenticate — which is precisely correct here, since no retry with this token can ever succeed. `insufficient_scope` (403) would be wrong twice over: nothing about this is a scope failure, and 403 invites a client to keep the token and retry. `invalid_request` (400) would be wrong because the request is perfectly well-formed.
+
+  `AccountLockedError#lock_reason` is **not** surfaced. It is operator-authored text meant for logs and admin screens, and `WWW-Authenticate` is a quoted string that arbitrary text would break as well as leak. A spec pins that the reason appears in neither the body nor the header.
+
+### Unchanged, deliberately — two decisions worth knowing about
+
+- **The `WebEngine`'s own routes (`/sessions`, `/account`, `/logout`) get no gem-side handler, and this is not an oversight.** `StandardId::Web::BaseController` descends from the **host's** `ApplicationController`, so the `rescue_from StandardId::AccountDeactivatedError` the README has always told hosts to write already covers those routes. A gem handler there would not add safety, it would remove it: Rails scans `rescue_handlers` most-recently-registered-first, and a subclass registers after its parent, so anything the gem registered on `Web::BaseController` would outrank and silently override the host's — replacing a host's "your account has been deactivated" page with whatever the gem chose. `Api::BaseController` has no such escape hatch; descending from `ActionController::API`, there is nowhere in its ancestry for a host to put a handler, which is exactly why only that side is rescued in the gem.
+
+  **Hosts must therefore still carry their own `ApplicationController` handler for these two errors.** If you do not have one, a deactivated or locked account hitting a web route — yours or the engine's — is an unhandled exception. That was true before 0.36.0 for the sign-in path and remains true; 0.36.0 simply widened the set of requests that can reach it from "sign-in and token mint" to "any authenticated request". The README's account sections now spell out which routes the engine answers for and which it does not.
+
+- **`AccountDeactivatedError` / `AccountLockedError` still descend from `StandardError`, not from `InvalidSessionError`.** Reparenting them was considered as the broader fix — it would make every consumer's existing `rescue_from StandardId::InvalidSessionError` catch them automatically, with no consumer change at all — and rejected on two grounds. First, they mean something genuinely different: an `InvalidSessionError` says the credential is no good and the remedy is to sign in again, while these say the credential is fine and the account is disabled, where signing in again will not help and the user needs to be told so. Consumers who deliberately distinguish the two would lose that distinction silently. Second, and decisively, it would hijack handlers hosts have already written: `Web::BaseController` registers `rescue_from NotAuthenticatedError, InvalidSessionError, with: :redirect_unauthenticated_to_login`, so under the reparented hierarchy a host's `rescue_from AccountDeactivatedError` — registered *earlier*, on the parent — would lose to the gem's subclass registration, and every consumer following the README would start bouncing disabled users to `/login` instead of to their account-disabled page. A patch release that quietly re-routes a documented UX is not a patch. The narrow fix leaves both hierarchies and both sets of host handlers exactly as they were.
+
+### Testing
+
+`spec/requests/standard_id/live_session_account_guard_spec.rb` gains three API examples (401 shape for deactivated, 401 shape for locked, and `lock_reason` non-disclosure) and two web examples pinning the delegate-to-host design above. Proven by negative control: with the two `rescue_from` lines deleted from `Api::BaseController`, the three API examples fail with the raw error escaping the request; restored, the file is 14/14 and the suite 2097/2097.
+
+Relates to rarebit-one/rarebit-ops#306.
+
 ## [0.36.0] - 2026-08-04
 
 ### Security

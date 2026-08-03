@@ -784,7 +784,14 @@ User.inactive   # => Users with status 'inactive'
 
 ### Handling AccountDeactivatedError
 
-When an inactive account attempts to authenticate, `StandardId::AccountDeactivatedError` is raised. You need to handle this error in your application controller:
+When an inactive account attempts to authenticate — at sign-in, at token mint, and (since 0.36.0) on every request made with an already-issued credential — `StandardId::AccountDeactivatedError` is raised. You need to handle this error in your application controller:
+
+> **What the engine's own routes do.** You are responsible for **your** controllers only. The engine handles its own:
+>
+> - **`ApiEngine` routes** (`/api/v1/sessions`, `/api/v1/userinfo`, …) answer **`401` with `error: "invalid_token"`** per RFC 6750 — `StandardId::Api::BaseController` descends from `ActionController::API`, so your `rescue_from` is not in its ancestry and could never have covered it.
+> - **`WebEngine` routes** (`/sessions`, `/account`, `/logout`) are covered by the `rescue_from` you write on `ApplicationController` below, because `StandardId::Web::BaseController` descends from it. The engine deliberately registers no handler of its own there — one would take precedence over yours and override your UX.
+>
+> So: write the `ApplicationController` handler (it covers your pages *and* the web engine's), and write the `Api::BaseController` handler only for **your own** API controllers.
 
 ```ruby
 # app/controllers/application_controller.rb
@@ -900,7 +907,7 @@ User.unlocked.active  # => Users who can log in
 
 ### Handling AccountLockedError
 
-When a locked account attempts to authenticate, `StandardId::AccountLockedError` is raised. The error includes metadata about the lock:
+When a locked account attempts to authenticate, `StandardId::AccountLockedError` is raised. The error includes metadata about the lock. The same engine-owned-route rules described under [Handling AccountDeactivatedError](#handling-accountdeactivatederror) apply: `ApiEngine` routes answer `401 invalid_token` themselves (never echoing `lock_reason`), `WebEngine` routes defer to your `ApplicationController` handler.
 
 ```ruby
 # app/controllers/application_controller.rb

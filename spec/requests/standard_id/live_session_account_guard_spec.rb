@@ -50,22 +50,46 @@ RSpec.describe "Live-session account enforcement", type: :request do
       expect(response).to have_http_status(:ok)
     end
 
-    it "rejects an already-issued access token once the account is deactivated" do
+    # 0.36.0 made these two raiseable on a live request for the first time, but
+    # Api::BaseController rescued neither, so the very fix that started refusing
+    # a disabled account's token turned every gem-owned API route into a 500 for
+    # it. A 500 is not a refusal: it carries no WWW-Authenticate, tells the
+    # client nothing about discarding the token, and pages the on-call. Both
+    # must land as the same clean 401 the other credential failures produce.
+    #
+    # NEGATIVE CONTROL for this pair specifically: delete the two account
+    # `rescue_from` lines from StandardId::Api::BaseController and both examples
+    # must fail with the raw error escaping the request.
+    it "401s an already-issued access token once the account is deactivated" do
       account.deactivate!
 
-      expect {
-        http_get "/api/sessions", headers: headers
-      }.to raise_error(StandardId::AccountDeactivatedError, "Account is deactivated")
+      http_get "/api/sessions", headers: headers
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(json_body["error"]).to eq("invalid_token")
+      expect(json_body["error_description"]).to eq("The account is deactivated")
+      expect(response.headers["WWW-Authenticate"]).to include(%(error="invalid_token"))
     end
 
-    it "rejects an already-issued access token once the account is locked" do
+    it "401s an already-issued access token once the account is locked" do
       account.lock!(reason: "Suspicious activity")
 
-      expect {
-        http_get "/api/sessions", headers: headers
-      }.to raise_error(StandardId::AccountLockedError) do |error|
-        expect(error.lock_reason).to eq("Suspicious activity")
-      end
+      http_get "/api/sessions", headers: headers
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(json_body["error"]).to eq("invalid_token")
+      expect(json_body["error_description"]).to eq("The account is locked")
+    end
+
+    # lock_reason is operator-authored text for logs and admin screens. It must
+    # not reach the client, in either the body or the WWW-Authenticate header.
+    it "does not leak lock_reason to the client" do
+      account.lock!(reason: "Suspicious activity")
+
+      http_get "/api/sessions", headers: headers
+
+      expect(response.body).not_to include("Suspicious activity")
+      expect(response.headers["WWW-Authenticate"]).not_to include("Suspicious activity")
     end
 
     it "still 401s a request with no token" do
@@ -125,6 +149,51 @@ RSpec.describe "Live-session account enforcement", type: :request do
         expect {
           http_get admin_root_path
         }.to raise_error(StandardId::AccountLockedError)
+      end
+    end
+
+    # The web engine's OWN routes (/sessions, /account, /logout) are the
+    # counterpart of the API 500 fixed above — and they are deliberately NOT
+    # fixed the same way.
+    #
+    # StandardId::Web::BaseController descends from the HOST's
+    # ApplicationController, so a host `rescue_from StandardId::AccountDeactivatedError`
+    # — exactly what the README tells hosts to write — already covers these
+    # routes. The gem adding its own `rescue_from` on Web::BaseController would
+    # not add safety, it would REMOVE it: Rails resolves rescue_from handlers
+    # most-recently-registered-first, and a subclass registers after its parent,
+    # so a gem handler on Web::BaseController would outrank and silently
+    # override the host's. Api::BaseController has no such escape hatch — it
+    # descends from ActionController::API, which is why only that side is
+    # rescued in the gem.
+    #
+    # These examples pin both halves of that claim. The dummy app installs no
+    # account handler, so the first documents the raw propagation a host sees if
+    # it ignores the README; the second pins the structural property that makes
+    # a host handler work at all, and is the one that would fail if someone
+    # "fixed" the web side the way the API side was fixed.
+    describe "gem-owned web routes (/sessions)" do
+      it "propagates to the host when the host installed no handler" do
+        sign_in_as(account)
+        Account.where(id: account.id).update_all(status: "inactive")
+
+        expect {
+          http_get "/sessions"
+        }.to raise_error(StandardId::AccountDeactivatedError, "Account is deactivated")
+      end
+
+      it "leaves the account errors for the host's ApplicationController to rescue" do
+        expect(StandardId::Web::BaseController.ancestors).to include(ApplicationController)
+
+        # `rescue_handlers` is a class_attribute, so this array is Web::BaseController's
+        # own copy: the host's registrations (snapshotted from ApplicationController
+        # when this class was defined) first, the gem's appended after. Rails scans it
+        # in reverse, so anything the gem registers here outranks the host. The gem
+        # therefore registers NOTHING for the account errors on the web side.
+        gem_registered = StandardId::Web::BaseController.rescue_handlers.map(&:first)
+        expect(gem_registered).to include("StandardId::InvalidSessionError")
+        expect(gem_registered).not_to include("StandardId::AccountDeactivatedError")
+        expect(gem_registered).not_to include("StandardId::AccountLockedError")
       end
     end
 
