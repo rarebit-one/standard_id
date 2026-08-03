@@ -1,0 +1,32 @@
+name: Pin Gate
+
+# Thin caller for the org-shared Actions-pinning gate (zizmor + pinact) in
+# rarebit-one/.github. Fails a PR that introduces a third-party action referenced
+# by a mutable tag or branch instead of a full commit SHA.
+#
+# Until now the ONLY thing keeping this repo pinned was the scheduled
+# `pin-sweep` self-healer: it runs weekly and repairs drift AFTER it has
+# already merged. This gate catches it at PR time instead. The reusable was
+# written to be copied into every repo -- its caller header says so -- but no
+# consumer repo had ever adopted it.
+#
+# Verified before adding: this repo has zero unpinned third-party actions on
+# its default branch, so this gate is green on day one rather than reding
+# every open PR. First-party `rarebit-one/.github@main` references are ignored by
+# the gate's synthesized config.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions: {}
+
+concurrency:
+  group: pin-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  pin-check:
+    permissions:
+      contents: read
+    uses: rarebit-one/.github/.github/workflows/pin-check.yml@main
