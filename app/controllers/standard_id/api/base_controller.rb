@@ -16,6 +16,16 @@ module StandardId
       rescue_from StandardId::InvalidSessionError, with: :handle_invalid_session
       rescue_from StandardId::OAuthError, with: :handle_oauth_error
 
+      # AccountStatus / AccountLocking raise these from the SESSION_VALIDATING
+      # subscriber, i.e. mid-request on an ALREADY authenticated call, not just
+      # at sign-in or token mint. Unrescued they are a 500 on every gem-owned
+      # API route. Unlike Web::BaseController — which descends from the host's
+      # ApplicationController, so a host `rescue_from` covers it — this class
+      # descends from ActionController::API, so the host has nowhere to put a
+      # handler in the ancestry and the gem must answer for itself.
+      rescue_from StandardId::AccountDeactivatedError, with: :handle_account_deactivated
+      rescue_from StandardId::AccountLockedError, with: :handle_account_locked
+
       protected
 
       def validate_content_type!
@@ -41,6 +51,27 @@ module StandardId
 
       def handle_invalid_session(error)
         render_bearer_unauthorized!(error_description: default_invalid_token_message)
+      end
+
+      # RFC 6750 §3.1 offers exactly three error codes, and `invalid_token` is
+      # the right one: it covers a token "expired, revoked, malformed, or
+      # invalid for other reasons", and a bearer token whose subject account has
+      # been disabled is invalid for one of those other reasons. It also carries
+      # the correct client instruction — discard the token and re-authenticate —
+      # which is what we want, since no retry with this token will ever succeed.
+      # `insufficient_scope` (403) would be wrong: nothing here is about scope,
+      # and a 403 invites the client to keep the token and retry. `invalid_request`
+      # (400) would be wrong: the request is well-formed.
+      def handle_account_deactivated(_error)
+        render_bearer_unauthorized!(error_description: "The account is deactivated")
+      end
+
+      # Deliberately does NOT surface `error.lock_reason`. It is operator-authored
+      # text intended for logs and admin screens (see StandardId::AccountLockedError),
+      # and the WWW-Authenticate header this renders into is a quoted string that
+      # arbitrary text would break as well as leak.
+      def handle_account_locked(_error)
+        render_bearer_unauthorized!(error_description: "The account is locked")
       end
 
       def handle_oauth_error(error)

@@ -7,6 +7,31 @@ module StandardId
   class RevokedSessionError < InvalidSessionError; end
 
   # Account errors
+  #
+  # These deliberately do NOT descend from InvalidSessionError, even though
+  # doing so would make every host's existing `rescue_from InvalidSessionError`
+  # catch them for free. Two reasons:
+  #
+  #   1. They mean something different. An InvalidSessionError says the
+  #      credential is no good — expired, revoked — and the remedy is to sign in
+  #      again. These say the credential is fine and the ACCOUNT is disabled;
+  #      signing in again will not help, and the user needs to be told so.
+  #      Hosts document that distinction in their UX (see the README's
+  #      "Handling AccountDeactivatedError" / "Handling AccountLockedError").
+  #   2. Reparenting them would silently HIJACK the handlers hosts already
+  #      wrote. Web::BaseController registers
+  #      `rescue_from NotAuthenticatedError, InvalidSessionError, with:
+  #      :redirect_unauthenticated_to_login`, and Rails resolves rescue_from
+  #      handlers most-recently-registered-first — a subclass's registration
+  #      wins over its parent's. A host's `rescue_from AccountDeactivatedError`
+  #      on ApplicationController is registered EARLIER than the gem's
+  #      subclass registration, so as a subclass of InvalidSessionError these
+  #      would start bouncing to /login instead of reaching the host's
+  #      account-deactivated page. That is a behaviour regression for every
+  #      consumer who followed the README.
+  #
+  # Consequently every entry point that must not raise has to rescue these
+  # explicitly; StandardId::Api::BaseController does.
   class AccountDeactivatedError < StandardError; end
 
   class AccountLockedError < StandardError
