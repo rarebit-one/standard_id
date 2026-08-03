@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-08-04
+
 ### Security
 
 - **`SESSION_VALIDATING` now carries the `account:` its subscribers guard on, so `AccountStatus` and `AccountLocking` finally stop a LIVE authenticated request.** Both concerns subscribe to `OAUTH_TOKEN_ISSUING`, `SESSION_CREATING` and `SESSION_VALIDATING` and branch on `event[:account]&.inactive?` / `&.locked?`. Neither publisher of `SESSION_VALIDATING` ever sent an `account:` — `Web::AuthenticationGuard#emit_session_validating` and `Api::AuthenticationGuard#emit_session_validating` both published `session:` alone. `Events#enrich_payload` injects `:current_account`, a *different* key, so `event[:account]` was `nil` and that leg of both guards never fired.
