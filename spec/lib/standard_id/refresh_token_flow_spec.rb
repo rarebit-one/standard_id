@@ -453,9 +453,41 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError)
     end
 
-    it "rejects a refresh when the session has expired" do
+    # DELIBERATE NARROWING — this asserted the opposite until
+    # rarebit-one/rarebit-ops#304. The check is about REVOCATION, not lifetime.
+    #
+    # It was harmless either way while `session_id` was nil in every app: with no
+    # parent, neither branch could fire. The moment #304 makes linkage real, an
+    # expiry branch silently becomes a lifetime policy — and a badly-scaled one.
+    # jumpdrive runs an 86400s browser_session_lifetime against a 2592000s
+    # refresh_token_lifetime, so keeping this would have cut its session-backed
+    # MCP clients from monthly to daily re-authorization as a side effect of a
+    # security fix that was never about login frequency.
+    #
+    # Token lifetime is `refresh_token_lifetime`'s job; it already exists and is
+    # already configured per app. Keeping the two separate is what let linkage
+    # ship without renegotiating anyone's cadence.
+    it "does NOT reject a refresh merely because the session has expired" do
       create_refresh_token_record(session: session)
       StandardId::Session.where(id: session.id).update_all(expires_at: 1.hour.ago)
+
+      expect(session.reload).not_to be_active
+      expect(session.reload).not_to be_revoked
+
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
+      flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
+
+      expect { flow.authenticate! }.not_to raise_error
+    end
+
+    # The pairing that makes the one above meaningful: an expired session whose
+    # token still refreshes, versus an expired-AND-revoked one that does not. If
+    # only the negative case existed, a check that had simply stopped running
+    # would look identical.
+    it "still rejects a refresh when an expired session was ALSO revoked" do
+      create_refresh_token_record(session: session)
+      StandardId::Session.where(id: session.id)
+        .update_all(expires_at: 1.hour.ago, revoked_at: Time.current)
 
       allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
       flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)

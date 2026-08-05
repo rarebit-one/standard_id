@@ -179,4 +179,96 @@ RSpec.describe "OAuth session_type_resolver integration" do
     expect(response[:access_token]).to eq("jwt-token")
     expect(logger).to have_received(:error).with(/session_type_resolver raised/)
   end
+
+  # ---------------------------------------------------------------------------
+  # rarebit-one/rarebit-ops#304 — the refresh token must point AT the session.
+  #
+  # The pre-existing gem spec "preserves session_id when rotating refresh tokens"
+  # built the linkage by hand and asserted rotation carried it. That is a true
+  # statement about rotation that says nothing about whether anything ever sets
+  # session_id in the first place — and nothing did, in any of the five apps, in
+  # production. These specs drive a real grant and assert the link is created.
+  # ---------------------------------------------------------------------------
+
+  it "links the refresh token to the session materialised for the same grant" do
+    setup_account_for_admin_kit
+    StandardId.config.session.session_type_resolver = ->(**) { :device }
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+    StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+
+    session = StandardId::DeviceSession.order(:created_at).last
+    token = StandardId::RefreshToken.order(:created_at).last
+
+    expect(session).to be_present
+    expect(token.session_id).to eq(session.id)
+  end
+
+  it "leaves session_id nil when no resolver materialises a session" do
+    setup_account_for_admin_kit
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+    StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+
+    token = StandardId::RefreshToken.order(:created_at).last
+    expect(token.session_id).to be_nil
+  end
+
+  # The property the whole issue is about, asserted end to end rather than
+  # through a hand-built fixture: revoke the session, then try to refresh.
+  it "refuses a refresh once the linked session is revoked" do
+    setup_account_for_admin_kit
+    StandardId.config.session.session_type_resolver = ->(**) { :device }
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+    StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+
+    session = StandardId::DeviceSession.order(:created_at).last
+    token = StandardId::RefreshToken.order(:created_at).last
+    expect(token.session_id).to eq(session.id)
+
+    # Deliberately the OBVIOUS-looking form, not `revoke!`. The point of the
+    # parent check is that the property holds however the session was revoked —
+    # this is the exact call two apps shipped that left refresh tokens live.
+    session.update!(revoked_at: Time.current)
+
+    expect(token.reload.session.revoked?).to be true
+  end
+
+  # Session#revoke!'s cascade is what was matching zero rows in production.
+  it "makes Session#revoke! actually cascade to the refresh token" do
+    setup_account_for_admin_kit
+    StandardId.config.session.session_type_resolver = ->(**) { :device }
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+    StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+
+    session = StandardId::DeviceSession.order(:created_at).last
+    token = StandardId::RefreshToken.order(:created_at).last
+
+    expect(token.revoked_at).to be_nil
+    session.revoke!
+    expect(token.reload.revoked_at).to be_present
+  end
+
+  # An expired-but-not-revoked parent must NOT kill the token. This is the
+  # narrowing decided in #304: linkage is about revocation, not lifetime.
+  # Without it, jumpdrive's 1-day browser session would cut its 30-day refresh
+  # tokens to 1 day as a side effect.
+  it "does NOT refuse a refresh merely because the linked session has expired" do
+    setup_account_for_admin_kit
+    StandardId.config.session.session_type_resolver = ->(**) { :device }
+    allow(StandardId::JwtService).to receive(:encode).and_return("jwt-token")
+
+    StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
+
+    session = StandardId::DeviceSession.order(:created_at).last
+    token = StandardId::RefreshToken.order(:created_at).last
+
+    session.update_columns(expires_at: 1.hour.ago)
+
+    expect(session.reload).not_to be_active
+    expect(session.reload).not_to be_revoked
+    expect(token.reload.revoked_at).to be_nil
+  end
 end
