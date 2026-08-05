@@ -84,8 +84,25 @@ module StandardId
       #
       # Checking the parent here makes the property true by construction: it
       # holds however the session was revoked — `revoke!`, a bare `update!`, a
-      # bulk `update_all`, a DBA, a data fix — and it covers expiry as well.
+      # bulk `update_all`, a DBA, a data fix.
       # See rarebit-one/rarebit-ops#297.
+      #
+      # REVOCATION, NOT EXPIRY — deliberately, and this is a narrowing of what
+      # 0.35.0 shipped. `Session#active?` is `!revoked? && !expired?`, so the
+      # original `return if session.active?` also refused a refresh whose parent
+      # had merely aged out. That was harmless while `session_id` was nil
+      # everywhere; the moment rarebit-one/rarebit-ops#304 makes linkage real it
+      # silently becomes a lifetime policy — and a badly-scaled one. jumpdrive
+      # runs an 86400s browser_session_lifetime against a 2592000s
+      # refresh_token_lifetime, so tying the two would cut its session-backed
+      # MCP clients from monthly to DAILY re-authorization, as a side effect of
+      # a security fix nobody asked to change login frequency.
+      #
+      # Revocation is the property the estate actually wants: an operator clicks
+      # "revoke this session" and access ends. Expiry is a lifetime decision that
+      # belongs to `refresh_token_lifetime`, which already exists and is already
+      # configured per app. Keeping them separate means linkage can ship without
+      # renegotiating anyone's login cadence.
       #
       # A refresh token with no session (`session_id` nil) is unaffected: that
       # is the machine-to-machine shape (client_credentials and any other grant
@@ -99,7 +116,7 @@ module StandardId
       def validate_parent_session!
         session = @current_refresh_token_record.session
         return if session.nil?
-        return if session.active?
+        return unless session.revoked?
 
         raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
       end

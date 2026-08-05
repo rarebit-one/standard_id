@@ -63,8 +63,15 @@ module StandardId
         # (see there for why) — that path is safe because the swallowed
         # exception fires before any DB work in this block.
         ActiveRecord::Base.transaction do
+          # Session FIRST, refresh token second. The order is load-bearing, not
+          # stylistic: `persist_refresh_token!` writes `session_id`, so the
+          # session row has to exist before the token row is built or the link
+          # is nil by construction. It was the other way round until
+          # rarebit-one/rarebit-ops#304, which is the whole reason
+          # `refresh_tokens.session_id` was nil in every app in the estate —
+          # there was no session to point at yet.
+          @oauth_session = maybe_persist_session_for_token!
           response[:refresh_token] = generate_refresh_token if supports_refresh_token?
-          maybe_persist_session_for_token!
         end
 
         emit_token_issued(expires_in)
@@ -166,8 +173,33 @@ module StandardId
         )
       end
 
+      # The parent session for the refresh token issued by THIS grant, when the
+      # host materialised one via `config.session.session_type_resolver`.
+      #
+      # Returning a real id here is what makes "revoking a session ends that
+      # session's access" true by construction rather than an emergent property
+      # of every caller remembering to reach for the right method. With it nil —
+      # which it was everywhere before rarebit-one/rarebit-ops#304 — every
+      # session→refresh cascade in the gem and in the apps matched zero rows,
+      # and 0.35.0's parent-session check had no parent to consult.
+      #
+      # Still nil where there is genuinely no parent: no resolver configured
+      # (the default), or a grant the host does not materialise a session for.
+      # That keeps machine-to-machine grants (client_credentials) exactly as
+      # they were — there is no session to outlive.
+      #
+      # ServiceSessions are carved out on purpose. Machine credentials have
+      # their own lifecycle, and the gem's `:account` revocation scope already
+      # excludes them; linking one here would let a human's browser logout kill
+      # a running CLI or MCP agent sharing the account. `OauthSessionPersistence`
+      # refuses to build one at all, so this guard is belt-and-braces against a
+      # host that reaches around it — cheap, and the failure it prevents is
+      # silent.
       def refresh_token_session_id
-        nil
+        return nil if @oauth_session.nil?
+        return nil if @oauth_session.is_a?(StandardId::ServiceSession)
+
+        @oauth_session.id
       end
 
       def previous_refresh_token_record
