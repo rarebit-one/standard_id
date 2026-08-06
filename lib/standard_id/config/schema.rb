@@ -108,6 +108,34 @@ StandardId::ConfigSchema.define do
 
   scope :events do
     field :enable_logging, type: :boolean, default: false
+
+    # Publish `<key>_id` / `<key>_gid` alongside every record-valued payload key
+    # (rarebit-one/rarebit-ops#296).
+    #
+    # StandardId publishes whole ActiveRecord objects on the notification bus —
+    # `account:`, `current_account:`, `session:`, `code_challenge:` — and a
+    # record serialises with ALL its attributes. `standard_audit` 0.11.0 stopped
+    # that reaching `audit_logs`, but the bus is not the audit gem's to police:
+    # a host's own subscribers still receive the full record and may put it in
+    # Sentry context, a structured log, or a table of their own.
+    #
+    # On by default because it only ADDS keys. Nothing that reads `account:`
+    # today changes behaviour — including every consumer's `actor_extractor`,
+    # which reads the record to call `to_global_id` on it.
+    field :publish_record_identifiers, type: :boolean, default: true
+
+    # The other half of the migration, and deliberately OFF by default.
+    #
+    # Turning it off stops the records themselves being published, leaving only
+    # the identifiers. That IS a breaking payload change — it is the whole point
+    # — so it is a host's opt-in, taken once its subscribers read the `_id`/`_gid`
+    # keys instead. A host can flip it in staging to prove nothing depends on
+    # the records before committing.
+    #
+    # The intended end state is this defaulting to false in a later major, and
+    # the records going away in the one after. Until a host opts in, behaviour
+    # is exactly as it was.
+    field :publish_records, type: :boolean, default: true
   end
 
   scope :passwordless do

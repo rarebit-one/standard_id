@@ -132,7 +132,65 @@ module StandardId
           enriched[:scope] ||= ::Current.scope if ::Current.respond_to?(:scope) && ::Current.scope.present?
         end
 
-        enriched.merge(payload)
+        with_record_identifiers(enriched.merge(payload))
+      end
+
+      # Adds `<key>_id` and `<key>_gid` next to every record-valued key, and —
+      # only when a host opts in — removes the records themselves.
+      #
+      # WHY (rarebit-one/rarebit-ops#296)
+      # ---------------------------------
+      # This gem publishes whole ActiveRecord objects: `account:`,
+      # `current_account:`, `session:`, `code_challenge:`. A record serialises
+      # with ALL its attributes, which is how `account.password_digest`,
+      # `session.token_digest`, `session.lookup_hash` and the plaintext
+      # passwordless OTP in `code_challenge.code` reached append-only audit rows
+      # — 3,007 of them on one app, unrepairable because the table refuses
+      # UPDATE by design.
+      #
+      # `standard_audit` 0.11.0 fixed its own write path. It cannot fix the bus:
+      # every host subscriber still receives the full record and may put it
+      # anywhere. Publishing the identifier alongside is what lets a subscriber
+      # stop needing the record at all.
+      #
+      # WHY ADDITIVE FIRST
+      # ------------------
+      # Swapping records for identifiers in one step breaks every consumer's
+      # `actor_extractor` simultaneously — all five apps configure one, and they
+      # read `payload[:actor] || payload[:current_account] || payload[:account]`
+      # expecting something they can call `to_global_id` on. So the default adds
+      # keys and removes nothing; `config.events.publish_records = false` is the
+      # opt-out a host takes once its subscribers read the identifiers.
+      #
+      # `_gid` as well as `_id` because a GlobalID carries the class, and the
+      # audit gems key on it. `to_global_id` is rescued: a new or unpersisted
+      # record raises, and an event must never fail because of the metadata this
+      # method adds to it.
+      def with_record_identifiers(payload)
+        return payload unless defined?(::ActiveRecord::Base)
+
+        config = StandardId.config.events
+        return payload unless config.publish_record_identifiers || !config.publish_records
+
+        payload.each_with_object({}) do |(key, value), out|
+          unless value.is_a?(::ActiveRecord::Base)
+            out[key] = value
+            next
+          end
+
+          out[key] = value if config.publish_records
+
+          next unless config.publish_record_identifiers
+
+          out[:"#{key}_id"] ||= value.id
+          out[:"#{key}_gid"] ||= safe_global_id(value)
+        end.compact
+      end
+
+      def safe_global_id(record)
+        record.to_global_id.to_s
+      rescue StandardError
+        nil
       end
     end
   end
