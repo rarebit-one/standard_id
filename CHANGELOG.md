@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-08-06
+
+### Added
+
+- **Event payloads now carry record identifiers alongside the records — the emitter half of rarebit-one/rarebit-ops#296.** This gem publishes whole ActiveRecord objects on the notification bus (`account:`, `current_account:`, `session:`, `code_challenge:`), and a record serialises with **all** its attributes. That is how `account.password_digest`, `session.token_digest`, `session.lookup_hash` and the plaintext passwordless OTP in `code_challenge.code` reached append-only audit rows across the estate.
+
+  `standard_audit` 0.11.0 closed its own write path with `dereference_record_metadata`, but it could only ever protect `audit_logs`. Every host subscriber receives the same payload and may put the record into Sentry context, a structured log, or a table of its own — all outside that gem's reach. Curating at the emitter is the only fix that closes the class.
+
+  `config.events.publish_record_identifiers` (default **`true`**) adds `<key>_id` and `<key>_gid` beside every record-valued key and **removes nothing**.
+
+- **`config.events.publish_records` (default `true`) is the opt-out** for hosts ready to stop receiving the records themselves.
+
+### Notes for hosts
+
+- **This release is additive on purpose — no consumer changes behaviour today.** All five consumers configure an `actor_extractor` reading `payload[:actor] || payload[:current_account] || payload[:account]` and calling `to_global_id` on the result, so swapping records for identifiers in one step would break actor attribution in five apps simultaneously.
+
+  The migration path is per-host and provable: point your subscribers at the new `_gid` keys, confirm in staging that nothing depends on the records, then set `publish_records` to `false`. The intended end state is for that to default to `false` in a later major, and for the records to go away in the one after.
+
+- **Both `_id` and `_gid` are published.** A GlobalID carries the class, and `account_id` alone cannot tell an `Account` from anything else sharing a primary key. The audit gems key on the GID.
+
+- **`to_global_id` is rescued.** It raises on an unpersisted record, and publishing sits on the authentication path — an event must never fail because of metadata this method adds to it.
+
 ## [0.37.0] - 2026-08-05
 
 ### Fixed
