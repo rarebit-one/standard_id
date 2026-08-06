@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-08-05
+
+### Fixed
+
+- **`refresh_tokens.session_id` is finally populated, and the cause was statement ordering, not a missing feature.** Every refresh token in every consuming app had a nil `session_id`, so every session→refresh revocation cascade — the gem's own `Session#revoke!`, `Session.revoke_sessions!`, and each app's equivalent — matched **zero rows**, and 0.35.0's parent-session check had no parent to consult. Measured in production: jumpdrive 15 tokens / 0 linked; nutripod 238 / 0, with **177 live at the time of measurement**.
+
+  `generate_token_response` created the refresh token one statement *before* `maybe_persist_session_for_token!` ran, inside the same transaction — so when `persist_refresh_token!` wrote `session_id`, there was no session yet to point at. The link was nil **by construction**, not by omission. Swapping the two statements is the fix; `refresh_token_session_id` now returns the session the same grant just materialised.
+
+  See rarebit-one/rarebit-ops#304.
+
+### Changed
+
+- **BEHAVIOUR NARROWED — `validate_parent_session!` now refuses only on a REVOKED parent, no longer on an expired one.** This is a deliberate relaxation of what 0.35.0 shipped, and hosts should read it before upgrading.
+
+  `Session#active?` is `!revoked? && !expired?`, so the original `return if session.active?` also refused a refresh whose parent had merely aged out. That was harmless while nothing was linked — with no parent, neither branch could fire. The moment linkage above becomes real, an expiry branch silently becomes a **lifetime policy**, and a badly-scaled one: an app running an 86400s `browser_session_lifetime` against a 2592000s `refresh_token_lifetime` would see its session-backed clients drop from monthly to **daily** re-authorization, as a side effect of a security fix that was never about login frequency.
+
+  Revocation is the property the estate wants: an operator revokes a session and access ends. Lifetime remains `refresh_token_lifetime`'s job, which already exists and is already configured per host. Keeping them separate is what lets linkage ship without renegotiating anyone's login cadence.
+
+- **`ServiceSession` is carved out of linkage on purpose.** Machine credentials keep their own lifecycle, matching the exclusion the `:account` revocation scope already makes, so a human's browser logout cannot kill a running CLI or MCP agent sharing the account.
+
+### Notes for hosts
+
+**This release does not retroactively repair your app.** Linkage happens only where the host materialises a session at token-issue time via `config.session.session_type_resolver`. A host with no resolver configured keeps nil `session_id` and is unchanged in every respect. The gem now makes the property *achievable and automatic*; enabling it per app is separate work.
+
+Existing rows cannot be linked retroactively — there is no record of which session issued them.
+
 ## [0.36.2] - 2026-08-04
 
 **The third release in one chain, and the last of it.** 0.36.0 made the account guards bite on live sessions; 0.36.1 repaired the 500 that exposed on `ApiEngine`; this repairs 0.36.1's own overreach onto the OAuth token endpoint. That reads like flailing, so state it plainly: 0.36.0 was a correct behaviour change, and each follow-up is a narrower blast radius of the same root cause — an exception pair that no controller in the ancestry had ever had to answer for, meeting two route families with two different wire contracts. 0.36.1 fixed the first family and, by rescuing on the shared parent, silently annexed the second. 0.36.2 draws the line between them. Nothing here reverts 0.36.0 or 0.36.1; resource-endpoint behaviour is byte-identical to 0.36.1.
