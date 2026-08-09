@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-08-10
+
+### Added
+
+- **A refresh whose RESPONSE never arrived no longer costs the user their session.** Rotation assumes the client receives the new token. When it does not — a timeout, a dead radio, the process dying between our `COMMIT` and the client's write — the server has rotated and the client still holds the previous token. Its next refresh presents an already-rotated token, which is indistinguishable from an attacker replaying a stolen one.
+
+  Treating both as an attack costs a healthy session, and the cost is total: `revoke_family!` also kills the **successor the client never received**, so the session cannot be recovered by retrying — every attempt re-presents the same dead token against an already-revoked family. `spec/lib/standard_id/refresh_rotation_lost_response_spec.rb` pins that behaviour before the fix, because it is the part that surprises.
+
+  `config.oauth.refresh_token_reuse_leeway` (default **`0` — off**) allows a replayed token to rotate from its successor instead, but ONLY while that successor is untouched: it must still be active and never itself have been rotated. A **used** successor proves the legitimate client received it, so anything presented afterwards is a genuine replay and the family dies exactly as before. The value is clamped to `RefreshTokenFlow::MAX_REUSE_LEEWAY_SECONDS` (120).
+
+- **`OAUTH_REFRESH_TOKEN_REUSE_GRACED`** is published when the leeway fires. Graced replays are the quiet half of the feature: without an event, the only evidence the leeway is load-bearing is an absence of complaints.
+
+### Notes for hosts
+
+- **Default-off means this release is inert on upgrade for every consumer.** Existing reuse-detection specs pass unchanged. A host opts in explicitly.
+
+- **Enabling it is a deliberate security narrowing, and worth understanding before you do.** It does not claim to distinguish an attacker from an unlucky client — the server cannot. It bounds the damage. An attacker replaying inside the window gets a session, but the real client still holds the successor, and the moment it refreshes, that token is revoked-and-reused: the family dies and the user re-authenticates. Exposure is one refresh interval, against the current guarantee that the *honest* client loses its session.
+
+- **Re-delivering the successor — the ideal, idempotent answer — is not possible here.** Only its digest is stored, by design, so the token string is unrecoverable. Rotating from it is the closest safe equivalent; the unused successor is retired rather than left live.
+
 ## [0.38.0] - 2026-08-06
 
 ### Added
