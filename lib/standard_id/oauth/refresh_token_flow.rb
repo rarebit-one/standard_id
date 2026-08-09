@@ -1,6 +1,11 @@
 module StandardId
   module Oauth
     class RefreshTokenFlow < TokenGrantFlow
+      # Ceiling on `oauth.refresh_token_reuse_leeway`. A long leeway is a long
+      # window in which a stolen token still works, so the setting is clamped
+      # rather than trusted: this is a resilience allowance, not a lifetime.
+      MAX_REUSE_LEEWAY_SECONDS = 120
+
       expect_params :refresh_token, :client_id
       permit_params :client_secret, :scope, :audience
 
@@ -58,10 +63,30 @@ module StandardId
         end
 
         if @current_refresh_token_record.revoked?
-          # Reuse detected: this token was already rotated. Revoke entire family.
-          @current_refresh_token_record.revoke_family!
-          emit_reuse_detected_event
-          raise StandardId::InvalidGrantError, "Refresh token reuse detected"
+          # A rotated token can be presented for two reasons the server cannot tell
+          # apart: an attacker replaying a stolen one, or an honest client that
+          # never RECEIVED the successor — a timeout, a dead radio, the process
+          # dying between our COMMIT and the client's write. Rotation assumes
+          # delivery; nothing guarantees it.
+          #
+          # Treating both as an attack costs a healthy session: revoke_family!
+          # also kills the successor the client never saw, so a single dropped
+          # response becomes a forced re-login that no client-side retry or
+          # failure-budget can recover from (see
+          # spec/lib/standard_id/refresh_rotation_lost_response_spec.rb).
+          #
+          # So, within a short leeway, rotate from the successor instead — but
+          # ONLY while that successor is untouched (see #graced_successor_for).
+          # Disabled by default: a host must opt in.
+          if (successor = graced_successor_for(@current_refresh_token_record))
+            emit_reuse_graced_event(@current_refresh_token_record, successor)
+            @current_refresh_token_record = successor
+          else
+            # Reuse detected: this token was already rotated. Revoke entire family.
+            @current_refresh_token_record.revoke_family!
+            emit_reuse_detected_event
+            raise StandardId::InvalidGrantError, "Refresh token reuse detected"
+          end
         end
 
         unless @current_refresh_token_record.active?
@@ -149,6 +174,77 @@ module StandardId
           raise StandardId::InvalidGrantError, "Refresh token reuse detected"
         end
         raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
+      end
+
+      # The successor to a revoked token, when re-issuing from it is safer than
+      # revoking the family — otherwise nil, and reuse detection proceeds unchanged.
+      #
+      # Every condition here narrows the window in which a replayed token is
+      # honoured:
+      #
+      # - **Opt-in.** Zero (the default) disables this entirely, so no existing
+      #   host changes behaviour by upgrading.
+      # - **Recently rotated.** Outside the leeway a replay is not a plausible
+      #   in-flight retry.
+      # - **Successor still active, and never itself rotated.** This is the load-
+      #   bearing one. If the successor has been USED, the legitimate client
+      #   demonstrably received it, so the token being replayed now is a replay,
+      #   not a lost response — and the family dies as before.
+      #
+      # What this deliberately does NOT do is claim to distinguish an attacker
+      # from an unlucky client; the server cannot. It bounds the damage instead.
+      # An attacker replaying inside the window gets a session, but the real
+      # client still holds the successor, and the moment it refreshes, that token
+      # is revoked-and-reused: the family dies and the user re-authenticates.
+      # The exposure is therefore one refresh interval, not indefinite — versus
+      # today, where the honest client is guaranteed to lose its session.
+      #
+      # The successor cannot simply be RE-DELIVERED, which would be the ideal
+      # (idempotent) answer: only its digest is stored, by design, so its token
+      # string is unrecoverable. Rotating from it is the closest safe equivalent.
+      def graced_successor_for(revoked_record)
+        leeway = reuse_leeway_seconds
+        return nil unless leeway.positive?
+        return nil if revoked_record.revoked_at.blank?
+        return nil if revoked_record.revoked_at < leeway.seconds.ago
+
+        successor = StandardId::RefreshToken.find_by(previous_token_id: revoked_record.id)
+        return nil unless successor&.active?
+        return nil if StandardId::RefreshToken.exists?(previous_token_id: successor.id)
+
+        successor
+      end
+
+      # Seconds for which a just-rotated token is still honoured. Absent or
+      # non-positive config means OFF — reuse detection behaves exactly as it did
+      # before this existed.
+      def reuse_leeway_seconds
+        config = StandardId.config.oauth
+        return 0 unless config.respond_to?(:refresh_token_reuse_leeway)
+
+        value = config.refresh_token_reuse_leeway
+        seconds =
+          case value
+          when ActiveSupport::Duration then value.to_i
+          when Numeric, String then value.to_i
+          else 0
+          end
+        return 0 unless seconds.positive?
+
+        [seconds, MAX_REUSE_LEEWAY_SECONDS].min
+      end
+
+      # Graced replays are the quiet half of this feature: nothing fails, so
+      # without an event the only evidence a host has that the leeway is load-
+      # bearing (or mis-tuned) is its absence of complaints.
+      def emit_reuse_graced_event(replayed, successor)
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_REFRESH_TOKEN_REUSE_GRACED,
+          account_id: @refresh_payload[:sub],
+          client_id: @refresh_payload[:client_id],
+          refresh_token_id: replayed.id,
+          successor_refresh_token_id: successor.id
+        )
       end
 
       def emit_reuse_detected_event

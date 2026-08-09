@@ -41,6 +41,7 @@ module StandardId
       OAUTH_CODE_CONSUMED = "oauth.code.consumed"
       OAUTH_TOKEN_REVOKED = "oauth.token.revoked"
       OAUTH_REFRESH_TOKEN_REUSE_DETECTED = "oauth.refresh_token.reuse_detected"
+      OAUTH_REFRESH_TOKEN_REUSE_GRACED = "oauth.refresh_token.reuse_graced"
       OAUTH_AUDIENCE_MISMATCH = "oauth.audience.mismatch"
 
       PASSWORDLESS_CODE_REQUESTED = "passwordless.code.requested"
@@ -116,6 +117,7 @@ module StandardId
         OAUTH_CODE_CONSUMED,
         OAUTH_TOKEN_REVOKED,
         OAUTH_REFRESH_TOKEN_REUSE_DETECTED,
+        OAUTH_REFRESH_TOKEN_REUSE_GRACED,
         OAUTH_AUDIENCE_MISMATCH
       ].freeze
 

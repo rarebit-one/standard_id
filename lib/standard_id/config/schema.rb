@@ -285,6 +285,13 @@ StandardId::ConfigSchema.define do
   scope :oauth do
     field :default_token_lifetime, type: :integer, default: 3600 # 1 hour in seconds
     field :refresh_token_lifetime, type: :integer, default: 2592000 # 30 days in seconds
+    # Seconds for which a just-rotated refresh token is still honoured, so a
+    # client that never RECEIVED its successor (dropped response, killed process)
+    # can retry instead of losing the session to reuse detection. 0 = off, which
+    # is the default: this trades a bounded replay window for resilience and no
+    # host should get it by upgrading. Clamped to
+    # RefreshTokenFlow::MAX_REUSE_LEEWAY_SECONDS.
+    field :refresh_token_reuse_leeway, type: :integer, default: 0
     field :token_lifetimes, type: :hash, default: -> { {} }
     field :client_id, type: :string, default: nil
     field :client_secret, type: :string, default: nil
