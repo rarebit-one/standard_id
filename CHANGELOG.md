@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An anonymous request no longer queries the session table on every `current_account` call, and no longer writes an empty Rails session.** `Web::SessionManager#current_session` memoised with `Current.session ||= …`, which never memoises a nil answer, so a visitor with no session paid the `BrowserSession.by_token(nil)` lookup on every read — shared props, guards, locale selection, nav helpers — five or six times per page. On one consumer's marketing homepage that was ~6 session-table queries per anonymous request and the app's single largest query by total time (fundbright/delivery-ops#598). Worse, the "no session" branch called `clear_session!`, whose `session.delete` loads the Rack session, and Rack persists every loaded session: a new empty session row and a `Set-Cookie` on every anonymous response, which is what stops a CDN from caching a public page.
+
+  Two new `Current` attributes, `session_resolved` and `account_resolved`, record that the question was answered (nil included) for the rest of the request. `load_session_from_session_token` returns without a query when there is no token, and only falls back to `session[:session_token]` when the Rails session is already loaded or its cookie is actually present on the request (`request.session_options[:key]`) — so a bare GET never allocates one. `load_session_from_remember_token` returns early without a `remember_token` cookie. `clear_session!` only touches the Rails session when it is loaded, and the no-session branch only clears at all when there is stale state to clear (a `session_token`/`remember_token` cookie, or session keys). Hosts that include `StandardId::CurrentAttributes` get the new attributes automatically; a host that hand-rolls `Current` must add them.
+
 ## [0.39.0] - 2026-08-10
 
 ### Added

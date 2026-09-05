@@ -32,11 +32,106 @@ RSpec.describe StandardId::Web::SessionManager do
   let(:account) { double("Account") }
 
   before do
+    Current.reset
     allow(Current).to receive(:session).and_return(nil)
     allow(Current).to receive(:session=)
   end
 
   describe "#current_session" do
+    # delivery-ops#598 — the anonymous path. A visitor with no cookies at all
+    # must cost zero session-table queries per call, must not allocate (and so
+    # persist) a Rails session, and must answer from memo on the second call.
+    context "when the request is anonymous (no cookies, Rails session not loaded)" do
+      let(:session) do
+        double("RackSession", loaded?: false).tap do |s|
+          allow(s).to receive(:[]) { raise "session[] must not be read on an anonymous request" }
+          allow(s).to receive(:delete) { raise "session.delete must not be called on an anonymous request" }
+        end
+      end
+      let(:request) do
+        double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false,
+                          session_options: { key: "_app_session" }, cookies: {})
+      end
+
+      before do
+        Current.reset
+        allow(Current).to receive(:session).and_call_original
+        allow(Current).to receive(:session=).and_call_original
+      end
+
+      it "returns nil without querying the session table" do
+        expect(StandardId::BrowserSession).not_to receive(:eager_load)
+        expect(StandardId::PasswordCredential).not_to receive(:find_by_token_for)
+
+        expect(session_manager.current_session).to be_nil
+      end
+
+      it "memoises the nil answer for the rest of the request" do
+        expect(StandardId::BrowserSession).not_to receive(:eager_load)
+
+        3.times { expect(session_manager.current_session).to be_nil }
+        expect(Current.session_resolved).to be(true)
+      end
+
+      it "also memoises a nil account" do
+        expect(StandardId::BrowserSession).not_to receive(:eager_load)
+
+        3.times { expect(session_manager.current_account).to be_nil }
+        expect(Current.account_resolved).to be(true)
+      end
+
+      it "does not delete the (absent) cookies either" do
+        expect(cookies).not_to receive(:delete)
+        session_manager.current_session
+      end
+    end
+
+    context "when only the legacy session[:session_token] is present (Rails session cookie on the request)" do
+      let(:eager_load_relation) { double("EagerLoadRelation") }
+      let(:by_token_relation) { double("ByTokenRelation") }
+      let(:request) do
+        double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false,
+                          session_options: { key: "_app_session" }, cookies: { "_app_session" => "abc" })
+      end
+
+      before do
+        Current.reset
+        allow(Current).to receive(:session).and_call_original
+        allow(Current).to receive(:session=).and_call_original
+        session[:session_token] = "legacy_token"
+        allow(StandardId::BrowserSession).to receive(:eager_load).with(:account).and_return(eager_load_relation)
+        allow(eager_load_relation).to receive(:by_token).with("legacy_token").and_return(by_token_relation)
+        allow(by_token_relation).to receive(:first).and_return(browser_session)
+      end
+
+      it "still resolves the session from the Rails session" do
+        expect(session_manager.current_session).to eq(browser_session)
+      end
+    end
+
+    context "when a stale session_token cookie names no session" do
+      let(:eager_load_relation) { double("EagerLoadRelation") }
+      let(:by_token_relation) { double("ByTokenRelation") }
+
+      before do
+        Current.reset
+        allow(Current).to receive(:session).and_call_original
+        allow(Current).to receive(:session=).and_call_original
+        encrypted_cookies[:session_token] = "gone_token"
+        plain_cookies[:session_token] = "gone_token"
+        allow(StandardId::BrowserSession).to receive(:eager_load).with(:account).and_return(eager_load_relation)
+        allow(eager_load_relation).to receive(:by_token).with("gone_token").and_return(by_token_relation)
+        allow(by_token_relation).to receive(:first).and_return(nil)
+      end
+
+      it "clears the stale cookie and memoises nil" do
+        expect(session_manager.current_session).to be_nil
+        expect(plain_cookies[:session_token]).to be_nil
+        expect(session_manager.current_session).to be_nil
+        expect(Current.session_resolved).to be(true)
+      end
+    end
+
     context "when Current.session is present" do
       before do
         allow(Current).to receive(:session).and_return(browser_session)
@@ -108,12 +203,18 @@ RSpec.describe StandardId::Web::SessionManager do
     end
 
     context "when session is expired" do
-      let(:expired_session) { double("BrowserSession", expired?: true, revoked?: false) }
+      let(:expired_session) { double("BrowserSession", expired?: true, revoked?: false, account: account, expires_at: 1.day.ago) }
       let(:eager_load_relation) { double("EagerLoadRelation") }
       let(:by_token_relation) { double("ByTokenRelation") }
 
       before do
         encrypted_cookies[:session_token] = "expired_token"
+        # Let the assignment stick so the expired/revoked branch actually runs
+        # (with a no-op `session=` the "no session" branch ran instead and the
+        # cookie was only cleared by accident).
+        allow(Current).to receive(:session=) do |value|
+          allow(Current).to receive(:session).and_return(value)
+        end
         allow(StandardId::BrowserSession).to receive(:eager_load).with(:account).and_return(eager_load_relation)
         allow(eager_load_relation).to receive(:by_token).with("expired_token").and_return(by_token_relation)
         allow(by_token_relation).to receive(:first).and_return(expired_session)
@@ -133,6 +234,12 @@ RSpec.describe StandardId::Web::SessionManager do
 
       before do
         encrypted_cookies[:session_token] = "revoked_token"
+        # Let the assignment stick so the expired/revoked branch actually runs
+        # (with a no-op `session=` the "no session" branch ran instead and the
+        # cookie was only cleared by accident).
+        allow(Current).to receive(:session=) do |value|
+          allow(Current).to receive(:session).and_return(value)
+        end
         allow(StandardId::BrowserSession).to receive(:eager_load).with(:account).and_return(eager_load_relation)
         allow(eager_load_relation).to receive(:by_token).with("revoked_token").and_return(by_token_relation)
         allow(by_token_relation).to receive(:first).and_return(revoked_session)
