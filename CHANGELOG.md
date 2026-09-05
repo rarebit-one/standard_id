@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-09-05
+
 ### Fixed
 
 - **`sign_in_account` now supersedes a nil memoised earlier in the same request.** With the `session_resolved` / `account_resolved` memo introduced in the entry below, a guard or shared prop that read `current_account` before the sign-in action ran would have kept returning nil for the rest of that request. Sign-in now memoises the new session and resets the account memo, so the next `current_account` re-derives the account through `load_current_account` — `config.account_scope` and `strict_loading!(false)` apply exactly as on an ordinary authenticated request (caught in review of #326 and #327).
