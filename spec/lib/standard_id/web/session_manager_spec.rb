@@ -312,45 +312,45 @@ RSpec.describe StandardId::Web::SessionManager do
   end
 
   describe "#sign_in_account" do
-      context "after an anonymous read in the same request" do
-        let(:session) { {} }
-        let(:account) { Account.create!(name: "Signing In", email: "signin@example.com") }
-        let(:request) do
-          double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false,
-                            session_options: { key: "_app_session" }, cookies: {})
-        end
-        let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account, token: "new_token", expires_at: 1.week.from_now) }
+    context "after an anonymous read in the same request" do
+      let(:session) { {} }
+      let(:account) { Account.create!(name: "Signing In", email: "signin@example.com") }
+      let(:request) do
+        double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false,
+                          session_options: { key: "_app_session" }, cookies: {})
+      end
+      let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account, token: "new_token", expires_at: 1.week.from_now) }
 
-        before do
-          Current.reset
-          allow(Current).to receive(:session).and_call_original
-          allow(Current).to receive(:session=).and_call_original
-          allow(Current).to receive(:account).and_call_original
-          allow(Current).to receive(:account=).and_call_original
-          allow(token_manager).to receive(:create_browser_session).with(account).and_return(browser_session)
-          allow(StandardId::Events).to receive(:publish)
-          allow(StandardId).to receive(:account_class).and_return(Account)
-        end
+      before do
+        Current.reset
+        allow(Current).to receive(:session).and_call_original
+        allow(Current).to receive(:session=).and_call_original
+        allow(Current).to receive(:account).and_call_original
+        allow(Current).to receive(:account=).and_call_original
+        allow(token_manager).to receive(:create_browser_session).with(account).and_return(browser_session)
+        allow(StandardId::Events).to receive(:publish)
+        allow(StandardId).to receive(:account_class).and_return(Account)
+      end
 
-        it "does not return the stale memoised nil after sign_in_account" do
-          expect(session_manager.current_account).to be_nil
-          expect(session_manager.current_session).to be_nil
+      it "does not return the stale memoised nil after sign_in_account" do
+        expect(session_manager.current_account).to be_nil
+        expect(session_manager.current_session).to be_nil
 
-          session_manager.sign_in_account(account)
+        session_manager.sign_in_account(account)
 
-          expect(session_manager.current_session).to eq(browser_session)
-          expect(session_manager.current_account).to eq(account)
-        end
+        expect(session_manager.current_session).to eq(browser_session)
+        expect(session_manager.current_account).to eq(account)
+      end
 
-        it "re-derives the account through account_scope rather than trusting the signed-in record" do
-          allow(StandardId.config).to receive(:account_scope).and_return(->(scope) { scope.where(name: "Nobody") })
-          allow(browser_session).to receive(:account_id).and_return(account.id)
-          expect(session_manager.current_account).to be_nil
+      it "re-derives the account through account_scope rather than trusting the signed-in record" do
+        allow(StandardId.config).to receive(:account_scope).and_return(->(scope) { scope.where(name: "Nobody") })
+        allow(browser_session).to receive(:account_id).and_return(account.id)
+        expect(session_manager.current_account).to be_nil
 
-          session_manager.sign_in_account(account)
+        session_manager.sign_in_account(account)
 
-          expect(session_manager.current_session).to eq(browser_session)
-          expect(session_manager.current_account).to be_nil
+        expect(session_manager.current_session).to eq(browser_session)
+        expect(session_manager.current_account).to be_nil
       end
     end
 
