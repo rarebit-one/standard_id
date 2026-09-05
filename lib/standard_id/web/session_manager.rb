@@ -54,7 +54,13 @@ module StandardId
             scopes << scope_name.to_s unless scopes.include?(scope_name.to_s)
             session[:standard_id_scopes] = scopes
           end
+          # Sign-in supersedes whatever this request already resolved: a guard
+          # or shared prop that asked `current_account` before the sign-in
+          # action ran memoised nil, and that memo must not outlive the sign-in.
           Current.session = browser_session
+          Current.session_resolved = true
+          Current.account = account
+          Current.account_resolved = true
           emit_session_created(browser_session, account, "browser")
         end
       end
