@@ -57,10 +57,15 @@ module StandardId
           # Sign-in supersedes whatever this request already resolved: a guard
           # or shared prop that asked `current_account` before the sign-in
           # action ran memoised nil, and that memo must not outlive the sign-in.
+          # The session is known here, so memoise it; the account is NOT
+          # assigned directly — the memo is reset so the next `current_account`
+          # re-derives it through load_current_account, which applies
+          # `config.account_scope` and `strict_loading!(false)` exactly as an
+          # ordinary authenticated request would (review of #327).
           Current.session = browser_session
           Current.session_resolved = true
-          Current.account = account
-          Current.account_resolved = true
+          Current.account = nil
+          Current.account_resolved = false
           emit_session_created(browser_session, account, "browser")
         end
       end
