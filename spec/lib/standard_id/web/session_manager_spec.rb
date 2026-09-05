@@ -253,6 +253,35 @@ RSpec.describe StandardId::Web::SessionManager do
     end
   end
 
+  describe "signing in after an anonymous read in the same request" do
+    let(:session) { {} }
+    let(:request) do
+      double("Request", remote_ip: "127.0.0.1", user_agent: "Test Browser", ssl?: false,
+                        session_options: { key: "_app_session" }, cookies: {})
+    end
+    let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account, token: "new_token", expires_at: 1.week.from_now) }
+
+    before do
+      Current.reset
+      allow(Current).to receive(:session).and_call_original
+      allow(Current).to receive(:session=).and_call_original
+      allow(Current).to receive(:account).and_call_original
+      allow(Current).to receive(:account=).and_call_original
+      allow(token_manager).to receive(:create_browser_session).with(account).and_return(browser_session)
+      allow(StandardId::Events).to receive(:publish)
+    end
+
+    it "does not return the stale memoised nil after sign_in_account" do
+      expect(session_manager.current_account).to be_nil
+      expect(session_manager.current_session).to be_nil
+
+      session_manager.sign_in_account(account)
+
+      expect(session_manager.current_session).to eq(browser_session)
+      expect(session_manager.current_account).to eq(account)
+    end
+  end
+
   describe "#current_account" do
     before do
       allow(Current).to receive(:account).and_return(nil)
