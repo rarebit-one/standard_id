@@ -1,0 +1,12 @@
+version: 3
+ignore_actions:
+  # First-party org actions/reusables are consumed at a moving ref by design.
+  - name: rarebit-one/.*
+    ref: .*
+  # Local composite actions have no upstream ref to pin.
+  - name: \./.*
+    ref: .*
+  # Deliberately SHA-pinned to a main-branch commit; exempt from the
+  # semver-comment check only (still SHA-pinned). See rarebit-ops#119.
+  - name: anthropics/claude-code-action
+    ref: .*
