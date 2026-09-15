@@ -341,6 +341,39 @@ StandardId::ConfigSchema.define do
     # and prefers an `active?`-responding record if multiple match.
     field :audience_profile_resolver, type: :any, default: nil
 
+    # Audience → scope-vocabulary binding (the per-audience MCP scope hook).
+    #
+    # Maps each configured audience string to the Array<String> of scopes a
+    # client targeting that audience may request and be granted. This is the
+    # scope-side counterpart to `audience_profile_types`: that binds an audience
+    # to a required profile, this binds an audience to a grantable scope
+    # vocabulary. `StandardId::Oauth::AudienceScopeResolver` reads it.
+    #
+    # Values may be a single space-delimited String or an Array<String>.
+    #
+    # Example:
+    #   c.oauth.audience_scopes = {
+    #     "harness"       => %w[mcp mcp:read mcp:eval:run mcp:prompt:write],
+    #     "companion_kit" => %w[mcp mcp:read],
+    #     "admin_kit"     => %w[mcp mcp:read mcp:admin]
+    #   }
+    #
+    # When empty (default) or the matched audience is absent from the map, the
+    # vocabulary is empty and the resolver's enforcement helpers fail OPEN
+    # (requested scopes pass through unchanged) — back-compat with apps that do
+    # not model per-audience scope vocabularies.
+    field :audience_scopes, type: :hash, default: -> { {} }
+
+    # Optional resolver for computing an audience's scope vocabulary
+    # dynamically (e.g. per-client entitlements). Called with keyword arguments
+    # `(audience:, client:, configured_scopes:)` — any subset is accepted,
+    # arguments are filtered by arity — where `configured_scopes` is the
+    # `Array<String>` from `audience_scopes` for that audience. Must return an
+    # Array<String> (or nil to fall back to the static `audience_scopes` map).
+    #
+    # When nil (default), only the static `audience_scopes` map is consulted.
+    field :audience_scope_resolver, type: :any, default: nil
+
     # JWT signing configuration (for asymmetric algorithms)
     # If nil, uses HS256 with Rails.application.secret_key_base
     field :signing_key, type: :any, default: nil

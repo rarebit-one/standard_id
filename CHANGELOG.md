@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-09-15
+
+### Added
+
+- **Per-audience scope vocabulary hook.** An app can now declare, per audience, the set of scopes a client targeting that audience may request and be granted — the mechanism sidekick-web needs to express its per-audience MCP scope vocabularies (`mcp`, `mcp:read`, `mcp:eval:run`, …) through the gem instead of hard-coding a single flat `scopes_supported` list shared by every audience. This is the scope-side counterpart to the existing `audience_profile_types` binding: that binds an audience to a required profile, this binds an audience to a grantable scope vocabulary, and the two are configured and read the same way on purpose.
+
+  `c.oauth.audience_scopes` is a static `audience => Array<String>` map; `c.oauth.audience_scope_resolver` is an optional callable `->(audience:, client:, configured_scopes:) { … }` for apps that compute the vocabulary dynamically (per-client entitlements), filtered by arity like every other gem callable and returning `nil` to fall back to the static map. `StandardId::Oauth::AudienceScopeResolver` reads them and exposes `scopes_for`, `configured_for?`, `permits?`, `filter` (narrow a grant to the vocabulary), `disallowed`, and `assert!` (fail-closed, raising `InvalidScopeError` / RFC 6749 `invalid_scope`, naming only the client's offending scopes so the endpoint is not a vocabulary-enumeration oracle).
+
+  An **unconfigured** audience fails **open** everywhere — `filter`/`assert!` pass requested scopes through unchanged — exactly like `audience_profile_types` skips its check when unmapped, so an app that does not model per-audience vocabularies sees no behaviour change. The resolver ships ahead of any mint-/registration-time wiring so the hook API can be settled in review first, mirroring how `AudienceProfileResolver#resolve!` shipped before its strict path was wired.
+
+### Removed
+
+- **The per-client `refresh_token_lifetime` column is dropped** (`standard_id_client_applications`), resolving the #765 asymmetry. It was never honoured: `TokenLifetimeResolver.refresh_token_lifetime` resolves the refresh-token lifetime **globally** from `oauth.refresh_token_lifetime` and has no per-client branch, so the column advertised a knob that did nothing. Refresh-token lifetime is a global policy by design — a client's re-authorization cadence is governed by **revocation**, not by a per-client lifetime (see the 0.39.x linked-session reasoning: "Revocation is the property the estate wants; lifetime remains `refresh_token_lifetime`'s job, which already exists and is already configured per host"). Access- and authorization-code lifetimes remain per-client.
+
+  **Migration:** consumers pick up `20260915000000_remove_refresh_token_lifetime_from_standard_id_client_applications` (idempotent, reversible). The global `oauth.refresh_token_lifetime` config is unchanged and continues to govern refresh-token lifetime for every client.
+
 ## [0.40.0] - 2026-09-05
 
 ### Fixed

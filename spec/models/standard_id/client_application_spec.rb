@@ -21,7 +21,6 @@ RSpec.describe StandardId::ClientApplication, type: :model do
     it { should validate_presence_of(:response_types) }
     it { should validate_presence_of(:scopes) }
     it { should validate_numericality_of(:access_token_lifetime).is_greater_than(0) }
-    it { should validate_numericality_of(:refresh_token_lifetime).is_greater_than(0) }
     it { should validate_numericality_of(:authorization_code_lifetime).is_greater_than(0) }
 
     context "when require_pkce is true" do

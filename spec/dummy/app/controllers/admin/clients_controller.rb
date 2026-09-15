@@ -71,7 +71,7 @@ module Admin
       params.require(:client_application).permit(
         :name, :description, :redirect_uris, :scopes, :grant_types,
         :response_types, :client_type, :require_pkce, :code_challenge_methods,
-        :access_token_lifetime, :refresh_token_lifetime, :authorization_code_lifetime,
+        :access_token_lifetime, :authorization_code_lifetime,
         :require_consent, :metadata,
         client_secret_credentials_attributes: [:name]
       )

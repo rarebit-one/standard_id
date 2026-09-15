@@ -19,8 +19,13 @@ module StandardId
     validates :scopes, presence: true
     validates :code_challenge_methods, presence: true, if: :require_pkce?
 
-    # Lifecycle validations
-    validates :access_token_lifetime, :refresh_token_lifetime, :authorization_code_lifetime,
+    # Lifecycle validations.
+    #
+    # Refresh-token lifetime is deliberately NOT per-client: it is resolved
+    # globally by TokenLifetimeResolver from `oauth.refresh_token_lifetime`, so
+    # there is no `refresh_token_lifetime` column to validate here (removed in
+    # migration 20260915000000, the #765 asymmetry fix).
+    validates :access_token_lifetime, :authorization_code_lifetime,
               presence: true, numericality: { greater_than: 0 }
 
     # Security: public clients cannot opt out of PKCE. Public clients run in
