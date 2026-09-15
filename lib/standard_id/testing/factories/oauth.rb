@@ -12,7 +12,6 @@ FactoryBot.define do
     require_pkce { true }
     code_challenge_methods { "S256" }
     access_token_lifetime { 3600 }
-    refresh_token_lifetime { 2_592_000 }
     authorization_code_lifetime { 600 }
     active { true }
 

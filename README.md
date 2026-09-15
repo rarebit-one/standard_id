@@ -235,6 +235,38 @@ end
 
 Resolvers receive keyword arguments with the context containing `client`, `account`, and `request`, so you can reference only what you need. This lets you, for example, pull organization info off the client application or decorate claims with account attributes.
 
+### Per-Audience Scope Vocabulary
+
+Declare, per audience, the set of scopes a client targeting that audience may request and be granted. This lets each audience expose its own MCP scope vocabulary rather than sharing one flat `scopes_supported` list. It is the scope-side counterpart to the `audience_profile_types` binding: that binds an audience to a required profile, this binds it to a grantable scope vocabulary.
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.audience_scopes = {
+    "harness"       => %w[mcp mcp:read mcp:eval:run mcp:prompt:write],
+    "companion_kit" => %w[mcp mcp:read],
+    "admin_kit"     => %w[mcp mcp:read mcp:admin]
+  }
+
+  # Optional: compute a vocabulary dynamically (e.g. per-client entitlements).
+  # Return an Array<String>, or nil to fall back to the static map above.
+  config.oauth.audience_scope_resolver = ->(audience:, client:, configured_scopes:) {
+    Entitlements.mcp_scopes_for(client, audience) || configured_scopes
+  }
+end
+```
+
+`StandardId::Oauth::AudienceScopeResolver` reads this config:
+
+```ruby
+R = StandardId::Oauth::AudienceScopeResolver
+R.scopes_for(audience: "companion_kit")                          # => ["mcp", "mcp:read"]
+R.permits?(scope: "mcp:admin", audience: "companion_kit")        # => false
+R.filter(requested: %w[mcp mcp:admin], audience: "companion_kit") # => ["mcp"]  (narrows, never raises)
+R.assert!(requested: %w[mcp mcp:admin], audience: "companion_kit") # => raises InvalidScopeError
+```
+
+An **unconfigured** audience fails **open** — `filter` and `assert!` pass the requested scopes through unchanged — so an app that does not model per-audience vocabularies sees no behaviour change; narrowing only bites once an audience has an explicit vocabulary.
+
 ### Social Login Setup
 
 The `social.google_*` and `social.apple_*` fields are declared by the **provider

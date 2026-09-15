@@ -229,10 +229,6 @@
             <dd class="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300"><%= distance_of_time_in_words(@client.access_token_lifetime) %></dd>
           </div>
           <div>
-            <dt class="text-sm font-medium leading-6 text-gray-900 dark:text-white">Refresh Token</dt>
-            <dd class="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300"><%= distance_of_time_in_words(@client.refresh_token_lifetime) %></dd>
-          </div>
-          <div>
             <dt class="text-sm font-medium leading-6 text-gray-900 dark:text-white">Authorization Code</dt>
             <dd class="mt-1 text-sm leading-6 text-gray-700 dark:text-gray-300"><%= distance_of_time_in_words(@client.authorization_code_lifetime) %></dd>
           </div>
