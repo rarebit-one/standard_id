@@ -355,6 +355,7 @@ DEPENDENCIES
   bundler-audit
   factory_bot (~> 6.5)
   foreman
+  json (< 3)
   propshaft
   puma
   rspec-rails (~> 8.0.4)

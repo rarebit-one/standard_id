@@ -14,6 +14,15 @@ gem "sqlite3"
 
 gem "propshaft"
 
+# Rails 8.1.3.1 calls `JSON.parse(json, options)` positionally in
+# ActiveSupport::JSON.decode, but json 3.0 made those options keyword-only.
+# spec/dummy/db/schema.rb has four `t.json` columns with `default: {}`, and
+# SQLite's add_foreign_key rewrites those tables via copy_table, which
+# deserialises each default -- so app:db:test:prepare aborts before a single
+# example runs. Drop this pin once Rails ships a json 3 compatible
+# activesupport.
+gem "json", "< 3"
+
 group :development, :test do
   gem "rspec-rails", "~> 8.0.4"
   gem "shoulda-matchers", "~> 7.0"
