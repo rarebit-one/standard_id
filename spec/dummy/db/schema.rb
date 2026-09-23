@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_15_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_24_000000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -197,6 +197,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_15_000000) do
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.text "user_agent"
+    t.index ["account_id", "device_id"], name: "index_standard_id_sessions_on_active_account_device", unique: true, where: "revoked_at IS NULL AND device_id IS NOT NULL"
     t.index ["account_id", "type", "expires_at"], name: "idx_on_account_id_type_expires_at_fed5f68be5"
     t.index ["account_id"], name: "index_standard_id_sessions_on_account_id"
     t.index ["expires_at", "revoked_at"], name: "index_standard_id_sessions_on_expires_at_and_revoked_at"
