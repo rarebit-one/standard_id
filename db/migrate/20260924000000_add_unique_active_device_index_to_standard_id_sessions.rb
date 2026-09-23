@@ -26,7 +26,9 @@ class AddUniqueActiveDeviceIndexToStandardIdSessions < ActiveRecord::Migration[8
   #
   # Idempotent (if_not_exists / if_exists), CONCURRENTLY on Postgres, same
   # conventions as 20260416180511. StrongMigrations treats a concurrent
-  # add_index as safe, so no safety_assured is needed.
+  # add_index as safe, but it cannot inspect the raw-SQL detach UPDATE and
+  # stops the migration there whenever a host actually has duplicates — so
+  # that data fix is asserted safe (see #assert_safe) when the gem is loaded.
   disable_ddl_transaction!
 
   INDEX_NAME = "index_standard_id_sessions_on_active_account_device".freeze
@@ -83,13 +85,23 @@ class AddUniqueActiveDeviceIndexToStandardIdSessions < ActiveRecord::Migration[8
       # group.first is the newest active row: it keeps the device_id.
       group.drop(1).each do |row|
         detached = "#{row["device_id"]}#{DETACHED_MARKER}#{row["id"]}"
-        execute(<<~SQL.squish)
-          UPDATE standard_id_sessions
-          SET device_id = #{connection.quote(detached)}
-          WHERE id = #{connection.quote(row["id"])}
-        SQL
+        assert_safe do
+          execute(<<~SQL.squish)
+            UPDATE standard_id_sessions
+            SET device_id = #{connection.quote(detached)}
+            WHERE id = #{connection.quote(row["id"])}
+          SQL
+        end
       end
     end
+  end
+
+  # A single-row UPDATE by primary key, run only for duplicated device rows:
+  # a deliberate, bounded data fix. Every known host runs StrongMigrations,
+  # which cannot inspect raw SQL; assert safety when it is loaded, and run the
+  # block as-is when it is not (the gem does not depend on it).
+  def assert_safe(&block)
+    respond_to?(:safety_assured) ? safety_assured(&block) : yield
   end
 
   def invalid_postgres_index?(name)

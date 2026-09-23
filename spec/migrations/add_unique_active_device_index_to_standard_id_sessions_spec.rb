@@ -45,6 +45,22 @@ RSpec.describe AddUniqueActiveDeviceIndexToStandardIdSessions do
     expect(index.where).to eq("revoked_at IS NULL AND device_id IS NOT NULL")
   end
 
+  it "asserts the detach UPDATE safe for hosts running StrongMigrations" do
+    # StrongMigrations cannot inspect raw SQL and stops a migration at any
+    # un-asserted `execute`; every known host runs it. Stand in for its
+    # `safety_assured` and check the data fix runs inside it.
+    migration = described_class.new
+    asserted = 0
+    migration.define_singleton_method(:safety_assured) { |&blk| asserted += 1; blk.call }
+    older = device_session!(device_id: "dev-a", created_at: 2.days.ago)
+    device_session!(device_id: "dev-a", created_at: 1.day.ago)
+
+    ActiveRecord::Migration.suppress_messages { migration.migrate(:up) }
+
+    expect(asserted).to eq(1)
+    expect(older.reload.device_id).to eq("dev-a:detached:#{older.id}")
+  end
+
   it "is idempotent" do
     run(:up)
     expect { run(:up) }.not_to raise_error
