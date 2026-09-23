@@ -458,4 +458,38 @@ RSpec.describe StandardId::Passwordless do
       end
     end
   end
+
+  describe ".max_attempts_per_challenge" do
+    it "is 3 with default config (inherited from :max_attempts)" do
+      expect(described_class.max_attempts_per_challenge).to eq(3)
+    end
+
+    it "prefers an explicit :max_attempts_per_challenge" do
+      allow(StandardId.config.passwordless).to receive(:max_attempts_per_challenge).and_return(7)
+      expect(described_class.max_attempts_per_challenge).to eq(7)
+    end
+
+    # The last-resort fallback IS reachable: a zero/nil ceiling is never
+    # honoured, since it would burn every challenge on its first wrong code.
+    [0, nil].each do |legacy|
+      it "falls back to FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE when both settings are unset (max_attempts=#{legacy.inspect})" do
+        allow(StandardId.config.passwordless).to receive(:max_attempts_per_challenge).and_return(nil)
+        allow(StandardId.config.passwordless).to receive(:max_attempts).and_return(legacy)
+
+        expect(described_class.max_attempts_per_challenge)
+          .to eq(StandardId::Passwordless::FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE)
+        expect(StandardId::Passwordless::FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE).to eq(5)
+      end
+    end
+
+    # The generated initializer's commented example must document the value an
+    # untouched install actually gets. It said 5 while the runtime default was 3.
+    it "matches the value the install template documents" do
+      template = File.read(File.expand_path("../../../lib/generators/standard_id/install/templates/standard_id.rb", __dir__))
+      documented = template[/^\s*#\s*c\.passwordless\.max_attempts_per_challenge\s*=\s*(\d+)/, 1]
+
+      expect(documented).to be_present
+      expect(documented.to_i).to eq(described_class.max_attempts_per_challenge)
+    end
+  end
 end

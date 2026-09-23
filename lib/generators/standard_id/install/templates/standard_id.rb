@@ -225,8 +225,9 @@ StandardId.configure do |c|
   # challenge is burned so further submissions fail fast. Distinct from the
   # per-IP rate limit (c.rate_limits.otp_verify_per_ip) — this defends
   # against distributed brute-force against a single challenge.
-  # Default: nil — falls back to :max_attempts for backwards compatibility.
-  # c.passwordless.max_attempts_per_challenge = 5
+  # Default: nil — falls back to :max_attempts (default 3) for backwards
+  # compatibility, so the effective default ceiling is 3.
+  # c.passwordless.max_attempts_per_challenge = 3
 
   # Default: 3 — deprecated alias for :max_attempts_per_challenge. Retained
   # for backwards compatibility; new installs should set the newer key.

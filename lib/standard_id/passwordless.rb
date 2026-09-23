@@ -2,6 +2,12 @@ require "standard_id/passwordless/verification_service"
 
 module StandardId
   module Passwordless
+    # Last-resort per-challenge attempt ceiling, used only when neither
+    # :max_attempts_per_challenge nor :max_attempts is a positive number. NOT
+    # the default: with default config the ceiling is 3 (see
+    # .max_attempts_per_challenge).
+    FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE = 5
+
     class << self
       # Public API for verifying a passwordless OTP code.
       #
@@ -76,12 +82,18 @@ module StandardId
       # Resolve the per-challenge attempt ceiling, preferring the newer
       # :max_attempts_per_challenge setting but falling back to :max_attempts
       # for backwards compatibility with apps that configured the older name.
+      #
+      # With default config this resolves to 3 (:max_attempts' default).
+      # FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE applies only when BOTH settings are
+      # unset or non-positive (e.g. `max_attempts = 0` / nil) — a ceiling of
+      # zero would burn every challenge on its first wrong code, so it is never
+      # honoured.
       def max_attempts_per_challenge
         configured = StandardId.config.passwordless.max_attempts_per_challenge
         return configured.to_i if configured && configured.to_i.positive?
 
         legacy = StandardId.config.passwordless.max_attempts.to_i
-        legacy.positive? ? legacy : 5
+        legacy.positive? ? legacy : FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE
       end
 
       # Minimum seconds that must elapse between successive code requests for
