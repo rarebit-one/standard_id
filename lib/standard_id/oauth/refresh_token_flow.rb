@@ -208,7 +208,12 @@ module StandardId
         return nil if revoked_record.revoked_at.blank?
         return nil if revoked_record.revoked_at < leeway.seconds.ago
 
-        successor = StandardId::RefreshToken.find_by(previous_token_id: revoked_record.id)
+        # eager_load(:session), matching the primary lookup in
+        # #validate_refresh_token_record!: the successor becomes
+        # @current_refresh_token_record, and #validate_parent_session! reads its
+        # :session. A bare find_by left that a lazy read, which raises
+        # StrictLoadingViolationError (a 500) under strict loading.
+        successor = StandardId::RefreshToken.eager_load(:session).find_by(previous_token_id: revoked_record.id)
         return nil unless successor&.active?
         return nil if StandardId::RefreshToken.exists?(previous_token_id: successor.id)
 

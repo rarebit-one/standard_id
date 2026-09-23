@@ -150,5 +150,59 @@ RSpec.describe "refresh rotation after a lost response" do
 
       expect(successor.reload).to be_revoked
     end
+
+    # Regression: the grace path loaded the successor WITHOUT its :session,
+    # then #validate_parent_session! read `successor.session` lazily. With
+    # strict loading on RefreshToken (as every consumer runs it) that raised
+    # StrictLoadingViolationError — a 500 on exactly the retry the leeway
+    # exists to rescue. The specs above never saw it because their tokens have
+    # no session: a belongs_to with a nil foreign key never queries, so it
+    # never trips strict loading. Only a session-linked family reproduces it.
+    context "when the token family is linked to a session" do
+      let(:device_session) do
+        StandardId::DeviceSession.create!(
+          account: account,
+          device_id: SecureRandom.uuid,
+          device_agent: "LostResponse/1.0",
+          ip_address: "127.0.0.1",
+          expires_at: 30.days.from_now
+        )
+      end
+
+      before do
+        first_token.update!(session_id: device_session.id)
+        allow(request).to receive(:remote_ip).and_return("127.0.0.1")
+        allow(request).to receive(:user_agent).and_return("LostResponse/1.0")
+      end
+
+      around do |example|
+        previous = StandardId::RefreshToken.strict_loading_by_default
+        StandardId::RefreshToken.strict_loading_by_default = true
+        example.run
+      ensure
+        StandardId::RefreshToken.strict_loading_by_default = previous
+      end
+
+      it "rotates from the graced successor without a strict-loading violation" do
+        successor = server_rotates_but_client_never_receives_it
+        expect(successor.session_id).to eq(device_session.id)
+
+        response = nil
+        expect { response = flow_presenting_first_token.execute }.not_to raise_error
+
+        expect(response[:refresh_token]).to be_present
+        expect(successor.reload).to be_revoked
+        newest = StandardId::RefreshToken.where(account: account).active.sole
+        expect(newest.session_id).to eq(device_session.id)
+      end
+
+      it "still refuses the graced retry once the linked session is revoked" do
+        server_rotates_but_client_never_receives_it
+        device_session.update!(revoked_at: Time.current)
+
+        expect { flow_presenting_first_token.execute }
+          .to raise_error(StandardId::InvalidGrantError, /no longer valid/)
+      end
+    end
   end
 end
