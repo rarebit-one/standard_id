@@ -151,6 +151,81 @@ RSpec.describe "refresh rotation after a lost response" do
       expect(successor.reload).to be_revoked
     end
 
+    # Regression: two retries of the same lost response can BOTH pass
+    # graced_successor_for while the successor is untouched, then race to
+    # rotate it. The loser used to land in handle_concurrent_reuse! and revoke
+    # the family — killing the token the winner had just issued, and logging
+    # the honest client out anyway (sidekick-labs/core-platform-brain#614).
+    describe "two graced retries racing to rotate the same successor" do
+      # Run the winning retry to completion between the loser's read
+      # (authenticate!) and its conditional UPDATE, as a concurrent request would.
+      def losing_graced_retry
+        winner_response = nil
+        loser = flow_presenting_first_token
+        allow(loser).to receive(:authenticate!).and_wrap_original do |original|
+          original.call
+          winner_response = flow_presenting_first_token.execute
+        end
+        [loser, -> { winner_response }]
+      end
+
+      it "refuses the loser with invalid_grant but keeps the winner's token alive" do
+        successor = server_rotates_but_client_never_receives_it
+        loser, winner_response = losing_graced_retry
+
+        detected = []
+        subscriber = StandardId::Events.subscribe(StandardId::Events::OAUTH_REFRESH_TOKEN_REUSE_DETECTED) { |e| detected << e }
+        begin
+          expect { loser.execute }.to raise_error(StandardId::InvalidGrantError, /no longer valid/)
+        ensure
+          StandardId::Events.unsubscribe(subscriber)
+        end
+
+        expect(winner_response.call[:refresh_token]).to be_present
+        expect(successor.reload).to be_revoked
+        winners_token = StandardId::RefreshToken.where(previous_token_id: successor.id).sole
+        expect(winners_token).to be_active
+        expect(StandardId::RefreshToken.where(account: account).active.sole).to eq(winners_token)
+        expect(detected).to be_empty
+      end
+
+      it "still revokes the family on a later replay, once the winner has used the successor" do
+        server_rotates_but_client_never_receives_it
+        loser, = losing_graced_retry
+        suppress(StandardId::InvalidGrantError) { loser.execute }
+
+        expect { flow_presenting_first_token.authenticate! }
+          .to raise_error(StandardId::InvalidGrantError, /reuse detected/)
+        expect(StandardId::RefreshToken.where(account: account).active).to be_empty
+      end
+    end
+
+    # The leeway only softens the GRACED path. A request that presents the
+    # contested token itself and loses the race is reuse, leeway or not.
+    it "still revokes the family when a request presenting its token directly loses the race" do
+      successor = server_rotates_but_client_never_receives_it
+      successor_jti = SecureRandom.uuid
+      successor.update!(token_digest: StandardId::RefreshToken.digest_for(successor_jti))
+      successor_payload = first_payload.merge(jti: successor_jti)
+
+      loser = StandardId::Oauth::RefreshTokenFlow.new({ client_id: client_id, refresh_token: "succ" }, request)
+      allow(StandardId::JwtService).to receive(:decode).with("succ").and_return(successor_payload)
+      winners_token = nil
+      allow(loser).to receive(:authenticate!).and_wrap_original do |original|
+        original.call
+        StandardId::RefreshToken.where(id: successor.id).update_all(revoked_at: Time.current)
+        winners_token = StandardId::RefreshToken.create!(
+          account: account,
+          token_digest: StandardId::RefreshToken.digest_for(SecureRandom.uuid),
+          expires_at: 30.days.from_now,
+          previous_token: successor
+        )
+      end
+
+      expect { loser.execute }.to raise_error(StandardId::InvalidGrantError, /reuse detected/)
+      expect(winners_token.reload).to be_revoked
+    end
+
     # Regression: the grace path loaded the successor WITHOUT its :session,
     # then #validate_parent_session! read `successor.session` lazily. With
     # strict loading on RefreshToken (as every consumer runs it) that raised
