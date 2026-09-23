@@ -8,13 +8,9 @@
 #   1. Fetches latest target branch and rebases current branch onto it
 #   2. If rebase changes history, injects --force-with-lease into git push
 #   3. Checks commit count and blocks if >1 commit (prompts user to squash)
-#   4. For `gh pr create`, when rebase changed history: performs an
-#      unconditional `git push --force-with-lease` inside the hook before
-#      letting `gh pr create` proceed (since `gh pr create` has no
-#      --force-with-lease flag of its own). This push happens in the hook
-#      process and bypasses Claude Code's permission system — it's
-#      necessary because the PR can't be created against the stale
-#      remote branch.
+#   4. For `gh pr create`, when rebase changed history: blocks and asks
+#      for an explicit `git push --force-with-lease` first, so the push
+#      goes through the agent's permission system.
 #
 # Exit codes:
 #   0 - Allow (optionally with modified command)
@@ -162,12 +158,11 @@ if [[ "$REBASE_HAPPENED" == "true" ]]; then
   fi
 
   if [[ "$IS_GH_PR_CREATE" == "true" ]]; then
-    echo "🔄 Force-pushing rebased branch before PR creation..." >&2
-    if ! git push --force-with-lease origin "$CURRENT_BRANCH" >&2; then
-      echo "❌ Force push failed after rebase. Cannot create PR." >&2
-      exit 2
-    fi
-    echo "✅ Branch pushed, proceeding with PR creation" >&2
+    # Pushing from inside the hook would bypass the agent's permission
+    # prompt, so block and ask for an explicit push instead.
+    echo "🔄 Rebase changed history. Push the branch first, then retry:" >&2
+    echo "   git push --force-with-lease origin $CURRENT_BRANCH" >&2
+    exit 2
   fi
 fi
 
