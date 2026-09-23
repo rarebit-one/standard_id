@@ -223,6 +223,7 @@ module StandardId
         account.sessions.strict_loading(false).destroy_all
         identifiers = account.identifiers.strict_loading(false).to_a
         identifiers.each { |i| i.credentials.strict_loading(false).destroy_all }
+        # Deliberately destroy! (unlike the destroy_all calls above): a failed identifier destroy raises and rolls back the whole cleanup, failing loud instead of leaving a half-cleaned orphan.
         identifiers.each(&:destroy!)
         account.destroy
       end

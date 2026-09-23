@@ -223,6 +223,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
     # setting or exemptions change.
     context "with strict loading enforced on the account and its dependents" do
       around do |example|
+        previous = {}
         klasses = [Account, StandardId::Session, StandardId::Identifier, StandardId::Credential]
         previous = klasses.to_h { |k| [k, k.strict_loading_by_default] }
         klasses.each { |k| k.strict_loading_by_default = true }
