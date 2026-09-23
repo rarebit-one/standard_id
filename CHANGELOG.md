@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.1] - 2026-09-24
+
+Bug-fix release. Four of these were found in sidekick-web, which has been carrying host-side prepend patches for three of them; the dummy app now runs with `strict_loading_by_default` so this class of bug fails in the gem's own suite first.
+
+### Upgrade
+
+Read this before bumping — the order matters if you have not yet deployed 0.41.0's migration:
+
+1. **Deploy 0.41.1 first, WITHOUT running `20260915000000_remove_refresh_token_lifetime_from_standard_id_client_applications`.** 0.41.1 ignores the column (see Fixed), so running processes stop reading and writing it.
+2. **Run `20260915000000` in a later deploy.** With strong_migrations it still needs wrapping: `safety_assured { remove_column ... }` inside the copied migration's `up` — the column is already ignored, which is the condition strong_migrations asks you to confirm. Hosts that already ran it under 0.41.0 have nothing to do here.
+3. **Install and run the new `20260924000000_add_unique_active_device_index_to_standard_id_sessions`** (`bin/rails standard_id:install:migrations`). It is idempotent, builds CONCURRENTLY on Postgres, and needs no `safety_assured`. It detaches any existing duplicate active device rows before building the index (see Fixed); nothing is revoked.
+4. **Hosts carrying the sidekick-web prepend patches can delete them:** `config/initializers/standard_id_refresh_token_strict_loading.rb`, `standard_id_rotation_leeway.rb` and `standard_id_device_session_upsert.rb` (and their specs). The upsert patch's signature guard will keep passing, so it will not remind you — remove it deliberately.
+
+### Fixed
+
+- **Signing in again after signing out no longer resurrects the revoked device session.** `OauthSessionPersistence.upsert_device_session!` looked the device's row up with a bare `find_by(account:, device_id:)`. Sign-out (`/oauth/revoke` under the default `:account` `revocation_scope`) revokes every active `DeviceSession`, so the next sign-in reused the revoked row, every refresh token minted afterwards pointed at a revoked parent, and `RefreshTokenFlow#validate_parent_session!` refused the very first refresh. The client was sent back to sign-in each time its access token expired, on every device, forever — sidekick-web's companion app, where the audit trail showed dozens of sign-ins a day and not one successful refresh.
+
+  Only rows with `revoked_at: nil` are now reused (newest first); a revoked row stays as history and the sign-in gets a new one. Expiry is deliberately still not part of eligibility — an expired-but-unrevoked row is reused with its `expires_at` bumped, as before. The insert runs inside a savepoint, and on `ActiveRecord::RecordNotUnique` the row that won a concurrent first sign-in is reused rather than failing the token request.
+
+  **New migration `20260924000000`**: a partial unique index on `standard_id_sessions (account_id, device_id) WHERE revoked_at IS NULL AND device_id IS NOT NULL`, so "one active session per device" is a database invariant rather than a property of the account row lock. Before building it, each duplicated group of active rows keeps its newest row as-is and has `:detached:<id>` appended to the others' `device_id`. Detached rows stay active — their refresh tokens keep working until they expire or are revoked — they are just no longer the row a new sign-in reuses. `down` drops the index and leaves the detached suffixes in place (strip `:detached:<id>` to recover the original).
+
+- **The refresh-token reuse leeway no longer 500s under strict loading.** When `refresh_token_reuse_leeway` graces a replayed token, `graced_successor_for` loaded the successor without its `:session`, and `validate_parent_session!` then read it lazily — `StrictLoadingViolationError` on exactly the retry the leeway exists to rescue (sidekick-web SIDEKICK-WEB-3E). The successor is now `eager_load(:session)`ed like the primary lookup. The existing grace specs used session-less tokens, where a nil foreign key never queries; the new ones link the family to a `DeviceSession`.
+
+- **Two graced retries racing to rotate the same successor no longer log the client out.** Two retries of one lost response can both pass `graced_successor_for` while the successor is untouched, then race to rotate it. The loser landed in `handle_concurrent_reuse!` and revoked the family, killing the token the winner had just issued. A request served from a graced successor that loses the rotation race now gets `invalid_grant` **without** revoking anything; the client keeps the winner's response. A request presenting its token directly and losing the race still revokes the family, and a later replay of the superseded token still finds a used successor and revokes as before — the leeway is not widened.
+
+- **A lifecycle hook rejecting a brand-new account no longer 500s under strict loading.** `LifecycleHooks#destroy_newly_created_account` read `account.sessions` / `account.identifiers` lazily, so a `before_sign_in` / `after_sign_in` rejection of a just-created signup raised `StrictLoadingViolationError` instead of redirecting to login, and left the orphaned account behind. The cleanup now reads each association through `.strict_loading(false)`.
+
+- **`StandardId::ClientApplication` ignores the dropped `refresh_token_lifetime` column.** 0.41.0 removed the column without ignoring it first, so on a rolling deploy processes still on the old code named it in every INSERT/UPDATE once the migration ran. `self.ignored_columns += %w[refresh_token_lifetime]` makes the deploy-then-drop order in **Upgrade** safe. It will be removed in a future minor.
+
+- **The documented per-challenge OTP attempt ceiling was wrong.** `passwordless.max_attempts_per_challenge` is unset by default and falls back to `max_attempts` (default `3`), so an untouched install burns a challenge after 3 wrong codes — but the install generator template, the schema comment and the 0.16.0 entry below all said `5`. They now say `3`, and a spec pins the template's value to the runtime default. The literal `5` in the resolver is a real last resort (both settings nil or zero, since a zero ceiling would burn every challenge on its first wrong code) and is now named `StandardId::Passwordless::FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE`. No behaviour change.
+
+### Changed
+
+- **The dummy app runs with `strict_loading_by_default = true`** and `:raise`, as every consumer does. `spec/dummy/config/initializers/strict_loading.rb` exempts the gem models hosts exempt (`Identifier`, `Session`, `Credential`, `PasswordCredential`, `ClientSecretCredential`, `AuthorizationCode`); `RefreshToken`, `ClientApplication`, `ClientGrant`, `CodeChallenge` and `Account` stay strict. `STRICT_LOADING=full bundle exec rspec` drops the exemptions to show the remaining backlog. Test-suite only; no runtime change.
+
 ## [0.41.0] - 2026-09-15
 
 ### Added
