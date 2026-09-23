@@ -215,6 +215,36 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
       expect(Account.find_by(email: "orphan2@example.com")).to be_nil
     end
 
+    # Regression: destroy_newly_created_account read `account.sessions` lazily,
+    # so under strict loading (how consumer apps run) a hook rejecting a new
+    # signup raised StrictLoadingViolationError — a 500 instead of the redirect,
+    # with the orphaned account left behind. Forced on here for Account and the
+    # gem models the cleanup touches so it holds even if the dummy's global
+    # setting or exemptions change.
+    context "with strict loading enforced on the account and its dependents" do
+      around do |example|
+        klasses = [Account, StandardId::Session, StandardId::Identifier, StandardId::Credential]
+        previous = klasses.to_h { |k| [k, k.strict_loading_by_default] }
+        klasses.each { |k| k.strict_loading_by_default = true }
+        example.run
+      ensure
+        previous.each { |k, v| k.strict_loading_by_default = v }
+      end
+
+      it "redirects to login and destroys the new account instead of raising" do
+        hook = ->(_account, _request, _context) { { error: "Registration closed" } }
+        allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
+
+        expect {
+          http_post "/signup", params: { signup: { email: "strict-orphan@example.com", password: "s3cureP@ss", password_confirmation: "s3cureP@ss" } }
+        }.not_to change(Account, :count)
+
+        expect(response).to redirect_to("/login")
+        expect(flash[:alert]).to eq("Registration closed")
+        expect(StandardId::Identifier.where(value: "strict-orphan@example.com")).to be_empty
+      end
+    end
+
     it "calls before_sign_in with mechanism: password for signup" do
       received_context = nil
       hook = lambda { |_account, _request, context|
