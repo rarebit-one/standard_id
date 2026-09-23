@@ -544,9 +544,9 @@ RSpec.describe StandardId::ClientApplication, type: :model do
         it "creates a new client secret credential" do
           expect {
             client.create_client_secret!(name: "Test Secret", client_secret: "secret123")
-          }.to change(client.client_secret_credentials, :count).by(1)
+          }.to change { StandardId::ClientSecretCredential.where(client_application: client).count }.by(1)
 
-          credential = client.client_secret_credentials.last
+          credential = StandardId::ClientSecretCredential.where(client_application: client).last
           expect(credential.name).to eq("Test Secret")
           expect(credential.client_id).to eq(client.client_id)
           expect(credential.authenticate_client_secret("secret123")).to be_truthy

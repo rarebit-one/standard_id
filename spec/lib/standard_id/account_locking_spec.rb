@@ -95,8 +95,7 @@ RSpec.describe StandardId::AccountLocking do
           locked: true,
           locked_at: 1.day.ago,
           lock_reason: "Policy violation",
-          locked_by_id: admin.id,
-          locked_by_type: "Account"
+          locked_by: admin
         )
       end
 

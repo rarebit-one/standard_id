@@ -89,7 +89,7 @@ RSpec.describe StandardId::AccountAssociations, type: :model do
     context "email normalization" do
       it "strips and downcases" do
         account = Account.find_or_create_by_verified_email!("  Test@Example.COM  ", name: "Test")
-        expect(account.identifiers.first.value).to eq("test@example.com")
+        expect(account.identifiers.strict_loading(false).first.value).to eq("test@example.com")
       end
 
       it "finds existing accounts regardless of case" do
