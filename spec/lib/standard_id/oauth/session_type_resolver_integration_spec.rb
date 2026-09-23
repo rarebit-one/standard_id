@@ -232,7 +232,7 @@ RSpec.describe "OAuth session_type_resolver integration" do
     # this is the exact call two apps shipped that left refresh tokens live.
     session.update!(revoked_at: Time.current)
 
-    expect(token.reload.session.revoked?).to be true
+    expect(StandardId::RefreshToken.eager_load(:session).find(token.id).session.revoked?).to be true
   end
 
   # Session#revoke!'s cascade is what was matching zero rows in production.

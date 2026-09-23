@@ -56,7 +56,7 @@ RSpec.describe "StandardId::Api::Oauth::RegistrationsController", type: :request
         # public client => no secret in the response
         expect(body).not_to have_key("client_secret")
 
-        client = StandardId::ClientApplication.find_by(client_id: body["client_id"])
+        client = StandardId::ClientApplication.includes(:owner).find_by(client_id: body["client_id"])
         expect(client.client_type).to eq("public")
         expect(client.require_pkce).to be(true)
         expect(client.code_challenge_methods_array).to eq(["S256"])

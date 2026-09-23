@@ -162,7 +162,10 @@ StandardId::ConfigSchema.define do
     # rate limit (config.rate_limits.otp_verify_per_ip) — the per-IP limit
     # prevents brute-forcing from a single source, while this ceiling defends
     # against distributed brute-force attempts against the same challenge.
-    # When nil, falls back to :max_attempts for backwards compatibility.
+    # When nil, falls back to :max_attempts for backwards compatibility, so the
+    # effective default is 3 (:max_attempts' default), not 5. 5 is only the
+    # last resort when both are unset or non-positive
+    # (StandardId::Passwordless::FALLBACK_MAX_ATTEMPTS_PER_CHALLENGE).
     field :max_attempts_per_challenge, type: :integer, default: nil
 
     field :retry_delay, type: :integer, default: 30 # 30 seconds

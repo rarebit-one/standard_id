@@ -208,13 +208,22 @@ module StandardId
 
     # Destroy a newly created account and all its dependents.
     # Used when after_sign_in rejects a just-created account to avoid orphans.
+    #
+    # Every association read goes through `.strict_loading(false)`: the account
+    # was built in this request, so none of its associations are loaded, and a
+    # host running `strict_loading_by_default = true` (most consumers) would
+    # otherwise raise StrictLoadingViolationError on `account.sessions` — turning
+    # a hook's clean rejection of a new signup into a 500 and leaving the
+    # orphaned account behind. Relation-level `strict_loading(false)` also covers
+    # the records it loads, so `identifier.credentials` below is safe too.
     def destroy_newly_created_account(account)
       return unless account&.persisted?
 
       ActiveRecord::Base.transaction do
-        account.sessions.destroy_all
-        account.identifiers.each { |i| i.credentials.destroy_all }
-        account.identifiers.destroy_all
+        account.sessions.strict_loading(false).destroy_all
+        identifiers = account.identifiers.strict_loading(false).to_a
+        identifiers.each { |i| i.credentials.strict_loading(false).destroy_all }
+        identifiers.each(&:destroy!)
         account.destroy
       end
     end

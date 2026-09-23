@@ -186,7 +186,7 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
 
       new_record = StandardId::RefreshToken.last
       expect(new_record.account_id).to eq(sub)
-      expect(new_record.previous_token).to be_present
+      expect(new_record.previous_token_id).to be_present
     end
   end
 

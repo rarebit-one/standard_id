@@ -1,6 +1,17 @@
 module StandardId
   class ClientApplication < ApplicationRecord
     self.table_name = "standard_id_client_applications"
+
+    # 0.41.0 dropped `refresh_token_lifetime` (migration 20260915000000) without
+    # ignoring it first, so a rolling deploy broke: processes still running the
+    # old code had the column in their cached schema and wrote it on every
+    # INSERT/UPDATE once the migration had removed it. Ignoring it here lets
+    # hosts ship this release first and drop the column in a LATER deploy —
+    # the order strong_migrations requires for remove_column.
+    #
+    # Remove this line in a future minor, once every host has run 20260915000000.
+    self.ignored_columns += %w[refresh_token_lifetime]
+
     belongs_to :owner, polymorphic: true
 
     has_many :client_secret_credentials, dependent: :destroy

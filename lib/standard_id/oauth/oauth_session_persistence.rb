@@ -37,39 +37,81 @@ module StandardId
         end
       end
 
+      # Reuse the device's ACTIVE session row, or start a new one.
+      #
+      # Only a non-revoked row is eligible. Sign-out (/oauth/revoke under the
+      # default :account revocation_scope) revokes every active DeviceSession
+      # for the account; reusing that revoked row on the next sign-in — which a
+      # bare `find_by(account:, device_id:)` did — linked every new refresh
+      # token to a revoked parent, so RefreshTokenFlow#validate_parent_session!
+      # refused the very first refresh and the client was bounced to sign-in
+      # after every access-token expiry, forever. A revoked row is history (the
+      # audit trail and admin session lists still read it); a new sign-in gets
+      # a new row. Expiry is deliberately NOT part of eligibility: an expired
+      # but unrevoked row is reused with its expires_at bumped, as before.
       def upsert_device_session!(account:, request:, audience:, grant_type:)
         user_agent = request.user_agent
         device_id = stable_device_id(account: account, user_agent: user_agent, audience: audience)
         ip_address = StandardId::Utils::IpNormalizer.normalize(request.remote_ip)
 
-        # Serialize concurrent upserts for the same account. There's no
-        # DB-level unique constraint on (account_id, device_id), so a raw
-        # find_by + create! would TOCTOU-race two concurrent token requests
-        # for the same device into two duplicate rows. We acquire a SELECT
-        # ... FOR UPDATE on the account row to serialize — account.with_lock
-        # is unavailable because StandardId::AccountLocking overrides lock!
-        # with a business-level method that takes a :reason kwarg.
-        # The outer transaction (opened by TokenGrantFlow#generate_token_response)
+        # Serialize concurrent upserts for the same account. We acquire a
+        # SELECT ... FOR UPDATE on the account row — account.with_lock is
+        # unavailable because StandardId::AccountLocking overrides lock! with a
+        # business-level method that takes a :reason kwarg. The outer
+        # transaction (opened by TokenGrantFlow#generate_token_response)
         # releases the lock on commit/rollback.
+        #
+        # The lock alone is not the guarantee: the partial unique index from
+        # 20260924000000 (one active row per account + device_id) is. The lock
+        # keeps the common case free of unique violations; the savepoint below
+        # handles the rest, and keeps hosts that have not yet run that
+        # migration no worse off than before.
         account.class.where(id: account.id).lock.first
 
-        existing = StandardId::DeviceSession.find_by(account: account, device_id: device_id)
-        if existing
-          existing.update!(
-            expires_at: StandardId::DeviceSession.expiry,
-            ip_address: ip_address || existing.ip_address,
-            device_agent: user_agent || existing.device_agent
-          )
-          existing
-        else
-          StandardId::DeviceSession.create!(
-            account: account,
-            device_id: device_id,
-            device_agent: user_agent.presence || "OAuth:#{grant_type}",
-            ip_address: ip_address || "0.0.0.0",
-            expires_at: StandardId::DeviceSession.expiry
-          )
+        existing = active_device_session(account: account, device_id: device_id)
+        return refresh_device_session!(existing, ip_address: ip_address, user_agent: user_agent) if existing
+
+        begin
+          # Savepoint, so a unique violation does not abort the enclosing token
+          # transaction (Postgres refuses every later statement in an aborted
+          # transaction).
+          StandardId::DeviceSession.transaction(requires_new: true) do
+            StandardId::DeviceSession.create!(
+              account: account,
+              device_id: device_id,
+              device_agent: user_agent.presence || "OAuth:#{grant_type}",
+              ip_address: ip_address || "0.0.0.0",
+              expires_at: StandardId::DeviceSession.expiry
+            )
+          end
+        rescue ActiveRecord::RecordNotUnique
+          # A concurrent sign-in for the same device committed its row first.
+          # Reuse the winner rather than failing the token request.
+          winner = active_device_session(account: account, device_id: device_id)
+          raise unless winner
+
+          refresh_device_session!(winner, ip_address: ip_address, user_agent: user_agent)
         end
+      end
+
+      # Newest first: before the unique index existed, a race could leave two
+      # active rows for one device, and an unordered lookup picked one
+      # arbitrarily. The migration detaches such duplicates, but hosts that
+      # have not run it yet still benefit from a deterministic choice.
+      def active_device_session(account:, device_id:)
+        StandardId::DeviceSession
+          .where(account: account, device_id: device_id, revoked_at: nil)
+          .order(created_at: :desc, id: :desc)
+          .first
+      end
+
+      def refresh_device_session!(session, ip_address:, user_agent:)
+        session.update!(
+          expires_at: StandardId::DeviceSession.expiry,
+          ip_address: ip_address || session.ip_address,
+          device_agent: user_agent || session.device_agent
+        )
+        session
       end
 
       def stable_device_id(account:, user_agent:, audience:)

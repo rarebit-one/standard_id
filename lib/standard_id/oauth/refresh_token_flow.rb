@@ -81,6 +81,7 @@ module StandardId
           if (successor = graced_successor_for(@current_refresh_token_record))
             emit_reuse_graced_event(@current_refresh_token_record, successor)
             @current_refresh_token_record = successor
+            @served_from_graced_successor = true
           else
             # Reuse detected: this token was already rotated. Revoke entire family.
             @current_refresh_token_record.revoke_family!
@@ -166,9 +167,24 @@ module StandardId
         raise ActiveRecord::Rollback
       end
 
+      # Only a request that presented the lost-the-race token ITSELF is treated
+      # as reuse. A request served from a graced successor that loses the race
+      # is the leeway's own retry colliding with another retry of the same lost
+      # response — a client re-sending the superseded token twice in quick
+      # succession. Both passed #graced_successor_for while the successor was
+      # untouched; one rotated it. Revoking the family here would kill the
+      # token the winning request just issued and log the honest client out,
+      # which is exactly what the leeway exists to prevent. The loser gets a
+      # plain invalid_grant and the client keeps the winner's response.
+      #
+      # This does not widen the leeway: the winner already consumed the
+      # successor, so a later replay of the superseded token finds a USED
+      # successor and revokes the family as before.
       def handle_concurrent_reuse!
         @current_refresh_token_record&.reload
         if @current_refresh_token_record&.revoked?
+          raise StandardId::InvalidGrantError, "Refresh token is no longer valid" if @served_from_graced_successor
+
           @current_refresh_token_record.revoke_family!
           emit_reuse_detected_event
           raise StandardId::InvalidGrantError, "Refresh token reuse detected"
@@ -208,7 +224,12 @@ module StandardId
         return nil if revoked_record.revoked_at.blank?
         return nil if revoked_record.revoked_at < leeway.seconds.ago
 
-        successor = StandardId::RefreshToken.find_by(previous_token_id: revoked_record.id)
+        # eager_load(:session), matching the primary lookup in
+        # #validate_refresh_token_record!: the successor becomes
+        # @current_refresh_token_record, and #validate_parent_session! reads its
+        # :session. A bare find_by left that a lazy read, which raises
+        # StrictLoadingViolationError (a 500) under strict loading.
+        successor = StandardId::RefreshToken.eager_load(:session).find_by(previous_token_id: revoked_record.id)
         return nil unless successor&.active?
         return nil if StandardId::RefreshToken.exists?(previous_token_id: successor.id)
 
