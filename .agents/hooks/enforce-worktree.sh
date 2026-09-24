@@ -13,11 +13,12 @@
 # itself has a bug, a human must fix it manually (edit the file or remove
 # from settings.json).
 #
-# Note: This hook covers Edit, Write, and NotebookEdit tools. Bash tool writes
-# that INTRODUCE content into a main checkout (rsync, bin/devcontainer-exec,
-# git stash pop/apply, git apply, patch, sed -i, …) are covered by the
-# companion hook enforce-worktree-bash.sh (registered on the Bash matcher).
-# Together they enforce the worktree-only mandate across both write paths.
+# Note: This hook covers Edit, Write, and NotebookEdit tools only. Bash tool
+# writes that INTRODUCE content into a main checkout (rsync,
+# bin/devcontainer-exec, git stash pop/apply, git apply, patch, sed -i, …) are
+# covered only where the companion hook enforce-worktree-bash.sh is ALSO
+# registered on the Bash matcher. Check the repo's settings.json (or
+# .agents/hooks.toml): without it, Bash writes are instruction-enforced only.
 
 # Guard: jq required for JSON parsing. jq is a setup prerequisite in this
 # workspace; warn LOUDLY if it goes missing rather than disabling silently
