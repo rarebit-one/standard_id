@@ -1,12 +1,12 @@
-<%= t(".greeting") %>
+<%= otp_copy(:greeting) %>
 
-<%= t(".intro") %>
+<%= otp_copy(:intro) %>
 
   <%= @otp_code %>
 
-<%= t(".expiry", count: @expires_in_minutes) %>
+<%= otp_copy(:expiry, count: @expires_in_minutes) %>
 
-<%= t(".ignore") %>
+<%= otp_copy(:ignore) %>
 
 --
-<%= t(".footer") %>
+<%= otp_copy(:footer) %>

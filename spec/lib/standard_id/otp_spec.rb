@@ -210,6 +210,15 @@ RSpec.describe StandardId::Otp do
         expect(sent_statuses { issue }).to eq(["failed"])
       end
 
+      it "is \"failed\" when Active Job refuses the enqueue without raising" do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+        refused = instance_double(ActionMailer::MessageDelivery, deliver_later: false)
+        mailer = double("parameterized mailer", verification_email: refused, otp_email: refused)
+        allow(StandardId::PasswordlessMailer).to receive(:with).and_return(mailer)
+
+        expect(sent_statuses { issue }).to eq(["failed"])
+      end
+
       it "is \"delegated\" when a host subscriber delivers (global :custom)" do
         allow(StandardId.config.passwordless).to receive(:delivery).and_return(:custom)
 
