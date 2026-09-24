@@ -158,6 +158,47 @@ RSpec.describe StandardId::PasswordlessFlow do
       expect(result.error_code).to eq(:account_not_found)
     end
 
+    context "when the controller resolves a scope" do
+      let(:controller_class) do
+        Class.new do
+          include StandardId::PasswordlessFlow
+
+          attr_reader :request
+          attr_accessor :current_scope_config
+
+          def initialize(request)
+            @request = request
+          end
+        end
+      end
+
+      [
+        [true, true, true],
+        [true, false, false],
+        [false, true, false],
+        [false, false, false]
+      ].each do |caller_allows, scope_allows, expected|
+        it "passes allow_registration=#{expected} for caller=#{caller_allows}, scope=#{scope_allows}" do
+          controller.current_scope_config = StandardId::ScopeConfig.new(:members, allow_registration: scope_allows)
+
+          expect(StandardId::Passwordless).to receive(:verify)
+            .with(hash_including(allow_registration: expected))
+
+          controller.send(:verify_passwordless_otp, username: email, code: otp_code, allow_registration: caller_allows)
+        end
+      end
+
+      it "refuses to create an account under a scope that disallows registration" do
+        controller.current_scope_config = StandardId::ScopeConfig.new(:members, allow_registration: false)
+        create_challenge(channel: "email", target: "new@example.com")
+
+        result = controller.send(:verify_passwordless_otp, username: "new@example.com", code: otp_code)
+
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:account_not_found)
+      end
+    end
+
     it "returns :not_found when the challenge is expired" do
       create_email_account(email)
       challenge = create_challenge(channel: "email", target: email)

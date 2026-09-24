@@ -106,6 +106,8 @@ module StandardId
         end
       end
 
+      # Global web.passwordless_registration AND the active scope's
+      # allow_registration (verify_passwordless_otp applies the scope half).
       def passwordless_registration_enabled?
         StandardId.config.web.passwordless_registration
       end

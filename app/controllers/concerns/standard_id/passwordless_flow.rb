@@ -61,7 +61,10 @@ module StandardId
     # @param username [String] the identifier value (email or phone number)
     # @param code [String] the OTP code to verify
     # @param connection [String] the delivery channel ("email" or "sms"), defaults to "email"
-    # @param allow_registration [Boolean] whether to create a new account if none exists (default: true)
+    # @param allow_registration [Boolean] whether to create a new account if none exists (default: true).
+    #   When the including controller resolves a scope (StandardId::LifecycleHooks#current_scope_config)
+    #   and that scope sets `allow_registration: false`, registration is refused regardless —
+    #   a scope can only restrict.
     # @return [StandardId::Passwordless::VerificationService::Result] a result with:
     #   - success? -- true when verification succeeded
     #   - account  -- the authenticated/created account (nil on failure)
@@ -77,8 +80,14 @@ module StandardId
         code: code,
         connection: connection,
         request: request,
-        allow_registration: allow_registration
+        allow_registration: StandardId::ScopeConfig.registration_allowed?(allow_registration, passwordless_scope_config)
       )
+    end
+
+    # The active ScopeConfig when the controller also includes
+    # StandardId::LifecycleHooks; nil otherwise (no scope → no restriction).
+    def passwordless_scope_config
+      respond_to?(:current_scope_config, true) ? current_scope_config : nil
     end
   end
 end

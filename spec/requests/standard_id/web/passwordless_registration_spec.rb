@@ -149,6 +149,58 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
   end
 
   # ─────────────────────────────────────────────────────────────────────────
+  # Scope allow_registration can only restrict the global switch
+  # ─────────────────────────────────────────────────────────────────────────
+  describe "scope allow_registration × web.passwordless_registration" do
+    def activate_scope!(allow_registration:)
+      allow(StandardId.config).to receive(:scopes).and_return(
+        members: { allow_registration: allow_registration }
+      )
+      allow(StandardId.config).to receive(:scope_resolver).and_return(->(request:, session:) { :members })
+    end
+
+    [
+      [true, true, true],
+      [true, false, false],
+      [false, true, false],
+      [false, false, false]
+    ].each do |global, scoped, expected|
+      it "registers=#{expected} when global=#{global} and scope allow_registration=#{scoped}" do
+        global ? enable_passwordless_registration! : disable_passwordless_registration!
+        activate_scope!(allow_registration: scoped)
+
+        initiate_passwordless_login!
+        challenge = StandardId::CodeChallenge.last
+
+        expect(StandardId::Passwordless).to receive(:verify)
+          .with(hash_including(allow_registration: expected))
+          .and_call_original
+
+        http_patch "/login_verify", params: { code: challenge.code.to_s }
+
+        unless expected
+          expect(response).to have_http_status(:unprocessable_content)
+          expect(flash[:alert]).to eq("No account found for this email address")
+        end
+      end
+    end
+
+    it "does not restrict when no scope is active" do
+      enable_passwordless_registration!
+      allow(StandardId.config).to receive(:scopes).and_return(members: { allow_registration: false })
+
+      initiate_passwordless_login!
+      challenge = StandardId::CodeChallenge.last
+
+      expect(StandardId::Passwordless).to receive(:verify)
+        .with(hash_including(allow_registration: true))
+        .and_call_original
+
+      http_patch "/login_verify", params: { code: challenge.code.to_s }
+    end
+  end
+
+  # ─────────────────────────────────────────────────────────────────────────
   # PASSWORDLESS_ACCOUNT_CREATED event
   # ─────────────────────────────────────────────────────────────────────────
   describe "PASSWORDLESS_ACCOUNT_CREATED event" do
@@ -227,6 +279,19 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
       expect(response).to have_http_status(:ok)
       # The prop is passed through InertiaRendering; verify via config
       expect(StandardId.config.web.passwordless_registration).to eq(true)
+    end
+
+    it "reports the effective value, restricted by the active scope" do
+      enable_passwordless_registration!
+      controller = StandardId::Web::LoginController.new
+
+      allow(controller).to receive(:current_scope_config)
+        .and_return(StandardId::ScopeConfig.new(:members, allow_registration: false))
+      expect(controller.send(:web_enabled_mechanisms)[:passwordless_registration]).to be(false)
+
+      allow(controller).to receive(:current_scope_config)
+        .and_return(StandardId::ScopeConfig.new(:members, allow_registration: true))
+      expect(controller.send(:web_enabled_mechanisms)[:passwordless_registration]).to be(true)
     end
 
     it "includes passwordless_registration false when disabled" do

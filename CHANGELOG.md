@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Hosts can delete their `StandardId::* .strict_loading_by_default = false` block** (fundbright-web, luminality-web, nutripod-web `config/initializers/strict_loading.rb`; sidekick-web's StandardId lines in the same file). Every gem model now works under `strict_loading_by_default = true` + `:raise` through every gem flow; see Fixed. Keep an exemption only if *your own* code lazily traverses a gem association (e.g. `identifier.account` in a host controller) — prefer `includes` there instead.
 
+### Changed
+
+- **`ScopeConfig#allow_registration` is now enforced** (it was documented "reserved for future use" and never read). Passwordless sign-in may create an account iff the global switch allows it **and** the active scope's `allow_registration` is not `false` — a scope can only restrict:
+  - WebEngine `login_verify`: `web.passwordless_registration && scope.allow_registration`.
+  - Host controllers using `StandardId::PasswordlessFlow#verify_passwordless_otp`: the caller's `allow_registration:` (default `true`) `&&` the scope from `LifecycleHooks#current_scope_config`, when the controller includes it.
+  - The Inertia `enabled_mechanisms.passwordless_registration` prop reports the effective per-request value.
+  - With no active scope nothing changes. Consumers checked: nutripod-web (`storefront: allow_registration: true`, passes `true`) and fundbright-web (all scopes `false`, already passes `false`) see no behaviour change.
+  - Not applied to the API OAuth `passwordless_otp` grant (no scope is resolved on API token requests — `scope_resolver` is a WebEngine concept and host resolvers may assume a browser session), nor to password signup / social account creation, which have their own switches (`web.signup`, provider config).
+- `ScopeConfig#allow_registration?` and `ScopeConfig.registration_allowed?(global, scope_config)` added; an explicit `allow_registration: nil` now means the default (`true`).
+
 ### Deprecated
 
 Runtime warnings only — every setting below still works exactly as before and is removed in v2.0.

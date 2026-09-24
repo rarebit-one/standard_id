@@ -58,7 +58,12 @@ module StandardId
         email_verification: web.email_verification,
         phone_verification: web.phone_verification,
         sessions_management: web.sessions_management,
-        passwordless_registration: web.passwordless_registration
+        # Effective value for this request: the active scope's
+        # allow_registration can switch it off (see ScopeConfig#allow_registration).
+        passwordless_registration: StandardId::ScopeConfig.registration_allowed?(
+          web.passwordless_registration,
+          respond_to?(:current_scope_config, true) ? current_scope_config : nil
+        )
       }
     end
   end
