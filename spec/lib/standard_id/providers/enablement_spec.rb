@@ -98,6 +98,24 @@ RSpec.describe StandardId::Providers::Base, "enablement and configuration checks
     end
   end
 
+  describe ".flow_for" do
+    it "is :mobile for providers without a mobile callback, whatever the params say" do
+      expect(provider.flow_for({ flow: "web" })).to eq(:mobile)
+    end
+
+    it "honours flow=web for providers that support a mobile callback" do
+      dual = Class.new(described_class) do
+        def self.provider_name = "dual_probe"
+        def self.supports_mobile_callback? = true
+      end
+
+      expect(dual.flow_for({ flow: "web" })).to eq(:web)
+      expect(dual.flow_for({ flow: "Web" })).to eq(:web)
+      expect(dual.flow_for({ flow: "mobile" })).to eq(:mobile)
+      expect(dual.flow_for({})).to eq(:mobile)
+    end
+  end
+
   describe "registry and top-level helpers" do
     around do |example|
       StandardId::ProviderRegistry.register(:enablement_probe, provider)
