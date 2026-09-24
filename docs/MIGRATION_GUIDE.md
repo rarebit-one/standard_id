@@ -4,9 +4,40 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [0.42 to 0.43: deprecated settings removed](#042-to-043-deprecated-settings-removed)
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## 0.42 to 0.43: deprecated settings removed
+
+Everything 0.42 deprecated is gone. If your app booted under 0.42 without a
+`StandardId` deprecation warning, **there is nothing to change**. Assigning a
+removed setting now raises `StandardId::ConfigurationError` at boot, naming the
+replacement:
+
+| Removed | Use instead |
+|---|---|
+| `c.passwordless_email_sender`, `c.passwordless_sms_sender` | A `StandardId::Events::PASSWORDLESS_CODE_GENERATED` subscriber (skip when `event[:skip_sender]`) with `c.passwordless.delivery = :custom` — see [v0.1.6 to v0.1.7](#v016-to-v017) |
+| `c.passwordless.enabled` | `c.web.passwordless_login` (it had no effect since 0.8) |
+| `c.oauth.client_id`, `c.oauth.client_secret` | Nothing — never read. Clients are `ClientApplication` / `ClientSecretCredential` records |
+| `c.rate_limits.password_login_per_ip`, `password_login_per_email` | `c.rate_limits.login_per_ip`, `login_per_email` |
+| Scope config `profile_type: "X"` | `profile_types: ["X"]` (the singular key raises at boot instead of being ignored — ignoring it would drop the scope's profile requirement) |
+| `Providers::Base.setup` hook (a provider defining `setup` had it called with a warning) | Do the work in the plugin's Railtie; `setup` is no longer called |
+| `StandardId::ScopeConfig::DEPRECATOR`, `StandardId::ProviderRegistry::DEPRECATOR` | `StandardId.deprecator` |
+
+**`StandardId::Otp.issue(delivery: :custom)`** no longer calls a sender callback.
+It publishes `PASSWORDLESS_CODE_GENERATED` with `delivery: :custom` in the
+payload and the engine's built-in mailer stays out of it, so your subscriber
+delivers the code even where `c.passwordless.delivery` is `:built_in`. Nothing
+is sent unless you subscribe.
+
+**WebEngine `verify_email` / `verify_phone` start actions** now issue their code
+through `Otp.issue` (realm `"verification"`), so it is delivered by the same
+subscriber (or the built-in mailer under `delivery: :built_in`). They used to
+call the sender callbacks directly and sent nothing without them.
 
 ---
 
@@ -189,9 +220,9 @@ end
 
 ### Passwordless Code Delivery
 
-The `passwordless_email_sender` and `passwordless_sms_sender` configuration options are deprecated and will be removed in v2.0. Please migrate to event-based subscriptions.
+The `passwordless_email_sender` and `passwordless_sms_sender` configuration options were deprecated here and **removed in 0.43** (assigning them now raises `StandardId::ConfigurationError`). Migrate to event-based subscriptions, and set `c.passwordless.delivery = :custom` so the engine's built-in mailer stays out of the way.
 
-**Before (deprecated):**
+**Before (removed in 0.43):**
 
 ```ruby
 StandardId.configure do |config|
@@ -210,6 +241,7 @@ end
 ```ruby
 # config/initializers/standard_id_events.rb
 StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
+  next if event[:skip_sender] # Otp.issue(delivery: :manual) — the caller delivers
   case event[:channel]
   when "email"
     UserMailer.send_code(event[:identifier], event[:code_challenge].code).deliver_now
@@ -227,6 +259,9 @@ end
 | `identifier` | `String` | The email address or phone number |
 | `code_challenge` | `CodeChallenge` | Object with `.code` method returning the OTP |
 | `expires_at` | `Time` | When the code expires |
+| `realm` | `String` | The OTP realm (`"authentication"` for sign-in) |
+| `skip_sender` | `Boolean` | `true` for `Otp.issue(delivery: :manual)` — don't deliver |
+| `delivery` | `Symbol, nil` | The `Otp.issue` delivery mode (`:built_in` / `:custom` / `:manual`); `nil` when not issued through `Otp.issue` |
 
 #### Migration Steps
 

@@ -273,9 +273,6 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
 
     def initiate_passwordless_login!
       enable_passwordless!
-      sender = double("email_sender")
-      allow(sender).to receive(:call)
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
 
       http_post "/login", params: { login: { email: email } }
       expect(response).to have_http_status(:see_other)
@@ -336,9 +333,6 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
 
         enable_passwordless!
-        sender = double("email_sender")
-        allow(sender).to receive(:call)
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
 
         http_post "/login", params: { login: { email: email }, redirect_uri: "/oauth/authorize?client_id=harness" }
         expect(response).to have_http_status(:see_other)
@@ -356,9 +350,6 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
 
         enable_passwordless!
-        sender = double("email_sender")
-        allow(sender).to receive(:call)
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
 
         http_post "/login", params: { login: { email: email }, redirect_uri: "/oauth/authorize?client_id=harness" }
         challenge = StandardId::CodeChallenge.last
@@ -371,9 +362,6 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         # Without string_param guard, the session stores ["/a", "/b"] → after_authentication_url
         # returns the Array → redirect_to(Array) raises → 500.
         enable_passwordless!
-        sender = double("email_sender")
-        allow(sender).to receive(:call)
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
 
         http_post "/login", params: { login: { email: email }, redirect_uri: ["/a", "/b"] }
         challenge = StandardId::CodeChallenge.last
@@ -388,9 +376,6 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         # to session[:return_to_after_authenticating]. login_verify_controller must
         # validate the URL it pops off the session before redirecting.
         enable_passwordless!
-        sender = double("email_sender")
-        allow(sender).to receive(:call)
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
 
         http_post "/login", params: { login: { email: email }, redirect_uri: "https://evil.example.com/phish" }
         challenge = StandardId::CodeChallenge.last

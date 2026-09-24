@@ -7,10 +7,6 @@ RSpec.describe "Rate limiting: Web Verify Phone (RAR-56)", type: :request do
   before do
     allow(StandardId::RateLimitHandling::RATE_LIMIT_STORE)
       .to receive(:increment) { |name, amount, **opts| memory_store.increment(name, amount, **opts) }
-
-    sender = double("sms_sender")
-    allow(sender).to receive(:call)
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(sender)
   end
 
   describe "per-phone rate limiting on POST /verify_phone/start" do

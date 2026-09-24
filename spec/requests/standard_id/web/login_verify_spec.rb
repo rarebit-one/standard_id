@@ -16,9 +16,6 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
   # Sets up an OTP session by going through the actual login flow
   def initiate_passwordless_login!
     enable_passwordless!
-    sender = double("email_sender")
-    allow(sender).to receive(:call)
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
 
     http_post "/login", params: { login: { email: email } }
     expect(response).to have_http_status(:see_other)
@@ -29,12 +26,11 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
     before { enable_passwordless! }
 
     it "generates OTP and redirects to login_verify" do
-      sender = double("email_sender")
-      expect(sender).to receive(:call).with(email, kind_of(String))
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      codes = capture_passwordless_codes
 
       http_post "/login", params: { login: { email: email } }
 
+      expect(codes).to contain_exactly([email, kind_of(String)])
       expect(response).to have_http_status(:see_other)
       expect(response).to redirect_to("/login_verify")
 
@@ -46,10 +42,6 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
     end
 
     it "renders error when email is blank" do
-      sender = double("email_sender")
-      allow(sender).to receive(:call)
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
-
       http_post "/login", params: { login: { email: "" } }
 
       expect(response).to have_http_status(:unprocessable_content)
@@ -60,9 +52,6 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       account = Account.create!(name: "Test User", email: email)
       StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
 
-      sender = double("email_sender")
-      allow(sender).to receive(:call)
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
 
       http_post "/login", params: { login: { email: email }, redirect_uri: "/dashboard" }
       expect(response).to redirect_to("/login_verify")

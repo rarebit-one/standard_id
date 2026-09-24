@@ -3,11 +3,6 @@ require "rails_helper"
 RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
   let(:request) { instance_double("ActionDispatch::Request", remote_ip: "127.0.0.1", user_agent: "RSpec") }
 
-  before do
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-  end
-
   def create_challenge(connection:, username:, code: "123456")
     StandardId::CodeChallenge.create!(
       realm: "authentication",

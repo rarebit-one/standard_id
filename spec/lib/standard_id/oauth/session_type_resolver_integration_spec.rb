@@ -15,11 +15,6 @@ RSpec.describe "OAuth session_type_resolver integration" do
     )
   end
 
-  before do
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-  end
-
   after { StandardId.config.session.session_type_resolver = nil }
 
   def create_challenge(connection:, username:, code: "987654")

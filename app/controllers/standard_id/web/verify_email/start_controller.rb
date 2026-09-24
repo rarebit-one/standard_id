@@ -35,17 +35,21 @@ module StandardId
             render plain: "missing email", status: :unprocessable_content and return
           end
 
-          challenge = StandardId::CodeChallenge.create!(
+          # Issued through the passwordless strategy (validation, retry delay,
+          # previous-code invalidation) so delivery goes through the
+          # PASSWORDLESS_CODE_GENERATED event like every other OTP. Before 0.43
+          # this called the since-removed passwordless_email_sender directly.
+          result = StandardId::Otp.issue(
             realm: "verification",
-            channel: "email",
             target: email,
-            code: StandardId::Passwordless.generate_otp_code,
-            expires_at: 10.minutes.from_now,
-            ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
-            user_agent: request.user_agent
+            channel: :email,
+            request: request,
+            expires_in: 10.minutes
           )
-
-          StandardId.config.passwordless_email_sender&.call(email, challenge.code)
+          unless result.success?
+            flash[:alert] = result.error_message
+            render plain: "invalid email", status: :unprocessable_content and return
+          end
 
           redirect_to standard_id_web.login_path, notice: "Verification code sent to your email", status: :see_other
         end

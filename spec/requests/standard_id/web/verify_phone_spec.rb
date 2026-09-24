@@ -11,12 +11,11 @@ RSpec.describe "StandardId Web Verify Phone", type: :request do
 
   describe "POST /verify_phone/start" do
     it "creates a verification challenge and sends code" do
-      sender = double("sms_sender")
-      expect(sender).to receive(:call).with("+14155550123", kind_of(String))
-      allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(sender)
+      codes = capture_passwordless_codes
 
       http_post "/verify_phone/start", params: { phone_number: "+14155550123" }
 
+      expect(codes).to contain_exactly(["+14155550123", kind_of(String)])
       expect(response).to have_http_status(:see_other)
       expect(response).to redirect_to(standard_id_web.login_path)
 

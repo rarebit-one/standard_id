@@ -11,6 +11,9 @@ module StandardId
           # challenges, etc.) and would otherwise receive a duplicate email
           # from this subscriber when c.passwordless.delivery == :built_in.
           return if event[:skip_sender]
+          # Otp.issue(delivery: :custom): the host's own subscriber delivers
+          # this code, even where the engine mailer is the global default.
+          return if event[:delivery]&.to_sym == :custom
           return unless built_in_delivery?
           return unless event[:channel] == "email"
 

@@ -31,8 +31,6 @@ RSpec.describe "StandardId Web post-authentication Inertia redirects", :inertia,
   def enable_passwordless!
     allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
     allow(StandardId.config.passwordless).to receive(:connection).and_return("email")
-    allow(StandardId.config).to receive(:passwordless_email_sender)
-      .and_return(double("sender", call: true))
   end
 
   describe "PATCH /login_verify (passwordless OTP — the path that 500'd)" do

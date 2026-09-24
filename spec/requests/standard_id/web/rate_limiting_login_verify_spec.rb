@@ -14,10 +14,6 @@ RSpec.describe "Rate limiting: Web Login Verify (RAR-60)", type: :request do
   end
 
   def initiate_passwordless_login!
-    sender = double("email_sender")
-    allow(sender).to receive(:call)
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
-
     http_post "/login", params: { login: { email: email } }
     expect(response).to have_http_status(:see_other)
     expect(response).to redirect_to("/login_verify")

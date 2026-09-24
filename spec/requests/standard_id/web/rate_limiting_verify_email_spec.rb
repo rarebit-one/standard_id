@@ -7,10 +7,6 @@ RSpec.describe "Rate limiting: Web Verify Email (RAR-56)", type: :request do
   before do
     allow(StandardId::RateLimitHandling::RATE_LIMIT_STORE)
       .to receive(:increment) { |name, amount, **opts| memory_store.increment(name, amount, **opts) }
-
-    sender = double("email_sender")
-    allow(sender).to receive(:call)
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
   end
 
   describe "per-email rate limiting on POST /verify_email/start" do

@@ -7,10 +7,6 @@ RSpec.describe "Rate limiting: API Passwordless (RAR-60)", type: :request do
   before do
     allow(StandardId::RateLimitHandling::RATE_LIMIT_STORE)
       .to receive(:increment) { |name, amount, **opts| memory_store.increment(name, amount, **opts) }
-
-    sender = double("email_sender")
-    allow(sender).to receive(:call)
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
   end
 
   describe "per-IP rate limiting on POST /api/passwordless/start" do

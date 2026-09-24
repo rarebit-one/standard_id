@@ -24,35 +24,35 @@ module StandardId
                 :allow_registration,
                 :authorizer
 
-    # Kept as an alias for hosts/specs that reference it; it is the gem-wide
-    # StandardId.deprecator, registered in Rails.application.deprecators.
-    DEPRECATOR = StandardId.deprecator
-
     # Normalize profile-type inputs from config.
     #
-    # Accepts:
-    #   - :profile_types (plural) — array of strings (preferred).
-    #   - :profile_type  (singular) — single string, retained for back-compat. Emits a
-    #     deprecation warning when present.
+    # Accepts :profile_types — an Array of profile-type class names (a single
+    # String is wrapped). The singular :profile_type key was removed in 0.43
+    # (deprecated in 0.42) and now raises: silently ignoring it would leave the
+    # scope with NO profile requirement, admitting every account.
     #
-    # Returns an Array<String> (possibly empty).
+    # @return [Array<String>] possibly empty
+    # @raise [StandardId::ConfigurationError] when the removed :profile_type key is present
     def self.extract_profile_types(config)
-      plural = config[:profile_types]
-      singular = config[:profile_type]
-
-      if singular && plural
-        raise ArgumentError, "Scope config cannot set both :profile_type and :profile_types — use :profile_types"
+      if config.key?(:profile_type) || config.key?("profile_type")
+        raise StandardId::ConfigurationError,
+          "StandardId scope config key :profile_type was removed in StandardId 0.43. " \
+          "Use profile_types: [...] (an Array of profile-type class names) instead."
       end
 
-      if singular
-        DEPRECATOR.warn(
-          "StandardId scope config key :profile_type is deprecated and will be removed in v2.0. " \
-            "Use :profile_types (an Array of profile-type strings) instead."
-        )
-        return Array(singular).map(&:to_s).reject(&:blank?)
-      end
+      Array(config[:profile_types]).map(&:to_s).reject(&:blank?)
+    end
 
-      Array(plural).map(&:to_s).reject(&:blank?)
+    # Build every scope in StandardId.config.scopes once, so a scope config the
+    # gem can no longer read (e.g. the removed :profile_type key) fails at boot
+    # rather than on the first sign-in under that scope. Run by the engine.
+    #
+    # @return [void]
+    # @raise [StandardId::ConfigurationError]
+    def self.validate_all!(scopes = StandardId.config.scopes)
+      return if scopes.blank?
+
+      scopes.each { |name, scope_hash| new(name, scope_hash || {}) }
     end
 
     def initialize(name, config = {})

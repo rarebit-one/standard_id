@@ -21,10 +21,6 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
   end
 
   def initiate_passwordless_login!(target_email = email)
-    sender = double("email_sender")
-    allow(sender).to receive(:call)
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
-
     http_post "/login", params: { login: { email: target_email } }
     expect(response).to have_http_status(:see_other)
     expect(response).to redirect_to("/login_verify")

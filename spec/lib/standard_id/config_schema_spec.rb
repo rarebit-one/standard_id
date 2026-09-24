@@ -237,4 +237,63 @@ RSpec.describe StandardId::ConfigSchema do
         .to raise_error(ArgumentError, /Unknown configuration scope/)
     end
   end
+
+  describe "Scope#assigned?, #delete and #refresh_defaults!" do
+    let(:config) { described_class::Config.new }
+    let(:env_name) { "STANDARD_ID_SCHEMA_SPEC_VALUE" }
+    let(:env) { env_name }
+
+    around do |example|
+      saved = ENV.fetch(env_name, nil)
+      ENV.delete(env_name)
+      example.run
+    ensure
+      saved.nil? ? ENV.delete(env_name) : ENV[env_name] = saved
+    end
+
+    before do
+      name = env
+      schema.define do
+        scope :probe do
+          field :from_env, type: :string, default: -> { ENV[name] || "fallback" }
+          field :plain, type: :integer, default: 1
+        end
+      end
+      schema.apply(config)
+    end
+
+    it "is false for a default written at build time even though key? is true" do
+      expect(config.probe.key?(:from_env)).to be(true)
+      expect(config.probe.assigned?(:from_env)).to be(false)
+    end
+
+    it "is true once assigned, even to nil" do
+      config.probe.from_env = nil
+
+      expect(config.probe.assigned?(:from_env)).to be(true)
+      expect(config.probe.assigned?("from_env")).to be(true)
+    end
+
+    it "forgets the assignment on delete" do
+      config.probe.from_env = "x"
+      config.probe.delete(:from_env)
+
+      expect(config.probe.assigned?(:from_env)).to be(false)
+      expect(config.probe.from_env).to eq("fallback")
+    end
+
+    it "re-resolves unassigned defaults and leaves assigned fields alone" do
+      config.probe.plain = 7
+      expect(config.probe.from_env).to eq("fallback")
+
+      ENV[env_name] = "from-env"
+      expect(config.probe.from_env).to eq("fallback") # resolved once, at build
+
+      config.probe.refresh_defaults!
+
+      expect(config.probe.from_env).to eq("from-env")
+      expect(config.probe.plain).to eq(7)
+      expect(config.probe.assigned?(:from_env)).to be(false)
+    end
+  end
 end

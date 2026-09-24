@@ -253,10 +253,10 @@ StandardId.configure do |c|
   #   Account.create!(email: identifier.value)
   # }
 
-  # c.passwordless_email_sender / c.passwordless_sms_sender are DEPRECATED
-  # (assigning them emits a StandardId deprecation warning). Deliver codes from
-  # an event subscriber instead — it runs synchronously in the request, so
-  # I18n.locale etc. are still available:
+  # With c.passwordless.delivery = :custom, deliver codes from an event
+  # subscriber (c.passwordless_email_sender / _sms_sender were removed in
+  # 0.43). It runs synchronously in the request, so I18n.locale etc. are still
+  # available. The same subscriber delivers Otp.issue(delivery: :custom) codes.
   #
   # StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
   #   next if event[:skip_sender] # Otp.issue(delivery: :manual)
@@ -510,8 +510,7 @@ StandardId.configure do |c|
 
   # Login limits. The login action branches password OR passwordless, so on a
   # passwordless app these govern the OTP-SEND limit. Prefer the
-  # mechanism-agnostic names; the old password_login_per_ip/_per_email names
-  # still work but emit a deprecation warning (the new name wins when both are set).
+  # mechanism-agnostic names (password_login_per_ip/_per_email were removed in 0.43).
   # c.rate_limits.login_per_ip                   = 20  # per 15 minutes
   # c.rate_limits.login_per_email                = 5   # per 15 minutes
   # c.rate_limits.otp_verify_per_ip              = 20  # per 15 minutes

@@ -20,11 +20,6 @@ module StandardId
         identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized)
         identifier&.account
       end
-
-      def sender_callback
-        return nil if StandardId.config.passwordless.delivery == :built_in
-        StandardId.config.passwordless_email_sender
-      end
     end
   end
 end

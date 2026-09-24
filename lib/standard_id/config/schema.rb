@@ -9,11 +9,12 @@ StandardId::ConfigSchema.define do
     field :cache_store, type: :any, default: nil
     field :logger, type: :any, default: nil
     field :web_layout, type: :string, default: nil
-    # Deprecated since 0.1.7 (see docs/MIGRATION_GUIDE.md), still honoured.
-    field :passwordless_email_sender, type: :any, default: nil,
-      deprecated: "deliver the code from a StandardId::Events::PASSWORDLESS_CODE_GENERATED subscriber instead (it runs synchronously in the request, so I18n.locale is still available; skip it when event[:skip_sender] is true) and call Otp.issue with its default delivery: :built_in. Removal in v2.0; see docs/MIGRATION_GUIDE.md."
-    field :passwordless_sms_sender, type: :any, default: nil,
-      deprecated: "deliver the code from a StandardId::Events::PASSWORDLESS_CODE_GENERATED subscriber instead (it runs synchronously in the request, so I18n.locale is still available; skip it when event[:skip_sender] is true) and call Otp.issue with its default delivery: :built_in. Removal in v2.0; see docs/MIGRATION_GUIDE.md."
+    # Removed in 0.43 (deprecated since 0.1.7): assigning either raises
+    # StandardId::ConfigurationError with this hint.
+    removed :passwordless_email_sender,
+      "deliver the code from a StandardId::Events::PASSWORDLESS_CODE_GENERATED subscriber (it runs synchronously in the request, so I18n.locale is still available; skip it when event[:skip_sender] is true) and set c.passwordless.delivery = :custom. See docs/MIGRATION_GUIDE.md."
+    removed :passwordless_sms_sender,
+      "deliver the code from a StandardId::Events::PASSWORDLESS_CODE_GENERATED subscriber (skip it when event[:skip_sender] is true). See docs/MIGRATION_GUIDE.md."
     field :issuer, type: :string, default: nil
 
     # Whether `JwtService.decode` REQUIRES a matching `iss` claim.
@@ -72,9 +73,8 @@ StandardId::ConfigSchema.define do
     # Scope-aware authentication: maps scope names to profile-based access config.
     # Each scope is a hash with keys: :profile_types (Array<String>), :after_sign_in_path,
     # :no_profile_message, :label, :allow_registration, :authorizer.
-    # The legacy :profile_type (singular String) key is still accepted for backward
-    # compatibility and coerced into a single-element :profile_types array (deprecation
-    # warning fires on use).
+    # The legacy :profile_type (singular) key was removed in 0.43; a scope that still
+    # sets it raises StandardId::ConfigurationError at boot.
     field :scopes, type: :any, default: {}
 
     # Callable that resolves the active scope name for a given request/session.
@@ -153,11 +153,8 @@ StandardId::ConfigSchema.define do
   end
 
   scope :passwordless do
-    # Deprecated since 0.8: use web.passwordless_login to control WebEngine
-    # passwordless login. Never read; retained so host initializers that set it
-    # still boot.
-    field :enabled, type: :boolean, default: false,
-      deprecated: "it has had no effect since 0.8. Use web.passwordless_login (WebEngine) instead, and remove this line. Removal in v2.0."
+    # Removed in 0.43 (no effect since 0.8).
+    removed :enabled, "it had no effect since 0.8. Use web.passwordless_login (WebEngine) instead, and delete this line."
     field :connection, type: :string, default: "email"
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
 
@@ -312,12 +309,10 @@ StandardId::ConfigSchema.define do
     # RefreshTokenFlow::MAX_REUSE_LEEWAY_SECONDS.
     field :refresh_token_reuse_leeway, type: :integer, default: 0
     field :token_lifetimes, type: :hash, default: -> { {} }
-    # Never read by the gem. OAuth clients are StandardId::ClientApplication
-    # rows with ClientSecretCredential secrets.
-    field :client_id, type: :string, default: nil,
-      deprecated: "it is not read anywhere — OAuth clients are StandardId::ClientApplication records. Remove this line. Removal in v2.0."
-    field :client_secret, type: :string, default: nil,
-      deprecated: "it is not read anywhere — client secrets are StandardId::ClientSecretCredential records. Remove this line. Removal in v2.0."
+    # Removed in 0.43 — never read by the gem. OAuth clients are
+    # StandardId::ClientApplication rows with ClientSecretCredential secrets.
+    removed :client_id, "it was never read — OAuth clients are StandardId::ClientApplication records. Delete this line."
+    removed :client_secret, "it was never read — client secrets are StandardId::ClientSecretCredential records. Delete this line."
     field :scope_claims, type: :hash, default: -> { {} }
     field :claim_resolvers, type: :hash, default: -> { {} }
     # List of audience values that tokens issued and accepted by this app may
@@ -601,17 +596,9 @@ StandardId::ConfigSchema.define do
     field :login_per_ip, type: :integer, default: 20                 # per 15 minutes
     field :login_per_email, type: :integer, default: 5               # per 15 minutes
 
-    # Deprecated mechanism-specific names, retained for backwards compatibility.
-    # The schema raises ConfigurationError on unknown fields at boot, so these
-    # must NOT be removed while hosts still set them. When a host leaves the
-    # `login_per_*` alias at its default, the login controller falls back to
-    # these values (see StandardId::RateLimitHandling.login_per_ip). New name
-    # wins when explicitly set. Mirrors the max_attempts ->
-    # max_attempts_per_challenge deprecation-alias precedent.
-    field :password_login_per_ip, type: :integer, default: 20, # per 15 minutes; deprecated alias of login_per_ip
-      deprecated: "use rate_limits.login_per_ip (same meaning; it also governs passwordless OTP sends). Removal in v2.0."
-    field :password_login_per_email, type: :integer, default: 5, # per 15 minutes; deprecated alias of login_per_email
-      deprecated: "use rate_limits.login_per_email (same meaning; it also governs passwordless OTP sends). Removal in v2.0."
+    # Removed in 0.43: the mechanism-specific names of login_per_ip / login_per_email.
+    removed :password_login_per_ip, "use rate_limits.login_per_ip (same meaning; it also governs passwordless OTP sends)."
+    removed :password_login_per_email, "use rate_limits.login_per_email (same meaning; it also governs passwordless OTP sends)."
 
     # RAR-60: OTP verification
     field :otp_verify_per_ip, type: :integer, default: 20            # per 15 minutes
@@ -630,7 +617,7 @@ StandardId::ConfigSchema.define do
     field :signup_per_ip, type: :integer, default: 10                    # per hour
 
     # API OTP-initiation limits — the API counterpart of the web *login* limits
-    # (login_per_* / the deprecated password_login_*): the API passwordless
+    # (login_per_*): the API passwordless
     # `start` action and the web login action both drive the passwordless
     # `start!` strategy. NOT the counterpart of verification_start_*
     # (email/phone verification), which bypasses the strategy via a direct

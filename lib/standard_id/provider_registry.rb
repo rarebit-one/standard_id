@@ -9,11 +9,6 @@ module StandardId
     # StandardId (see Providers::Base) rather than to ConfigSchema.
     PROVIDER_FIELD_OPTIONS = %i[env required].freeze
 
-    # The gem-wide StandardId.deprecator (registered in
-    # Rails.application.deprecators), kept as a constant for existing callers.
-    # The Base.setup message names its own removal version (1.0).
-    DEPRECATOR = StandardId.deprecator
-
     @providers = Concurrent::Map.new
 
     class << self
@@ -28,7 +23,6 @@ module StandardId
         validate_provider!(provider_class)
         providers[name.to_s] = provider_class
         declare_config_schema(provider_class)
-        run_deprecated_setup(provider_class)
         provider_class
       end
 
@@ -53,9 +47,8 @@ module StandardId
       # populated before any initializer runs.
       #
       # Only FIELD DECLARATION moves earlier. Full `register` — which also runs
-      # `validate_provider!` and the provider's `setup` — deliberately stays in
-      # `after_initialize`, where the host's configuration is complete and
-      # `setup` can rely on it.
+      # `validate_provider!` — deliberately stays in `after_initialize`, where
+      # the host's configuration is complete.
       #
       # Idempotent: `ConfigSchema#add_field` uses `compute_if_absent`, so a field
       # already declared here is untouched when the plugin later calls `register`.
@@ -205,20 +198,6 @@ module StandardId
 
           fallback.respond_to?(:call) ? fallback.call : fallback
         end
-      end
-
-      # Providers::Base.setup was removed in 0.42: no known plugin overrode
-      # it, and register — its only caller — runs from after_initialize, where
-      # a plugin's own Railtie can do the same work. A provider that still
-      # defines `setup` keeps working, with a deprecation warning.
-      def run_deprecated_setup(provider_class)
-        return unless provider_class.respond_to?(:setup)
-
-        DEPRECATOR.warn(
-          "#{provider_class.name || provider_class}.setup is deprecated and will not be called " \
-          "by StandardId 1.0. Move provider initialization into the plugin's Railtie."
-        )
-        provider_class.setup
       end
 
       def production?

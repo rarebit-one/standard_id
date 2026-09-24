@@ -41,29 +41,15 @@ module StandardId
       end
     end
 
-    # Resolve the effective per-IP login rate limit, preferring the
-    # mechanism-agnostic `login_per_ip` alias and falling back to the deprecated
-    # `password_login_per_ip` when the host left the alias at its default (i.e.
-    # only configured the old name). The new alias wins whenever explicitly set.
-    # Mirrors the max_attempts -> max_attempts_per_challenge deprecation-alias
-    # precedent (prefer-new, fall-back-to-old).
+    # Effective per-IP login rate limit (`rate_limits.login_per_ip`). The
+    # deprecated `password_login_per_ip` fallback was removed in 0.43.
     def self.login_per_ip
-      resolve_login_alias(:login_per_ip, :password_login_per_ip)
+      StandardId.config.rate_limits.login_per_ip
     end
 
-    # Effective per-email login rate limit; see .login_per_ip.
+    # Effective per-email login rate limit (`rate_limits.login_per_email`).
     def self.login_per_email
-      resolve_login_alias(:login_per_email, :password_login_per_email)
-    end
-
-    # Return the alias value unless it still equals its schema default, in which
-    # case fall back to the deprecated field. Both fields share the same default,
-    # so the effective default is unchanged when neither is set.
-    def self.resolve_login_alias(new_field, old_field)
-      rate_limits = StandardId.config.rate_limits
-      default = StandardId.config.__schema__.field_for(:rate_limits, new_field).default_value
-      new_value = rate_limits[new_field]
-      new_value == default ? rate_limits[old_field] : new_value
+      StandardId.config.rate_limits.login_per_email
     end
 
     private

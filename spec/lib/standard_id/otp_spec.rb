@@ -6,11 +6,6 @@ RSpec.describe StandardId::Otp do
   let(:phone)  { "+14155550199" }
   let(:realm)  { "widget_contact_verification" }
 
-  before do
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-  end
-
   def create_email_account(addr)
     account = Account.create!(name: "Widget User", email: addr)
     StandardId::EmailIdentifier.create!(account: account, value: addr, verified_at: Time.current)
@@ -37,10 +32,8 @@ RSpec.describe StandardId::Otp do
         expect(result.code).to match(/\A\d{6}\z/)
       end
 
-      it "does not call the configured sender callback" do
-        sender = double("sender")
-        expect(sender).not_to receive(:call)
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      it "publishes the code with skip_sender so no subscriber delivers it" do
+        codes = capture_passwordless_codes
 
         described_class.issue(
           realm: realm,
@@ -49,6 +42,9 @@ RSpec.describe StandardId::Otp do
           request: request,
           delivery: :manual
         )
+
+        expect(codes).to be_empty
+        expect(codes.events.map { |e| [e[:skip_sender], e[:delivery]] }).to eq([[true, :manual]])
       end
 
       it "honors code_length, expires_in, and metadata" do
@@ -106,29 +102,49 @@ RSpec.describe StandardId::Otp do
     end
 
     context "delivery: :custom" do
-      it "invokes the configured email sender callback with target + code" do
-        sender = double("email_sender")
-        expect(sender).to receive(:call).with(email, kind_of(String))
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      it "publishes the code to the host's subscriber with delivery: :custom" do
+        codes = capture_passwordless_codes
 
         result = described_class.issue(
           realm: realm, target: email, channel: :email,
           request: request, delivery: :custom
         )
 
+        expect(codes).to contain_exactly([email, result.challenge.code])
+        expect(codes.events.map { |e| [e[:realm], e[:delivery], e[:skip_sender]] }).to eq([[realm, :custom, false]])
         expect(result.success?).to be true
         expect(result.code).to be_nil
       end
 
-      it "invokes the configured sms sender for channel: :sms" do
-        sender = double("sms_sender")
-        expect(sender).to receive(:call).with(phone, kind_of(String))
-        allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(sender)
+      it "publishes sms codes too" do
+        codes = capture_passwordless_codes
 
         described_class.issue(
           realm: realm, target: phone, channel: :sms,
           request: request, delivery: :custom
         )
+
+        expect(codes).to contain_exactly([phone, kind_of(String)])
+      end
+
+      it "needs no sender callback (the 0.42 hard requirement is gone)" do
+        result = described_class.issue(
+          realm: realm, target: email, channel: :email,
+          request: request, delivery: :custom
+        )
+
+        expect(result.success?).to be true
+      end
+
+      it "keeps the bundled mailer out even when c.passwordless.delivery is :built_in" do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+
+        expect {
+          described_class.issue(
+            realm: realm, target: email, channel: :email,
+            request: request, delivery: :custom
+          )
+        }.not_to have_enqueued_mail(StandardId::PasswordlessMailer, :otp_email)
       end
     end
 
@@ -146,15 +162,15 @@ RSpec.describe StandardId::Otp do
         }.to have_enqueued_mail(StandardId::PasswordlessMailer, :otp_email)
       end
 
-      it "does not invoke the custom sender callback when built_in is configured" do
-        sender = double("email_sender")
-        expect(sender).not_to receive(:call)
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      it "publishes the event with delivery: :built_in (subscribers may also deliver)" do
+        codes = capture_passwordless_codes
 
         described_class.issue(
           realm: realm, target: email, channel: :email,
           request: request, delivery: :built_in
         )
+
+        expect(codes.events.map { |e| e[:delivery] }).to eq([:built_in])
       end
     end
 
@@ -213,28 +229,6 @@ RSpec.describe StandardId::Otp do
         )
         expect(result.success?).to be false
         expect(result.error_code).to eq(:invalid_request)
-      end
-
-      it "raises ConfigurationError when :custom delivery is chosen without an email sender" do
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-
-        expect {
-          described_class.issue(
-            realm: realm, target: email, channel: :email,
-            request: request, delivery: :custom
-          )
-        }.to raise_error(StandardId::ConfigurationError, /passwordless_email_sender/)
-      end
-
-      it "raises ConfigurationError when :custom delivery is chosen without an SMS sender" do
-        allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-
-        expect {
-          described_class.issue(
-            realm: realm, target: "+15551234567", channel: :sms,
-            request: request, delivery: :custom
-          )
-        }.to raise_error(StandardId::ConfigurationError, /passwordless_sms_sender/)
       end
     end
 

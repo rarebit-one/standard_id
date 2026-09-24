@@ -12,11 +12,6 @@ RSpec.describe "passwordless.account_factory callback" do
   let(:email) { "factory-user@example.com" }
   let(:otp_code) { "123456" }
 
-  before do
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-  end
-
   after do
     # Reset account_factory after each test
     StandardId.config.passwordless.account_factory = nil

@@ -12,14 +12,23 @@ module StandardId
         raise NotImplementedError
       end
 
-      # Start flow: validate recipient, create challenge, and trigger sender
-      # attrs: { connection:, username:, code_length:, expires_in:, metadata:, skip_sender: }
+      # Start flow: validate recipient, create challenge, and publish
+      # PASSWORDLESS_CODE_GENERATED — delivery happens in a subscriber to that
+      # event (the engine's PasswordlessDeliverySubscriber when
+      # c.passwordless.delivery == :built_in, otherwise the host's own).
+      #
+      # attrs: { connection:, username:, code_length:, expires_in:, metadata:, skip_sender:, delivery: }
+      #
+      # +delivery+ (:built_in / :custom / :manual, or nil when not called via
+      # StandardId::Otp.issue) is forwarded in the event payload; see
+      # Otp.issue for what each value means to the subscribers.
       def start!(attrs)
         username = attrs[:username]
         code_length = attrs[:code_length]
         expires_in = attrs[:expires_in]
         metadata = attrs[:metadata] || {}
         skip_sender = attrs[:skip_sender] == true
+        delivery = attrs[:delivery]&.to_sym
 
         validate_username!(username)
         run_username_validator!(username)
@@ -33,11 +42,10 @@ module StandardId
         )
         # skip_sender is forwarded into the event payload so subscribers that
         # deliver on PASSWORDLESS_CODE_GENERATED (e.g. PasswordlessDeliverySubscriber)
-        # can honor a per-call manual-delivery request — not just the legacy
-        # sender_callback. Without this, Otp.issue(delivery: :manual) silently
-        # double-delivers when c.passwordless.delivery == :built_in.
-        emit_code_generated(challenge, username, skip_sender: skip_sender)
-        sender_callback&.call(username, challenge.code) unless skip_sender
+        # can honor a per-call manual-delivery request. Without this,
+        # Otp.issue(delivery: :manual) silently double-delivers when
+        # c.passwordless.delivery == :built_in.
+        emit_code_generated(challenge, username, skip_sender: skip_sender, delivery: delivery)
         emit_code_sent(username) unless skip_sender
         challenge
       end
@@ -156,11 +164,6 @@ module StandardId
         raise NotImplementedError
       end
 
-      def sender_callback
-        # Implement in subclasses
-        nil
-      end
-
       private
 
       # Extract request parameters safely. Returns an empty hash if the request
@@ -187,7 +190,7 @@ module StandardId
         )
       end
 
-      def emit_code_generated(challenge, username, skip_sender: false)
+      def emit_code_generated(challenge, username, skip_sender: false, delivery: nil)
         StandardId::Events.publish(
           StandardId::Events::PASSWORDLESS_CODE_GENERATED,
           code_challenge: challenge,
@@ -195,7 +198,8 @@ module StandardId
           channel: connection_type,
           realm: @realm,
           expires_at: challenge.expires_at,
-          skip_sender: skip_sender
+          skip_sender: skip_sender,
+          delivery: delivery
         )
       end
 

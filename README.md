@@ -299,6 +299,30 @@ Assign a field only to read it from somewhere else — a differently named
 variable, Rails credentials. An explicit assignment, even of `nil`, always wins
 over the ENV fallback.
 
+The fallback is resolved **once, when the config is built at boot** — setting
+`ENV` later (in a spec, say) changes nothing by itself. Two helpers (0.43+):
+
+- `StandardId.config.social.assigned?(:apple_client_id)` is true only when the
+  host assigned the field. (`key?` is true for every declared field, assigned or
+  not, because defaults are written into the scope at build time.)
+- In specs, `with_provider_env` (from `require "standard_id/testing"`) sets the
+  variables, re-resolves every unassigned field, runs the block and restores
+  both — so "set the env var → provider enabled" is testable:
+
+  ```ruby
+  RSpec.describe "Apple sign-in" do
+    include StandardId::Testing::ConfigHelpers
+
+    it "turns on with APPLE_CLIENT_ID" do
+      with_provider_env("APPLE_CLIENT_ID" => "com.example.web") do
+        expect(StandardId.social_provider_enabled?(:apple)).to be(true)
+      end
+    end
+  end
+  ```
+
+  A field your initializer assigns explicitly ignores ENV, inside the helper too.
+
 ```ruby
 StandardId.configure do |config|
   # Only needed when not using the canonical ENV names above:
@@ -518,6 +542,7 @@ Subscribe to the `PASSWORDLESS_CODE_GENERATED` event to deliver OTP codes:
 ```ruby
 # config/initializers/standard_id_events.rb
 StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
+  next if event[:skip_sender] # Otp.issue(delivery: :manual) — the caller delivers
   case event[:channel]
   when "email"
     UserMailer.send_code(event[:identifier], event[:code_challenge].code).deliver_now
@@ -527,13 +552,21 @@ StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do
 end
 ```
 
+Set `c.passwordless.delivery = :custom` (the default) so the engine's built-in
+`PasswordlessMailer` stays out of the way; with `:built_in` the engine emails
+the code itself. The subscriber runs synchronously inside the request, so
+`I18n.locale`, `Current.*` and the like are still available.
+
 Event payload includes:
 - `channel` - `"email"` or `"sms"`
 - `identifier` - The email address or phone number
 - `code_challenge` - The code challenge object with `.code` method
 - `expires_at` - When the code expires
+- `realm` - The OTP realm (`"authentication"` for sign-in)
+- `skip_sender` - `true` for `Otp.issue(delivery: :manual)`; don't deliver
+- `delivery` - The `Otp.issue` delivery mode (`:built_in` / `:custom` / `:manual`), `nil` otherwise
 
-> **Note**: If you're using the deprecated `passwordless_email_sender` or `passwordless_sms_sender` callbacks, see the [Migration Guide](docs/MIGRATION_GUIDE.md) for upgrade instructions.
+> **Note**: `passwordless_email_sender` / `passwordless_sms_sender` were removed in 0.43; see the [Migration Guide](docs/MIGRATION_GUIDE.md).
 
 ### Using OTP for non-authentication flows
 
@@ -575,9 +608,9 @@ end
 
 | Mode        | Behavior                                                                 |
 |-------------|--------------------------------------------------------------------------|
-| `:built_in` | Uses the engine's bundled `PasswordlessMailer` (email only).             |
-| `:custom`   | Invokes `passwordless_email_sender` / `passwordless_sms_sender` callback.|
-| `:manual`   | Skips delivery; returns the raw `code` on the result for caller to deliver. |
+| `:built_in` (default) | Follows `c.passwordless.delivery`: the engine's `PasswordlessMailer` (email only) when that is `:built_in`, otherwise your `PASSWORDLESS_CODE_GENERATED` subscriber. |
+| `:custom`   | Your `PASSWORDLESS_CODE_GENERATED` subscriber delivers (payload `delivery: :custom`); the engine mailer never does, even under a global `:built_in`. Nothing is sent unless you subscribe. |
+| `:manual`   | Skips delivery (payload `skip_sender: true`); returns the raw `code` on the result for the caller to deliver. |
 
 **Realm isolation.** `realm:` is a free-form string that partitions challenges by purpose. A code issued for realm `"widget_contact_verification"` cannot be used to verify against realm `"authentication"` (or any other realm) — even for the same `target`. Choose a stable string per flow.
 
@@ -795,6 +828,7 @@ module StandardIdSentrySpans
   def self.start(name, _id, payload)
     scope = Sentry.get_current_scope
     parent = scope&.get_span
+    # No transaction in progress (a job, a console) → no parent → no span.
     span = parent&.start_child(
       op: "standard_id.#{name.delete_suffix('.standard_id')}",
       description: Array(payload[:audience]).join(", ").presence
@@ -808,7 +842,10 @@ module StandardIdSentrySpans
     return unless span
 
     span.finish
-    Sentry.get_current_scope.set_span(parent)
+    # Restore the parent. Guarded: Scope#set_span raises ArgumentError on nil,
+    # and the current scope may have changed since #start.
+    scope = Sentry.get_current_scope
+    scope.set_span(parent) if scope && parent
   end
 end
 
@@ -1350,7 +1387,8 @@ end
 | `rescue_to_oauth_error(message_prefix = nil) { ... }` | Lets `StandardId::OAuthError` through; wraps anything else in one, keeping `cause` |
 
 A plugin using `env:`, `required:` or these helpers should depend on
-`standard_id >= 0.42`. `Providers::Base.setup` was removed in 0.42 — do
+`standard_id >= 0.42`. `Providers::Base.setup` is no longer called (removed
+from the base class in 0.42; the call-with-a-warning shim went in 0.43) — do
 one-off initialization in your own Railtie instead.
 
 **Testing a plugin, or an app that uses one:**
@@ -1480,6 +1518,23 @@ Retention is bounded by the grace windows, not the cadence; each job is a single
   standard_id_cleanup_expired_code_challenges:
     class: StandardId::CleanupExpiredCodeChallengesJob
     schedule: every hour at minute 13
+```
+
+**One entry, one cron monitor (0.43+).** `StandardId::CleanupAllJob` runs all four inline; a failure in one does not skip the rest, and the first error is re-raised afterwards so the run still fails. Schedule it instead of the four when you want a single recurring entry — e.g. to put the schedule under one Sentry cron monitor (the gem's jobs carry none). Subclass it to attach the monitor:
+
+```ruby
+# app/jobs/standard_id_cleanup_job.rb
+class StandardIdCleanupJob < StandardId::CleanupAllJob
+  include Sentry::Cron::MonitorCheckIns
+  sentry_monitor_check_ins slug: "standard-id-cleanup",
+    monitor_config: Sentry::Cron::MonitorConfig.from_crontab("7 * * * *", checkin_margin: 5, max_runtime: 10)
+end
+```
+
+```yaml
+  standard_id_cleanup:
+    class: StandardIdCleanupJob
+    schedule: every hour at minute 7
 ```
 
 Rake wrappers (`standard_id:cleanup:all`, `:sessions`, `:refresh_tokens`, `:authorization_codes`, `:code_challenges`) run the same jobs inline. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for sidekiq-cron, whenever and system-cron examples.

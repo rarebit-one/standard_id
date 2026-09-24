@@ -4,10 +4,6 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
   let(:request) { instance_double("ActionDispatch::Request", remote_ip: "127.0.0.1", user_agent: "RSpec") }
   subject(:strategy) { described_class.new(request) }
 
-  before do
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-  end
-
   describe "#validate_username!" do
     it "accepts a valid email" do
       expect { strategy.send(:validate_username!, "user@example.com") }.not_to raise_error
@@ -19,12 +15,11 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
   end
 
   describe "#start!" do
-    it "creates a challenge and calls sender" do
-      sender = double("sender")
-      expect(sender).to receive(:call).with("user@example.com", kind_of(String))
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+    it "creates a challenge and publishes the code for delivery" do
+      codes = capture_passwordless_codes
 
       challenge = strategy.start!(connection: "email", username: "user@example.com")
+      expect(codes).to contain_exactly(["user@example.com", kind_of(String)])
       expect(challenge).to be_persisted
       expect(challenge.channel).to eq("email")
       expect(challenge.target).to eq("user@example.com")
@@ -88,7 +83,6 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
 
       it "proceeds when validator returns nil" do
         StandardId.config.passwordless.username_validator = ->(_username, _connection) { nil }
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
 
         challenge = strategy.start!(connection: "email", username: "user@example.com")
         expect(challenge).to be_persisted
@@ -96,7 +90,6 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
 
       it "proceeds when validator returns false" do
         StandardId.config.passwordless.username_validator = ->(_username, _connection) { false }
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
 
         challenge = strategy.start!(connection: "email", username: "user@example.com")
         expect(challenge).to be_persisted
@@ -117,28 +110,9 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
         validator = double("validator")
         expect(validator).to receive(:call).with("user@example.com", "email").and_return(nil)
         StandardId.config.passwordless.username_validator = validator
-        allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
 
         strategy.start!(connection: "email", username: "user@example.com")
       end
-    end
-  end
-
-  describe "#sender_callback" do
-    it "returns the email sender when delivery is :custom" do
-      sender = double("sender")
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
-      allow(StandardId.config.passwordless).to receive(:delivery).and_return(:custom)
-
-      expect(strategy.send(:sender_callback)).to eq(sender)
-    end
-
-    it "returns nil when delivery is :built_in to prevent duplicate emails" do
-      sender = double("sender")
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
-      allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
-
-      expect(strategy.send(:sender_callback)).to be_nil
     end
   end
 

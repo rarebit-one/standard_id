@@ -97,6 +97,7 @@ module StandardId
       # surfaces typos at boot instead of at callback time in production.
       StandardId::Config::CallableValidator.validate!
       StandardId::Config::ScopeClaimsValidator.validate!
+      StandardId::ScopeConfig.validate_all!
 
       StandardId::Engine.verify_host_cookie_encryption!(app)
       StandardId::MigrationCheck.verify_at_boot!
