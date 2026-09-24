@@ -302,13 +302,13 @@ GEM
     sqlite3 (2.9.6-x86_64-darwin)
     sqlite3 (2.9.6-x86_64-linux-gnu)
     sqlite3 (2.9.6-x86_64-linux-musl)
-    standard_id-apple (0.4.0)
+    standard_id-apple (0.6.0)
       activesupport (>= 8.0)
       jwt (>= 2.7, < 4)
-      standard_id (~> 0.1, >= 0.1.7)
-    standard_id-google (0.3.0)
+      standard_id (~> 0.42)
+    standard_id-google (0.5.0)
       activesupport (>= 8.0)
-      standard_id (~> 0.1, >= 0.1.7)
+      standard_id (~> 0.42)
     tailwindcss-rails (4.6.0)
       railties (>= 7.0.0)
       tailwindcss-ruby (~> 4.0)
@@ -364,8 +364,8 @@ DEPENDENCIES
   simplecov
   sqlite3
   standard_id!
-  standard_id-apple (~> 0.4.0)
-  standard_id-google (~> 0.3.0)
+  standard_id-apple (~> 0.6.0)
+  standard_id-google (~> 0.5.0)
   tailwindcss-rails (~> 4.4)
   tailwindcss-ruby (~> 4.2)
   webmock (~> 3.26)
