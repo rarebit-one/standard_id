@@ -1296,7 +1296,12 @@ bundle exec rspec spec/controllers/
   c.register_check :standard_id_migrations, StandardId::Checks::Migrations, critical: false
   ```
 
-A migration you deliberately skipped or deferred goes in `config.ignored_migrations` (its name, e.g. `"remove_refresh_token_lifetime_from_standard_id_client_applications"`, or its original version).
+Two cases are built in and documented in `StandardId::MigrationCheck`:
+
+- **Superseded** (`SUPERSEDED_BY`): `20260414200000_add_target_created_at_index_to_code_challenges` counts as satisfied when `20260416180511` (whose partial, concurrently built index replaces it) is installed.
+- **Deferred upgrade steps** (`DEFERRED_UPGRADE_STEPS`): `20260915000000_remove_refresh_token_lifetime_…` is reported with `severity: :info`, as a pending upgrade step to run once 0.41.1+ is deployed everywhere. It is logged at info level at boot and listed under `pending_upgrade_steps` in an `:ok` health result. It never warns, raises or degrades.
+
+Any other migration you deliberately skipped goes in `config.ignored_migrations`, by name or original version.
 
 ## Scheduled Maintenance
 

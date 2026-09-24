@@ -22,10 +22,44 @@ module StandardId
     GEM_MIGRATIONS_PATH = File.expand_path("../../db/migrate", __dir__)
     FILENAME = /\A(\d+)_(\w+?)(?:\.[a-z_]+)?\.rb\z/
 
-    # state: :not_installed — no host migration file with this name
-    #        :not_run       — the host file exists but its version is not in schema_migrations
-    Missing = Data.define(:name, :version, :state) do
-      def to_s = "#{version}_#{name} (#{state.to_s.tr('_', ' ')})"
+    # A gem migration whose job is fully done by a LATER gem migration, so a
+    # host that installed the later one may skip it. name => superseding name.
+    #
+    # 20260414200000 adds a plain, non-concurrent 4-column index on
+    # standard_id_code_challenges; 20260416180511 adds the partial
+    # `index_code_challenges_on_active_target_created_at` (same columns,
+    # WHERE used_at IS NULL, built CONCURRENTLY) that serves the same lookups.
+    # Hosts on busy tables (fundbright-web, luminality-web) skipped the former
+    # on purpose rather than take the write lock.
+    SUPERSEDED_BY = {
+      "add_target_created_at_index_to_code_challenges" =>
+        "add_partial_indexes_for_active_session_and_challenge_lookups"
+    }.freeze
+
+    # Gem migrations hosts are EXPECTED to hold back for a while — reported as
+    # a pending upgrade step (severity :info), never as an error, so they do
+    # not warn at boot, fail boot in :raise mode, or degrade the health check.
+    #
+    # 20260915000000 drops a column 0.41.1 ignores; per the 0.41.1 upgrade
+    # notes it must only run once 0.41.1+ is deployed everywhere.
+    DEFERRED_UPGRADE_STEPS = {
+      "remove_refresh_token_lifetime_from_standard_id_client_applications" =>
+        "run once StandardId >= 0.41.1 is deployed to every process (it drops a column 0.41.1 ignores)"
+    }.freeze
+
+    # state:    :not_installed — no host migration file with this name
+    #           :not_run       — the host file exists but its version is not in schema_migrations
+    # severity: :error — a migration the host should have
+    #           :info  — a DEFERRED_UPGRADE_STEPS entry: pending, but intentionally
+    Missing = Data.define(:name, :version, :state, :severity) do
+      def initialize(name:, version:, state:, severity: :error) = super
+
+      def info? = severity == :info
+
+      def to_s
+        label = state.to_s.tr("_", " ")
+        info? ? "#{version}_#{name} (#{label}; pending upgrade step: #{DEFERRED_UPGRADE_STEPS[name]})" : "#{version}_#{name} (#{label})"
+      end
     end
 
     MODES = %i[warn raise ignore].freeze
@@ -46,16 +80,30 @@ module StandardId
       host = host_versions_by_name(paths)
       applied = check_database ? applied_versions : nil
 
+      present = ->(migration_name) { present_in_host?(host[migration_name], applied) }
+
       gem_migrations.filter_map do |version, name|
         next if ignore.include?(name) || ignore.include?(version)
 
         host_versions = host[name]
-        if host_versions.blank?
-          Missing.new(name: name, version: version, state: :not_installed)
+        state = if host_versions.blank?
+                  :not_installed
         elsif applied && (host_versions & applied).empty?
-          Missing.new(name: name, version: version, state: :not_run)
+                  :not_run
         end
+        next if state.nil?
+        next if (successor = SUPERSEDED_BY[name]) && present.call(successor)
+
+        severity = DEFERRED_UPGRADE_STEPS.key?(name) ? :info : :error
+        Missing.new(name: name, version: version, state: state, severity: severity)
       end
+    end
+
+    # Installed (and, when +applied+ is given, run).
+    def present_in_host?(host_versions, applied)
+      return false if host_versions.blank?
+
+      applied.nil? || (host_versions & applied).any?
     end
 
     # The mode in effect: config.missing_migrations, else :warn in
@@ -80,7 +128,9 @@ module StandardId
       end
       return if current == :ignore
 
-      missing = pending
+      all_missing = pending
+      deferred, missing = all_missing.partition(&:info?)
+      Rails.logger.info(deferred_message(deferred)) if deferred.any?
       return if missing.empty?
 
       message = boot_message(missing)
@@ -99,6 +149,10 @@ module StandardId
         `StandardId.config.ignored_migrations`. Set `config.missing_migrations = :raise` to fail
         boot instead, or `:ignore` to silence this check.
       MESSAGE
+    end
+
+    def deferred_message(deferred)
+      "[StandardId] Pending upgrade step(s), held back intentionally: #{deferred.map(&:to_s).join('; ')}"
     end
 
     def host_migration_paths

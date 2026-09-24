@@ -62,6 +62,66 @@ RSpec.describe StandardId::MigrationCheck do
     expect(described_class.pending(paths: [@host_dir])).to be_empty
   end
 
+  describe "superseded migrations (SUPERSEDED_BY)" do
+    let(:superseded) { "add_target_created_at_index_to_code_challenges" }
+    let(:successor) { "add_partial_indexes_for_active_session_and_challenge_lookups" }
+
+    it "treats 20260414200000 as satisfied when 20260416180511 is installed" do
+      install(gem_migrations.reject { |_v, name| name == superseded })
+
+      expect(pending).to be_empty
+    end
+
+    it "still reports it when the superseding migration is missing too" do
+      install(gem_migrations.reject { |_v, name| [superseded, successor].include?(name) })
+
+      expect(pending.map(&:name)).to contain_exactly(superseded, successor)
+      expect(pending.map(&:severity)).to all(eq(:error))
+    end
+
+    it "requires the successor to have RUN when checking the database" do
+      install(gem_migrations.reject { |_v, name| name == superseded })
+      successor_version = Dir.children(@host_dir).find { |f| f.include?(successor) }[/\A\d+/]
+      all_versions = Dir.children(@host_dir).map { |f| f[/\A\d+/] }
+      allow(described_class).to receive(:applied_versions).and_return(all_versions - [successor_version])
+
+      expect(pending(check_database: true).map(&:name)).to contain_exactly(superseded, successor)
+    end
+
+    it "only names migrations the gem ships" do
+      names = gem_migrations.map(&:last)
+      described_class::SUPERSEDED_BY.each do |old, new|
+        expect(names).to include(old, new)
+      end
+      described_class::DEFERRED_UPGRADE_STEPS.each_key { |name| expect(names).to include(name) }
+    end
+  end
+
+  describe "deferred upgrade steps (DEFERRED_UPGRADE_STEPS)" do
+    let(:deferred) { "remove_refresh_token_lifetime_from_standard_id_client_applications" }
+
+    it "reports 20260915000000 as a pending upgrade step with :info severity" do
+      install(gem_migrations.reject { |_v, name| name == deferred })
+
+      expect(pending.size).to eq(1)
+      step = pending.first
+      expect(step).to have_attributes(name: deferred, version: "20260915000000", severity: :info)
+      expect(step).to be_info
+      expect(step.to_s).to include("pending upgrade step")
+    end
+
+    it "does not warn or raise at boot for it, but logs it at info" do
+      install(gem_migrations.reject { |_v, name| name == deferred })
+      allow(described_class).to receive(:host_migration_paths).and_return([@host_dir])
+      allow(StandardId.config).to receive(:ignored_migrations).and_return([])
+      allow(StandardId.config).to receive(:missing_migrations).and_return(:raise)
+      expect(Rails.logger).to receive(:info).with(/Pending upgrade step.*20260915000000/)
+      expect(Rails.logger).not_to receive(:warn)
+
+      expect { described_class.verify_at_boot! }.not_to raise_error
+    end
+  end
+
   describe "check_database: true" do
     it "reports installed migrations whose host version was never run" do
       install
@@ -158,6 +218,17 @@ RSpec.describe StandardId::Checks::Migrations do
 
     expect(check.run).to eq(status: :ok)
     expect(described_class.new.run).to eq(status: :ok)
+  end
+
+  it "stays :ok when only deferred upgrade steps are pending, and lists them" do
+    step = StandardId::MigrationCheck::Missing.new(name: "remove_refresh_token_lifetime_from_standard_id_client_applications",
+                                                   version: "20260915000000", state: :not_installed, severity: :info)
+    allow(StandardId::MigrationCheck).to receive(:pending).and_return([step])
+
+    result = check.run
+    expect(result[:status]).to eq(:ok)
+    expect(result[:pending_upgrade_steps]).to eq([step.to_s])
+    expect(described_class.all_present?).to be(false)
   end
 
   it "reports :fail instead of raising" do

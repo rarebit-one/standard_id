@@ -29,10 +29,17 @@ module StandardId
       def run
         return { status: :ok } if self.class.all_present?
 
-        missing = StandardId::MigrationCheck.pending(check_database: true)
-        if missing.empty?
+        all_missing = StandardId::MigrationCheck.pending(check_database: true)
+        if all_missing.empty?
           self.class.all_present = true
           return { status: :ok }
+        end
+
+        # Deferred upgrade steps (MigrationCheck::DEFERRED_UPGRADE_STEPS) are
+        # reported but never degrade readiness.
+        deferred, missing = all_missing.partition(&:info?)
+        if missing.empty?
+          return { status: :ok, pending_upgrade_steps: deferred.map(&:to_s) }
         end
 
         {
