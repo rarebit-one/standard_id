@@ -1,4 +1,5 @@
 require "rails_helper"
+require "ostruct"
 
 RSpec.describe StandardId::LifecycleHooks do
   let(:account) { Account.create!(name: "Test User", email: "scope-test@example.com") }

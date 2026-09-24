@@ -1,6 +1,6 @@
 # StandardId
 
-A comprehensive authentication engine for Rails applications, built on the security primitives introduced in Rails 7/8. StandardId provides a complete, secure-by-default solution for identity management, reducing boilerplate and eliminating common security pitfalls.
+A comprehensive authentication engine for Rails applications, built on the security primitives introduced in Rails 8. StandardId provides a complete, secure-by-default solution for identity management, reducing boilerplate and eliminating common security pitfalls.
 
 ## Features
 

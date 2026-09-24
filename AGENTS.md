@@ -1,6 +1,6 @@
 # AGENTS.md - AI Agent Guide for StandardId
 
-StandardId is a secure-by-default authentication engine for Rails 7/8 providing OAuth 2.0, passwordless auth, JWT tokens, and social login with a plugin architecture.
+StandardId is a secure-by-default authentication engine for Rails 8 providing OAuth 2.0, passwordless auth, JWT tokens, and social login with a plugin architecture.
 
 ## Quick Reference
 

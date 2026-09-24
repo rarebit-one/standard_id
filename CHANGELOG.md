@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`primary_key_type` / `foreign_key_type` are no longer monkey-patched onto every `ActiveRecord::Migration`.** They moved to `StandardId::MigrationHelpers`, which the gem's migrations now `include` explicitly. Host copies installed before this release (which call the helpers without the include) keep working: a migration class defined from a file whose name is a StandardId migration (with or without the `.standard_id` suffix) gets the module automatically. A host's **own** migration that happened to call `primary_key_type` without defining it will now raise `NameError` — define it in that migration (Active Storage's copies define their own and are unaffected). The engine's `config/initializers/migration_helpers.rb` is gone.
 - `ScopeConfig#allow_registration?` and `ScopeConfig.registration_allowed?(global, scope_config)` added; an explicit `allow_registration: nil` now means the default (`true`).
 
+- **`ostruct` is no longer a runtime dependency** — nothing in `app/` or `lib/` uses it; it is now a development dependency for the specs' `OpenStruct` doubles. On Ruby 4 `ostruct` is a bundled gem, so a host using `OpenStruct` must list it in its own Gemfile — fundbright-web, luminality-web and nutripod-web already do; sidekick-web and jumpdrive-web don't use it.
+- Gemspec summary (and README/AGENTS) say Rails 8, matching `rails >= 8.0`, instead of "Rails 7/8".
+
 ### Deprecated
 
 Runtime warnings only — every setting below still works exactly as before and is removed in v2.0.
