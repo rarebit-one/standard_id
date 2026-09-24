@@ -58,6 +58,17 @@ StandardId::ConfigSchema.define do
     # loading for every app that never asked for it.
     field :association_strict_loading, type: :any, default: nil
 
+    # Boot-time check for StandardId migrations the host never copied in
+    # (StandardId::MigrationCheck). :warn, :raise or :ignore. nil (default)
+    # means :warn in development/test and :ignore elsewhere — it never raises
+    # in production unless you ask it to.
+    field :missing_migrations, type: :symbol, default: nil
+
+    # Gem migration names (e.g. "add_target_created_at_index_to_code_challenges")
+    # or original versions the check should skip — for a migration the host
+    # deliberately superseded or deferred.
+    field :ignored_migrations, type: :array, default: -> { [] }
+
     # Scope-aware authentication: maps scope names to profile-based access config.
     # Each scope is a hash with keys: :profile_types (Array<String>), :after_sign_in_path,
     # :no_profile_message, :label, :allow_registration, :authorizer.

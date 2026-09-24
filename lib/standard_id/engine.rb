@@ -86,6 +86,7 @@ module StandardId
       StandardId::Config::ScopeClaimsValidator.validate!
 
       StandardId::Engine.verify_host_cookie_encryption!(app)
+      StandardId::MigrationCheck.verify_at_boot!
       StandardId::Engine.warn_if_allowed_audiences_empty_in_production!
     end
 

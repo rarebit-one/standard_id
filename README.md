@@ -1284,6 +1284,20 @@ bundle exec rspec spec/controllers/
   rejected with `invalid_request`.
 - Rate limiting on authentication endpoints
 
+## Missing Migrations
+
+`standard_id:install:migrations` copies the engine's migrations with new timestamps, so a gem migration that was never copied is invisible to Rails' own pending-migration check. StandardId checks for that itself, by migration name:
+
+- **At boot** (file-system only, no database): `config.missing_migrations` — `:warn` (default in development/test: logs and prints to stderr), `:raise` (fails boot with `StandardId::ConfigurationError`), or `:ignore` (default in every other environment — it never raises in production unless you opt in).
+- **`StandardId::MigrationCheck.pending(check_database: true)`** returns every gem migration that is `:not_installed` or installed but `:not_run` (one `schema_migrations` read).
+- **Health check** — `StandardId::Checks::Migrations` is [standard_health](https://github.com/rarebit-one/standard_health)-compatible (duck-typed, no dependency). Register it non-critical so a missing migration degrades `/health/ready` without failing it:
+
+  ```ruby
+  c.register_check :standard_id_migrations, StandardId::Checks::Migrations, critical: false
+  ```
+
+A migration you deliberately skipped or deferred goes in `config.ignored_migrations` (its name, e.g. `"remove_refresh_token_lifetime_from_standard_id_client_applications"`, or its original version).
+
 ## Scheduled Maintenance
 
 StandardId never deletes expired rows on its own. Four cleanup jobs do, and **all four must be scheduled** — an unscheduled one lets its table grow forever (code challenges hold the plaintext OTP):
