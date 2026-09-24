@@ -16,11 +16,30 @@ module StandardId
       end
 
       def execute
-        authenticate!
+        instrumented_authenticate!
         generate_token_response
       end
 
       private
+
+      # authenticate!, wrapped in the Instrumentation::AUTHENTICATE event.
+      def instrumented_authenticate!
+        StandardId::Instrumentation.instrument(StandardId::Instrumentation::AUTHENTICATE, instrumentation_payload) do
+          authenticate!
+        end
+      end
+
+      def instrumentation_payload
+        { flow: self.class.name, grant_type: instrumentation_grant_type }
+      end
+
+      # Abstract/anonymous flows (specs) may not implement grant_type; the
+      # instrumentation payload must never be what raises.
+      def instrumentation_grant_type
+        grant_type
+      rescue NotImplementedError
+        nil
+      end
 
       def authenticate!
         raise NotImplementedError, "Subclasses must implement authenticate!"
@@ -36,7 +55,10 @@ module StandardId
 
       def generate_token_response
         validate_audience!
-        enforce_audience_profile_binding!
+        StandardId::Instrumentation.instrument(
+          StandardId::Instrumentation::AUDIENCE_PROFILE_BINDING,
+          instrumentation_payload.merge(audience: Array(audience).reject(&:blank?))
+        ) { enforce_audience_profile_binding! }
         emit_token_issuing
         expires_in = token_expiry
         payload = build_jwt_payload(expires_in)

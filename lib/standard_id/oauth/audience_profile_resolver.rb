@@ -78,6 +78,14 @@ module StandardId
         # @raise [StandardId::NoBoundProfileError]
         # @raise [StandardId::AmbiguousProfileError]
         def resolve!(account:, audience:)
+          StandardId::Instrumentation.instrument(
+            StandardId::Instrumentation::AUDIENCE_PROFILE_RESOLVE, audience: audience
+          ) { resolve_bound_profile!(account, audience) }
+        end
+
+        private
+
+        def resolve_bound_profile!(account, audience)
           types = profile_types_for(audience)
           raise ArgumentError, "audience #{audience.inspect} has no profile binding" if types.empty?
 
@@ -100,8 +108,6 @@ module StandardId
 
           strict_default_lookup(account, audience, types)
         end
-
-        private
 
         def default_lookup(account, types)
           return nil unless account.respond_to?(:profiles)

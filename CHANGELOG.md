@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Hosts can delete their `StandardId::* .strict_loading_by_default = false` block** (fundbright-web, luminality-web, nutripod-web `config/initializers/strict_loading.rb`; sidekick-web's StandardId lines in the same file). Every gem model now works under `strict_loading_by_default = true` + `:raise` through every gem flow; see Fixed. Keep an exemption only if *your own* code lazily traverses a gem association (e.g. `identifier.account` in a host controller) — prefer `includes` there instead.
 
+### Added
+
+- **`ActiveSupport::Notifications` instrumentation of the token endpoint** (`StandardId::Instrumentation`): `authenticate.standard_id` around every token grant's `authenticate!`, `audience_profile_binding.standard_id` around audience→profile binding, and `audience_profile_resolve.standard_id` around `AudienceProfileResolver.resolve!` (nested inside the binding event). Block events with `flow` / `grant_type` / `audience` payloads; `StandardId::Instrumentation::PATTERN` subscribes to all three and to none of the `standard_id.*` domain events. The README has a drop-in Sentry span subscriber. **sidekick-web can delete `config/initializers/standard_id_tracing.rb`** (which prepends Sentry spans onto the private `RefreshTokenFlow#authenticate!`, `TokenGrantFlow#enforce_audience_profile_binding!` and `AudienceProfileResolver.resolve!`) in favour of that subscriber; span ops stay `standard_id.authenticate` / `.audience_profile_binding` / `.audience_profile_resolve` (the prepend used `standard_id.refresh_token_flow.authenticate` etc. — update any saved Sentry queries).
+
 ### Changed
 
 - **`ScopeConfig#allow_registration` is now enforced** (it was documented "reserved for future use" and never read). Passwordless sign-in may create an account iff the global switch allows it **and** the active scope's `allow_registration` is not `false` — a scope can only restrict:

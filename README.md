@@ -738,6 +738,48 @@ StandardAudit::AuditLog.from_ip("192.168.1.1")
 
 See the [StandardAudit README](https://github.com/rarebit-one/standard_audit) for the full query interface, async processing, GDPR compliance, and multi-tenancy support.
 
+### Instrumentation (tracing spans)
+
+Separately from the domain events above, the OAuth token endpoint is instrumented with `ActiveSupport::Notifications` block events so you can add tracing spans or timings without patching gem internals. Names follow the Rails `<event>.<library>` convention, so `standard_id.*` audit subscribers never see them:
+
+| Event (`StandardId::Instrumentation::…`) | Wraps | Payload |
+|---|---|---|
+| `AUTHENTICATE` — `authenticate.standard_id` | every token grant's `authenticate!` (for `refresh_token`: JWT decode + token lookup + reuse detection) | `flow`, `grant_type` |
+| `AUDIENCE_PROFILE_BINDING` — `audience_profile_binding.standard_id` | audience→profile binding (account load + resolver) | `flow`, `grant_type`, `audience` |
+| `AUDIENCE_PROFILE_RESOLVE` — `audience_profile_resolve.standard_id` | `Oauth::AudienceProfileResolver.resolve!` (nested inside the binding event) | `audience` |
+
+A raised error appears as `:exception` / `:exception_object` in the finish payload. Sentry child spans, nested the same way:
+
+```ruby
+# config/initializers/standard_id_tracing.rb
+return unless defined?(Sentry)
+
+module StandardIdSentrySpans
+  STACK = :standard_id_sentry_spans
+
+  def self.start(name, _id, payload)
+    scope = Sentry.get_current_scope
+    parent = scope&.get_span
+    span = parent&.start_child(
+      op: "standard_id.#{name.delete_suffix('.standard_id')}",
+      description: Array(payload[:audience]).join(", ").presence
+    )
+    (Thread.current[STACK] ||= []) << [span, parent]
+    scope.set_span(span) if span
+  end
+
+  def self.finish(_name, _id, _payload)
+    span, parent = Thread.current[STACK]&.pop
+    return unless span
+
+    span.finish
+    Sentry.get_current_scope.set_span(parent)
+  end
+end
+
+ActiveSupport::Notifications.subscribe(StandardId::Instrumentation::PATTERN, StandardIdSentrySpans)
+```
+
 ## Account Status (Activation/Deactivation)
 
 StandardId provides an optional `AccountStatus` concern for managing account activation and deactivation. This uses Rails enum with the event system to enforce status checks and handle side effects without modifying core authentication logic.
