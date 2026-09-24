@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Hosts running StrongMigrations no longer have to hand-wrap `20260416180511_add_partial_indexes_for_active_session_and_challenge_lookups`.** Its partial `standard_id_code_challenges (realm, channel, target, created_at) WHERE used_at IS NULL` index trips StrongMigrations' "non-unique index with more than three columns" check, so fundbright, luminality and nutripod each had to wrap it in `safety_assured` when installing it. The shape is deliberate (three equality predicates plus the `ORDER BY created_at` column, partial, built CONCURRENTLY), so the migration now asserts that one `add_index` safe itself when StrongMigrations is loaded — the same pattern `20260924000000` uses. Hosts that already installed a hand-wrapped copy need do nothing.
+
+### Documentation
+
+- **0.41.1 upgrade note, added after the fact:** because 0.41.1 lists `refresh_token_lifetime` in `StandardId::ClientApplication.ignored_columns`, any host code that still *assigns* it (dynamic client registration, seeds, rake tasks, factories/specs) now raises `ActiveModel::UnknownAttributeError`. Remove those writes when upgrading — the value was never honoured; refresh-token lifetime is the global `oauth.refresh_token_lifetime`.
+
 ## [0.41.1] - 2026-09-24
 
 Bug-fix release. Four of these were found in sidekick-web, which has been carrying host-side prepend patches for three of them; the dummy app now runs with `strict_loading_by_default` so this class of bug fails in the gem's own suite first.

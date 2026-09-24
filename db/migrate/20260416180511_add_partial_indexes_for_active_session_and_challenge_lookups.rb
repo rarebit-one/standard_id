@@ -7,8 +7,10 @@ class AddPartialIndexesForActiveSessionAndChallengeLookups < ActiveRecord::Migra
   # except for the GIN drop in step 3. We guard that drop with an `if_exists`
   # check so StrongMigrations/host apps that never ran the creating migration
   # (e.g. SQLite dummies) don't error. StrongMigrations considers partial-
-  # index-add and remove_index safe when concurrently + if_exists are used, so
-  # no ignore comment is needed.
+  # index-add and remove_index safe when concurrently + if_exists are used —
+  # except its "non-unique index with more than three columns" heuristic, which
+  # rejects the 4-column code_challenges index below; that one add_index is
+  # asserted safe (see #assert_safe and the comment at the call site).
   #
   # Split into def up / def down because `remove_index :table, name: "..."`
   # (name-only, no column list) is not auto-reversible via def change — Rails
@@ -55,12 +57,20 @@ class AddPartialIndexesForActiveSessionAndChallengeLookups < ActiveRecord::Migra
     # The existing [:realm, :channel, :target, :created_at] index works but
     # covers every row, including long-since-consumed ones. A partial variant
     # stays tiny (only live challenges) and matches the exact query shape.
-    add_index :standard_id_code_challenges,
-      [:realm, :channel, :target, :created_at],
-      where: "used_at IS NULL",
-      name: "index_code_challenges_on_active_target_created_at",
-      if_not_exists: true,
-      **concurrent
+    #
+    # StrongMigrations flags any non-unique index over more than three columns.
+    # The shape here is deliberate: three equality predicates plus the ORDER BY
+    # column, partial on live challenges, built CONCURRENTLY — so assert it safe
+    # rather than make every host wrap it by hand (fundbright, luminality and
+    # nutripod all had to).
+    assert_safe do
+      add_index :standard_id_code_challenges,
+        [:realm, :channel, :target, :created_at],
+        where: "used_at IS NULL",
+        name: "index_code_challenges_on_active_target_created_at",
+        if_not_exists: true,
+        **concurrent
+    end
 
     # Drop the GIN metadata index on Postgres: metadata is only written to
     # (record_failed_attempt bumps `attempts`), never queried with containment
@@ -113,5 +123,12 @@ class AddPartialIndexesForActiveSessionAndChallengeLookups < ActiveRecord::Migra
       name: "index_standard_id_sessions_on_expires_at_where_active",
       if_exists: true,
       **concurrent
+  end
+
+  private
+
+  # StrongMigrations is optional for hosts (the gem does not depend on it).
+  def assert_safe(&block)
+    respond_to?(:safety_assured) ? safety_assured(&block) : yield
   end
 end
