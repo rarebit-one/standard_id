@@ -39,14 +39,18 @@ module StandardId
 
           return if identifier.blank? || code.blank?
 
-          StandardId::PasswordlessMailer.with(
+          enqueued = StandardId::PasswordlessMailer.with(
             email: identifier,
             otp_code: code,
             realm: event[:realm],
             expires_in_minutes: expires_in_minutes(event[:expires_at])
           ).public_send(mailer_action(event[:realm])).deliver_later
 
-          challenge.built_in_delivered = true if challenge.respond_to?(:built_in_delivered=)
+          # deliver_later returns false (without raising) when Active Job
+          # refuses the enqueue, e.g. an aborting before_enqueue callback.
+          if enqueued && challenge.respond_to?(:built_in_delivered=)
+            challenge.built_in_delivered = true
+          end
         end
 
         def handle_error(error, event)
@@ -65,8 +69,9 @@ module StandardId
         def expires_in_minutes(expires_at)
           return nil if expires_at.blank?
 
-          [((Time.zone.parse(expires_at.to_s) - Time.current) / 60.0).ceil, 1].max
-        rescue ArgumentError, TypeError
+          expires_at = Time.zone.parse(expires_at) if expires_at.is_a?(String)
+          [((expires_at - Time.current) / 60.0).ceil, 1].max
+        rescue ArgumentError, TypeError, NoMethodError
           nil
         end
       end

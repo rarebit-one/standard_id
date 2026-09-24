@@ -11,13 +11,13 @@
 </head>
 <body>
   <div class="container">
-    <p><%= t(".greeting") %></p>
-    <p><%= t(".intro") %></p>
+    <p><%= otp_copy(:greeting) %></p>
+    <p><%= otp_copy(:intro) %></p>
     <div class="code"><%= @otp_code %></div>
-    <p><%= t(".expiry", count: @expires_in_minutes) %></p>
-    <p><%= t(".ignore") %></p>
+    <p><%= otp_copy(:expiry, count: @expires_in_minutes) %></p>
+    <p><%= otp_copy(:ignore) %></p>
     <div class="footer">
-      <p><%= t(".footer") %></p>
+      <p><%= otp_copy(:footer) %></p>
     </div>
   </div>
 </body>

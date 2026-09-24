@@ -125,4 +125,43 @@ RSpec.describe StandardId::PasswordlessMailer, type: :mailer do
       I18n.backend.reload!
     end
   end
+
+  describe "under a locale the gem has no translations for" do
+    around do |example|
+      original = I18n.available_locales
+      I18n.available_locales = original | [:"zh-SG"]
+      I18n.with_locale(:"zh-SG") { example.run }
+    ensure
+      I18n.available_locales = original
+    end
+
+    it "falls back to the English copy rather than rendering missing translations" do
+      mails = [
+        described_class.with(email: "user@example.com", otp_code: "123456").otp_email,
+        described_class.with(email: "user@example.com", otp_code: "123456", realm: "verification").verification_email
+      ]
+
+      expect(mails.map(&:subject)).to eq(["Your sign-in code", "Your verification code"])
+      mails.each do |mail|
+        [mail.html_part.body.to_s, mail.text_part.body.to_s].each do |body|
+          expect(body).not_to match(/translation missing/i)
+          expect(body).to include("This code will expire in 10 minutes.")
+        end
+      end
+    end
+
+    it "uses the host's translation for that locale when there is one" do
+      I18n.t("standard_id")
+      I18n.backend.store_translations(:"zh-SG", standard_id: { passwordless_mailer: { verification_email: {
+        subject: "您的验证码"
+      } } })
+
+      mail = described_class.with(email: "user@example.com", otp_code: "123456").verification_email
+
+      expect(mail.subject).to eq("您的验证码")
+      expect(mail.text_part.body.to_s).to include("Use the following code to complete your verification:")
+    ensure
+      I18n.backend.reload!
+    end
+  end
 end

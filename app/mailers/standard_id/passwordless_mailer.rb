@@ -16,6 +16,8 @@ module StandardId
   class PasswordlessMailer < ApplicationMailer
     layout false
 
+    helper_method :otp_copy
+
     # @param email [String]
     # @param otp_code [String]
     # @param expires_in_minutes [Integer, nil] defaults to passwordless.code_ttl
@@ -24,8 +26,7 @@ module StandardId
       subject = if StandardId.config.passwordless.assigned?(:mailer_subject)
         StandardId.config.passwordless.mailer_subject
       else
-        I18n.t("standard_id.passwordless_mailer.otp_email.subject",
-          default: StandardId.config.passwordless.mailer_subject)
+        otp_copy(:subject, default: StandardId.config.passwordless.mailer_subject)
       end
 
       mail(to: @email, from: StandardId.config.passwordless.mailer_from, subject: subject)
@@ -42,8 +43,22 @@ module StandardId
       mail(
         to: @email,
         from: StandardId.config.passwordless.mailer_from,
-        subject: I18n.t("standard_id.passwordless_mailer.verification_email.subject")
+        subject: otp_copy(:subject)
       )
+    end
+
+    # Copy for the current action from
+    # standard_id.passwordless_mailer.<action>.<key>, in I18n.locale. Falls
+    # back to the gem's English copy when the host has no translation for
+    # that locale (the gem ships only `en`, and a host need not enable
+    # I18n fallbacks), so a zh-SG request never renders "translation missing".
+    #
+    # @param key [Symbol, String]
+    # @param default [String, nil] final fallback when even `en` has no key
+    def otp_copy(key, default: nil, **options)
+      scope = "standard_id.passwordless_mailer.#{action_name}"
+      english = I18n.t(key, scope: scope, locale: :en, default: default, **options)
+      I18n.t(key, scope: scope, default: english, **options)
     end
 
     private
