@@ -16,3 +16,8 @@ events = [{ on = "pre_tool", tools = ["bash"] }]
 id = "enforce-signed-commits"
 timeout = 30
 events = [{ on = "pre_tool", tools = ["bash"] }]
+
+[[hook]]
+id = "enforce-worktree-bash"
+timeout = 10
+events = [{ on = "pre_tool", tools = ["bash"] }]

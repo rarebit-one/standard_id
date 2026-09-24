@@ -52,6 +52,11 @@
             "type": "command",
             "command": "$CLAUDE_PROJECT_DIR/.agents/hooks/enforce-signed-commits.sh",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.agents/hooks/enforce-worktree-bash.sh",
+            "timeout": 10
           }
         ]
       }
