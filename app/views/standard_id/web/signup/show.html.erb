@@ -46,7 +46,7 @@
         </div>
       <% end %>
 
-      <% if StandardId.config.google_client_id.present? || StandardId.config.apple_client_id.present? %>
+      <% if StandardId.social_provider_enabled?(:google) || StandardId.social_provider_enabled?(:apple) %>
         <div>
           <div class="mt-10 flex items-center gap-x-6">
             <div class="w-full flex-1 border-t border-gray-200 dark:border-white/10"></div>
@@ -55,7 +55,7 @@
           </div>
 
           <div class="mt-6 grid grid-cols-2 gap-4">
-            <% if StandardId.config.google_client_id.present? %>
+            <% if StandardId.social_provider_enabled?(:google) %>
               <%= form_with url: signup_path, method: :post, local: true do |form| %>
                 <%= form.hidden_field :connection, value: "google" %>
                 <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
@@ -71,7 +71,7 @@
               <% end %>
             <% end %>
 
-            <% if StandardId.config.apple_client_id.present? %>
+            <% if StandardId.social_provider_enabled?(:apple) %>
               <%= form_with url: signup_path, method: :post, local: true do |form| %>
                 <%= form.hidden_field :connection, value: "apple" %>
                 <%= form.hidden_field :redirect_uri, value: @redirect_uri %>

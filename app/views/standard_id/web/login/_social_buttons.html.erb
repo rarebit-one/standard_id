@@ -6,14 +6,14 @@
 %>
 <section aria-label="Other sign-in options">
   <p>Or continue with</p>
-  <% if StandardId.config.google_client_id.present? %>
+  <% if StandardId.social_provider_enabled?(:google) %>
     <%= form_with url: login_path, method: :post, local: true, data: { turbo: false } do |form| %>
       <%= form.hidden_field :connection, value: "google" %>
       <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
       <button type="submit">Google</button>
     <% end %>
   <% end %>
-  <% if StandardId.config.apple_client_id.present? %>
+  <% if StandardId.social_provider_enabled?(:apple) %>
     <%= form_with url: login_path, method: :post, local: true, data: { turbo: false } do |form| %>
       <%= form.hidden_field :connection, value: "apple" %>
       <%= form.hidden_field :redirect_uri, value: @redirect_uri %>
