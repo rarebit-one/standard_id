@@ -129,7 +129,15 @@ RSpec.describe StandardId::InertiaRendering do
       expect(props[:social_providers][:apple_enabled]).to be false
     end
 
+    # Other specs leave throwaway providers in the process-global registry, so
+    # pin it to the real plugins (plus any probe) for these examples.
+    let(:real_providers) do
+      { "google" => StandardId::Providers::Google, "apple" => StandardId::Providers::Apple }
+    end
+
     it "lists the enabled providers generically" do
+      allow(StandardId::ProviderRegistry).to receive(:all).and_return(real_providers)
+
       props = controller.auth_page_props
 
       expect(props[:enabled_social_providers]).to eq(["google"])
@@ -140,14 +148,12 @@ RSpec.describe StandardId::InertiaRendering do
         def self.provider_name = "inertia_probe"
         def self.enabled? = true
       end
-      StandardId::ProviderRegistry.register(:inertia_probe, custom)
+      allow(StandardId::ProviderRegistry).to receive(:all).and_return(real_providers.merge("inertia_probe" => custom))
 
       props = controller.auth_page_props
 
       expect(props[:social_providers]).to include(inertia_probe_enabled: true, google_enabled: true, apple_enabled: false)
       expect(props[:enabled_social_providers]).to contain_exactly("google", "inertia_probe")
-    ensure
-      StandardId::ProviderRegistry.providers.delete("inertia_probe")
     end
 
     it "keeps google_enabled/apple_enabled when neither plugin is registered" do
