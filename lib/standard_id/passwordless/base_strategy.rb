@@ -45,8 +45,8 @@ module StandardId
         # can honor a per-call manual-delivery request. Without this,
         # Otp.issue(delivery: :manual) silently double-delivers when
         # c.passwordless.delivery == :built_in.
-        emit_code_generated(challenge, username, skip_sender: skip_sender, delivery: delivery)
-        emit_code_sent(username) unless skip_sender
+        generated_payload = emit_code_generated(challenge, username, skip_sender: skip_sender, delivery: delivery)
+        emit_code_sent(username, delivery_status: delivery_status_for(challenge, generated_payload)) unless skip_sender
         challenge
       end
 
@@ -190,9 +190,9 @@ module StandardId
         )
       end
 
+      # @return [Hash] the published payload (used to decide the delivery status)
       def emit_code_generated(challenge, username, skip_sender: false, delivery: nil)
-        StandardId::Events.publish(
-          StandardId::Events::PASSWORDLESS_CODE_GENERATED,
+        payload = {
           code_challenge: challenge,
           identifier: username,
           channel: connection_type,
@@ -200,16 +200,31 @@ module StandardId
           expires_at: challenge.expires_at,
           skip_sender: skip_sender,
           delivery: delivery
-        )
+        }
+        StandardId::Events.publish(StandardId::Events::PASSWORDLESS_CODE_GENERATED, payload)
+        payload
       end
 
-      def emit_code_sent(username)
+      # delivery_status of PASSWORDLESS_CODE_SENT:
+      # - "sent"      — the built-in mailer (delivery :built_in) enqueued the email.
+      # - "failed"    — the built-in mailer was responsible but did not enqueue
+      #                 it (its error was logged by the subscriber).
+      # - "delegated" — delivery belongs to the host's PASSWORDLESS_CODE_GENERATED
+      #                 subscriber (delivery :custom, or SMS); the engine cannot
+      #                 know whether it sent anything.
+      def delivery_status_for(challenge, generated_payload)
+        return "delegated" unless StandardId::Events::Subscribers::PasswordlessDeliverySubscriber.handles?(generated_payload)
+
+        challenge.built_in_delivered ? "sent" : "failed"
+      end
+
+      def emit_code_sent(username, delivery_status:)
         StandardId::Events.publish(
           StandardId::Events::PASSWORDLESS_CODE_SENT,
           identifier: username,
           channel: connection_type,
           realm: @realm,
-          delivery_status: "sent"
+          delivery_status: delivery_status
         )
       end
     end

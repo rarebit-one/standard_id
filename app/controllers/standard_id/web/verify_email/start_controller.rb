@@ -32,7 +32,7 @@ module StandardId
           email = params[:email].to_s.strip.downcase
           if email.blank?
             flash[:alert] = "Please enter your email address"
-            render plain: "missing email", status: :unprocessable_content and return
+            render plain: flash[:alert], status: :unprocessable_content and return
           end
 
           # Issued through the passwordless strategy (validation, retry delay,
@@ -47,8 +47,11 @@ module StandardId
             expires_in: 10.minutes
           )
           unless result.success?
+            # The body carries the same reason as the flash: a malformed
+            # target, the host's username_validator message, or the retry
+            # cooldown ("Please wait N seconds ...").
             flash[:alert] = result.error_message
-            render plain: "invalid email", status: :unprocessable_content and return
+            render plain: result.error_message, status: :unprocessable_content and return
           end
 
           redirect_to standard_id_web.login_path, notice: "Verification code sent to your email", status: :see_other

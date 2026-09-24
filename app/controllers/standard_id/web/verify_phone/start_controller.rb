@@ -32,7 +32,7 @@ module StandardId
           phone = params[:phone_number].to_s.strip
           if phone.blank? || !(phone.match?(/\A\+?[1-9]\d{1,14}\z/))
             flash[:alert] = "Please enter a valid phone number"
-            render plain: "invalid phone", status: :unprocessable_content and return
+            render plain: flash[:alert], status: :unprocessable_content and return
           end
 
           # Issued through the passwordless strategy (validation, retry delay,
@@ -47,8 +47,11 @@ module StandardId
             expires_in: 10.minutes
           )
           unless result.success?
+            # The body carries the same reason as the flash: a malformed
+            # target, the host's username_validator message, or the retry
+            # cooldown ("Please wait N seconds ...").
             flash[:alert] = result.error_message
-            render plain: "invalid phone", status: :unprocessable_content and return
+            render plain: result.error_message, status: :unprocessable_content and return
           end
 
           redirect_to standard_id_web.login_path, notice: "Verification code sent via SMS", status: :see_other

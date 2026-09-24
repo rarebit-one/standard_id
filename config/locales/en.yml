@@ -1,0 +1,22 @@
+en:
+  standard_id:
+    passwordless_mailer:
+      otp_email:
+        # Used only when c.passwordless.mailer_subject is not assigned.
+        subject: "Your sign-in code"
+        greeting: "Hi,"
+        intro: "Use the following code to sign in:"
+        expiry:
+          one: "This code will expire in %{count} minute."
+          other: "This code will expire in %{count} minutes."
+        ignore: "If you did not request this code, you can safely ignore this email."
+        footer: "This is an automated message. Please do not reply."
+      verification_email:
+        subject: "Your verification code"
+        greeting: "Hi,"
+        intro: "Use the following code to complete your verification:"
+        expiry:
+          one: "This code will expire in %{count} minute."
+          other: "This code will expire in %{count} minutes."
+        ignore: "If you did not request this code, you can safely ignore this email."
+        footer: "This is an automated message. Please do not reply."

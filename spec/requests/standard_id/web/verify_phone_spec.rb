@@ -27,9 +27,33 @@ RSpec.describe "StandardId Web Verify Phone", type: :request do
       expect(ch).to be_active
     end
 
-    it "returns unprocessable when phone invalid" do
+    it "returns unprocessable when phone invalid, with the flash message as the body" do
       http_post "/verify_phone/start", params: { phone_number: "555-1234" }
       expect(response).to have_http_status(:unprocessable_content)
+      expect(response.body).to eq("Please enter a valid phone number")
+    end
+
+    it "returns the retry cooldown as the 422 body and flash" do
+      allow(StandardId::Passwordless).to receive(:retry_delay).and_return(30)
+      http_post "/verify_phone/start", params: { phone_number: "+14155550123" }
+      expect(response).to have_http_status(:see_other)
+
+      http_post "/verify_phone/start", params: { phone_number: "+14155550123" }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.body).to match(/\APlease wait \d+ seconds? before requesting another code\z/)
+      expect(flash[:alert]).to eq(response.body)
+    end
+
+    it "returns the username_validator's message as the 422 body and flash" do
+      allow(StandardId.config.passwordless).to receive(:username_validator)
+        .and_return(->(_username, channel) { "SMS is not available for this number" if channel == "sms" })
+
+      http_post "/verify_phone/start", params: { phone_number: "+14155550123" }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.body).to eq("SMS is not available for this number")
+      expect(flash[:alert]).to eq("SMS is not available for this number")
     end
   end
 

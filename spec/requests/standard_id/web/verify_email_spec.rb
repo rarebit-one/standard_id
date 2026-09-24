@@ -47,7 +47,36 @@ RSpec.describe "StandardId Web Verify Email", type: :request do
 
       expect {
         http_post "/verify_email/start", params: { email: "user@example.com" }
-      }.to have_enqueued_mail(StandardId::PasswordlessMailer, :otp_email)
+      }.to have_enqueued_mail(StandardId::PasswordlessMailer, :verification_email)
+    end
+
+    it "returns the retry cooldown as the 422 body and flash" do
+      allow(StandardId::Passwordless).to receive(:retry_delay).and_return(30)
+      http_post "/verify_email/start", params: { email: "user@example.com" }
+      expect(response).to have_http_status(:see_other)
+
+      http_post "/verify_email/start", params: { email: "user@example.com" }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.body).to match(/\APlease wait \d+ seconds? before requesting another code\z/)
+      expect(flash[:alert]).to eq(response.body)
+    end
+
+    it "returns the username_validator's message as the 422 body and flash" do
+      allow(StandardId.config.passwordless).to receive(:username_validator)
+        .and_return(->(_username, _channel) { "Disposable addresses are not allowed" })
+
+      http_post "/verify_email/start", params: { email: "user@example.com" }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(response.body).to eq("Disposable addresses are not allowed")
+      expect(flash[:alert]).to eq("Disposable addresses are not allowed")
+    end
+
+    it "returns the format error as the 422 body" do
+      http_post "/verify_email/start", params: { email: "not-an-email" }
+
+      expect(response.body).to eq("Invalid email format")
     end
   end
 

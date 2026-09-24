@@ -46,12 +46,47 @@ RSpec.describe StandardId::Events::Subscribers::PasswordlessDeliverySubscriber d
 
         expect(StandardId::PasswordlessMailer).to receive(:with).with(
           email: "user@example.com",
-          otp_code: "123456"
+          otp_code: "123456",
+          realm: nil,
+          expires_in_minutes: 10
         ).and_return(mailer_double)
         expect(mailer_double).to receive(:otp_email).and_return(mail_double)
         expect(mail_double).to receive(:deliver_later)
 
         described_class.new.call(event)
+      end
+
+      {
+        "authentication" => :otp_email,
+        "verification" => :verification_email,
+        "widget_contact_verification" => :verification_email
+      }.each do |realm, action|
+        it "sends #{action} for realm #{realm.inspect}" do
+          challenge = StandardId::CodeChallenge.new(code: "123456")
+          realm_event = StandardId::Events::Event.new(
+            name: "standard_id.passwordless.code.generated",
+            payload: { identifier: "user@example.com", channel: "email", code_challenge: challenge,
+                       realm: realm, expires_at: 5.minutes.from_now }
+          )
+
+          expect { described_class.new.call(realm_event) }
+            .to have_enqueued_mail(StandardId::PasswordlessMailer, action)
+            .with(params: hash_including(email: "user@example.com", otp_code: "123456", realm: realm, expires_in_minutes: 5), args: [])
+          expect(challenge.built_in_delivered).to be(true)
+        end
+      end
+
+      it "does not mark the challenge delivered when the enqueue raises" do
+        challenge = StandardId::CodeChallenge.new(code: "123456")
+        failing_event = StandardId::Events::Event.new(
+          name: "standard_id.passwordless.code.generated",
+          payload: { identifier: "user@example.com", channel: "email", code_challenge: challenge, realm: "authentication" }
+        )
+        allow(StandardId::PasswordlessMailer).to receive(:with).and_raise(StandardError, "SMTP down")
+
+        described_class.new.handle(failing_event)
+
+        expect(challenge.built_in_delivered).to be_nil
       end
 
       context "when channel is not email" do
@@ -192,8 +227,7 @@ RSpec.describe StandardId::Events::Subscribers::PasswordlessDeliverySubscriber d
       mail_double = double("Mail::Message")
 
       expect(StandardId::PasswordlessMailer).to receive(:with).with(
-        email: "test@example.com",
-        otp_code: "654321"
+        hash_including(email: "test@example.com", otp_code: "654321")
       ).and_return(mailer_double)
       expect(mailer_double).to receive(:otp_email).and_return(mail_double)
       expect(mail_double).to receive(:deliver_later)

@@ -554,7 +554,14 @@ end
 
 Set `c.passwordless.delivery = :custom` (the default) so the engine's built-in
 `PasswordlessMailer` stays out of the way; with `:built_in` the engine emails
-the code itself. The subscriber runs synchronously inside the request, so
+the code itself — `otp_email` ("Your sign-in code") for the `"authentication"`
+realm and `verification_email` ("Your verification code") for every other realm
+(WebEngine `verify_email`, `Otp.issue` contact verification / step-up). There is
+no built-in SMS delivery. The copy is in `config/locales/en.yml` under
+`standard_id.passwordless_mailer.{otp_email,verification_email}.*` (`subject`,
+`greeting`, `intro`, `expiry`, `ignore`, `footer`); override any key in your own
+locale files, or the templates in `app/views/standard_id/passwordless_mailer/`.
+An assigned `c.passwordless.mailer_subject` still sets the sign-in subject. The subscriber runs synchronously inside the request, so
 `I18n.locale`, `Current.*` and the like are still available.
 
 Event payload includes:
@@ -693,7 +700,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `oauth.code.consumed` | `authorization_code`, `client_id`, `account` | After an authorization code is exchanged |
 | Passwordless | `passwordless.code.requested` | `identifier`, `channel` (email/sms) | Before generating an OTP |
 |  | `passwordless.code.generated` | `code_challenge`, `identifier`, `channel`, `expires_at` | After an OTP is created |
-|  | `passwordless.code.sent` | `identifier`, `channel`, `delivery_status` | After an OTP is delivered |
+|  | `passwordless.code.sent` | `identifier`, `channel`, `realm`, `delivery_status` | After an OTP is handed to delivery (not for `Otp.issue(delivery: :manual)`). `delivery_status`: `"sent"` (built-in mailer enqueued it), `"failed"` (built-in mailer was responsible but did not enqueue), `"delegated"` (a host `PASSWORDLESS_CODE_GENERATED` subscriber delivers — the engine can't confirm it) |
 |  | `passwordless.code.verified` | `code_challenge`, `account`, `channel` | After OTP verification succeeds |
 |  | `passwordless.code.failed` | `identifier`, `channel`, `attempts` | After OTP verification fails |
 |  | `passwordless.account.created` | `account`, `channel`, `identifier` | When an account is created via passwordless flow |
