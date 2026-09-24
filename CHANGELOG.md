@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Provider-plugin helpers on `StandardId::Providers::Base`** (protected class methods, stable signatures): `rescue_to_oauth_error`, `verify_nonce!`, `build_authorization_url` and `extract_tokens`. standard_id-apple and standard_id-google each carry private copies of all four and can drop them in their next releases. `verify_nonce!` compares in constant time and — unlike the plugin copies — never puts the expected nonce in its error message.
+- **`StandardId::Providers.plugin_railtie(:name, klass)`** defines the Railtie that registers a provider plugin, replacing the near-identical `railtie.rb` and `if defined?(Rails)` guard every plugin carries.
+- **Provider enablement:** `Providers::Base.enabled?`, `configuration_errors`, `configured?`, `enabling_config_field` and `required_config_fields`; `StandardId.enabled_social_providers` and `StandardId.social_provider_enabled?(name)`. Plugins mark fields `required: true` in `config_schema`. Use `StandardId.social_provider_enabled?(:google)` instead of `StandardId.config.google_client_id.present?` (sidekick-web's `Bootstrap::SetupController` and `InvitationAcceptanceController`).
+- **Boot-time provider validation.** Once every plugin has registered, an enabled provider missing required fields is logged as a warning; `c.social.provider_misconfiguration = :raise` raises `StandardId::ConfigurationError` in production instead (still a warning elsewhere). This is the two-stage Apple credential check sidekick-web rebuilds by hand in `config/initializers/standard_health.rb`; it applies to a provider once its plugin declares its required fields.
+- **ENV defaults for provider config fields.** A field the host never assigns falls back to the ENV variable named after it, upper-cased (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APPLE_CLIENT_ID`, `APPLE_MOBILE_CLIENT_ID`, `APPLE_PRIVATE_KEY`, `APPLE_KEY_ID`, `APPLE_TEAM_ID`) — the scheme sidekick-web runs in production and the install template already used. Plugins can rename a field's variable with `env: "NAME"` or opt out with `env: false`. Explicit configuration, even `nil`, always wins.
+- **`Providers::Base.flow_for(params)`** resolves the API callback flow (`:web` / `:mobile`).
+- **Inertia prop `enabled_social_providers`** (`string[]`), and `social_providers` now carries `<name>_enabled` for every registered provider. `google_enabled` / `apple_enabled` are still always present.
+- **`StandardId::Testing` provider examples:** `it_behaves_like "a registered StandardId provider", :google` and the `be_a_registered_standard_id_provider.with_config_fields(...)` matcher, replacing the duplicated `spec/initializers/standard_id_provider_*_spec.rb` in sidekick-web and luminality-web. Loaded by `require "standard_id/testing"` under RSpec.
+
+### Changed
+
+- **No more hard-coded provider names in the host.** Inertia `auth_page_props`, the built-in ERB login/signup views and the API callback (`connection == "apple"`) now go through `ProviderRegistry` and provider capability methods.
+- **Behaviour change — ENV fallback:** an app that has `APPLE_CLIENT_ID` (etc.) in its environment but never assigned `apple_client_id` now has that provider enabled. If that variable means something else in your app, assign the field explicitly (`c.social.apple_client_id = nil`).
+
+### Deprecated
+
+- **`Providers::Base.setup`** is removed from the base class (no known plugin overrode it). A provider that still defines `setup` keeps having it called on `register`, with a deprecation warning; it will stop being called in 1.0.
+
 ### Fixed
 
 - **Hosts running StrongMigrations no longer have to hand-wrap `20260416180511_add_partial_indexes_for_active_session_and_challenge_lookups`.** Its partial `standard_id_code_challenges (realm, channel, target, created_at) WHERE used_at IS NULL` index trips StrongMigrations' "non-unique index with more than three columns" check, so fundbright, luminality and nutripod each had to wrap it in `safety_assured` when installing it. The shape is deliberate (three equality predicates plus the `ORDER BY created_at` column, partial, built CONCURRENTLY), so the migration now asserts that one `add_index` safe itself when StrongMigrations is loaded — the same pattern `20260924000000` uses. Hosts that already installed a hand-wrapped copy need do nothing.

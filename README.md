@@ -283,18 +283,27 @@ same code raised and apps wrapped the writes in
 `Rails.application.config.after_initialize { ... }`. That wrapper is no longer
 necessary; existing ones keep working unchanged.
 
+**ENV defaults (0.42+).** Every provider field you never assign falls back to
+the ENV variable named after it, upper-cased. With these set, the provider
+credentials need no lines in your initializer at all:
+
+| Field | ENV variable |
+|-------|--------------|
+| `google_client_id` / `google_client_secret` | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` |
+| `apple_client_id` (web Services ID) | `APPLE_CLIENT_ID` |
+| `apple_mobile_client_id` (native bundle ID) | `APPLE_MOBILE_CLIENT_ID` |
+| `apple_private_key` (.p8 PEM, newlines intact) | `APPLE_PRIVATE_KEY` |
+| `apple_key_id` / `apple_team_id` | `APPLE_KEY_ID` / `APPLE_TEAM_ID` |
+
+Assign a field only to read it from somewhere else — a differently named
+variable, Rails credentials. An explicit assignment, even of `nil`, always wins
+over the ENV fallback.
+
 ```ruby
 StandardId.configure do |config|
-  # Google OAuth
-  config.social.google_client_id = ENV["GOOGLE_CLIENT_ID"]
-  config.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
+  # Only needed when not using the canonical ENV names above:
+  config.social.apple_private_key = Rails.application.credentials.dig(:apple, :private_key)
 
-  # Apple Sign In
-  config.social.apple_mobile_client_id = ENV["APPLE_MOBILE_CLIENT_ID"]
-  config.social.apple_client_id = ENV["APPLE_CLIENT_ID"]
-  config.social.apple_private_key = ENV["APPLE_PRIVATE_KEY"]
-  config.social.apple_key_id = ENV["APPLE_KEY_ID"]
-  config.social.apple_team_id = ENV["APPLE_TEAM_ID"]
   config.social.allowed_redirect_url_prefixes = ["sidekicklabs://"]
 
   # Optional: adjust which attributes are persisted during social signup
@@ -308,6 +317,30 @@ end
 ```
 
 `social_info` is an indifferent-access hash containing at least `email`, `name`, and `provider_id`.
+
+**Is a provider on?** A provider is *enabled* when its client ID is present.
+Ask StandardId rather than checking the client ID yourself:
+
+```ruby
+StandardId.social_provider_enabled?(:google) # => false when the plugin is absent, too
+StandardId.enabled_social_providers          # => { "google" => StandardId::Providers::Google }
+StandardId::Providers::Apple.configuration_errors
+# => ["apple_private_key is required when apple_client_id is set"]
+```
+
+**Boot-time check.** Once every plugin has registered, StandardId checks each
+enabled provider for missing required fields — for example an Apple client ID
+without the private key, whose sign-in flow would start fine and then fail at
+the callback, after the user had already authenticated with Apple. By default
+it logs a warning. To fail the deploy instead:
+
+```ruby
+config.social.provider_misconfiguration = :raise # raises in production, warns elsewhere
+```
+
+Which fields are required is declared by each plugin (`required: true`, see
+[Writing a Provider Plugin](#writing-a-provider-plugin)), so the check covers a
+provider once its plugin release declares them.
 
 To handle social login completion (e.g., for analytics or audit logging), subscribe to the `SOCIAL_AUTH_COMPLETED` event:
 
@@ -361,6 +394,7 @@ interface Props {
   connection: string | null
   flash: { notice?: string; alert?: string }
   social_providers: { google_enabled: boolean; apple_enabled: boolean }
+  enabled_social_providers: string[]
 }
 
 export default function LoginShow({ redirect_uri, flash, social_providers }: Props) {
@@ -455,7 +489,8 @@ Authentication pages receive the following props:
 | `redirect_uri` | `string` | URL to redirect to after authentication |
 | `connection` | `string \| null` | Social provider connection (if any) |
 | `flash` | `{ notice?: string, alert?: string }` | Flash messages |
-| `social_providers` | `{ google_enabled: boolean, apple_enabled: boolean }` | Available social providers |
+| `social_providers` | `{ [name]_enabled: boolean }` | One flag per registered provider. `google_enabled` and `apple_enabled` are always present (false when the plugin is absent) |
+| `enabled_social_providers` | `string[]` | Names of the enabled providers, e.g. `["google"]` — iterate this rather than hard-coding provider names |
 | `errors` | `object` | Validation errors (on form submission failures) |
 
 #### Using Authentication in Host App Controllers
@@ -1181,6 +1216,120 @@ secret = client.create_client_secret!(name: "Production Secret")
 # Rotate client secret
 new_secret = client.rotate_client_secret!
 ```
+
+## Writing a Provider Plugin
+
+Social providers ship as separate gems (`standard_id-google`,
+`standard_id-apple`) that subclass `StandardId::Providers::Base` and register
+themselves. A minimal plugin is a provider class plus a two-line entry file.
+
+```ruby
+# lib/standard_id/github.rb — the gem's entry file
+require "standard_id"
+require "standard_id/github/providers/github"
+
+# Defines the Railtie that registers the provider after the host app has
+# initialized. No hand-written railtie.rb, no `if defined?(Rails)` guard.
+StandardId::Providers.plugin_railtie(:github, "StandardId::Providers::GitHub")
+```
+
+```ruby
+# lib/standard_id/github/providers/github.rb
+module StandardId
+  module Providers
+    class GitHub < Base
+      AUTH_ENDPOINT = "https://github.com/login/oauth/authorize".freeze
+      TOKEN_ENDPOINT = "https://github.com/login/oauth/access_token".freeze
+
+      class << self
+        def provider_name = "github"
+        def default_scope = "read:user user:email"
+        def supported_authorization_params = %i[scope login allow_signup]
+
+        # Fields land in the `social` config scope. `env:` and `required:` are
+        # read by StandardId (>= 0.42) and not passed to ConfigSchema.
+        def config_schema
+          {
+            github_client_id: { type: :string, default: nil },                  # ENV GITHUB_CLIENT_ID
+            github_client_secret: { type: :string, default: nil, required: true },
+            github_enterprise_host: { type: :string, default: nil, env: false } # no ENV fallback
+          }
+        end
+
+        def authorization_url(state:, redirect_uri:, **options)
+          build_authorization_url(
+            endpoint: AUTH_ENDPOINT,
+            client_id: StandardId.config.github_client_id,
+            redirect_uri:, state:, options:,
+            defaults: { scope: default_scope }
+          )
+        end
+
+        def get_user_info(code: nil, redirect_uri: nil, **)
+          rescue_to_oauth_error do
+            raise StandardId::InvalidRequestError, "Missing authorization code" if code.blank?
+
+            response = HttpClient.post_form(TOKEN_ENDPOINT, { code:, redirect_uri:, ... })
+            parsed = JSON.parse(response.body)
+            build_response(fetch_profile(parsed["access_token"]), tokens: extract_tokens(parsed))
+          end
+        end
+      end
+    end
+  end
+end
+```
+
+**Required interface:** `provider_name`, `authorization_url`, `get_user_info`.
+
+**Optional hooks** (all class methods, with safe defaults):
+
+| Hook | Default | Purpose |
+|------|---------|---------|
+| `config_schema` | `{}` | `social` config fields. Per-field `env:` (String, or `false` to opt out; default is the upper-cased field name) and `required: true` |
+| `enabling_config_field` | `:<provider_name>_client_id` if declared | Field whose presence switches the provider on |
+| `required_config_fields` | fields with `required: true` | Must be present while enabled; reported by `configuration_errors` and the boot check |
+| `enabled?` / `configuration_errors` / `configured?` | derived from the two above | Override for enablement rules the fields cannot express |
+| `default_scope` | `nil` | Scope for the social-login grant |
+| `supported_authorization_params` | `[]` | Params `build_authorization_url` forwards from `options`. Include `:nonce` for OIDC |
+| `resolve_params(params, context:)` | `params` | Adjust params per flow (`context[:flow]` is `:web` or `:mobile`) |
+| `flow_for(params)` | `:web` only for `flow=web` on providers that `supports_mobile_callback?`, else `:mobile` | Flow for the API callback |
+| `skip_csrf?` | `false` | `true` for POST (form_post) callbacks |
+| `supports_mobile_callback?` | `false` | Enables the server-side redirect back to a native app |
+
+**Protected helpers** for use inside those methods — signatures are stable:
+
+| Helper | Does |
+|--------|------|
+| `build_response(user_info, tokens:)` | The standard `get_user_info` return value |
+| `build_authorization_url(endpoint:, client_id:, redirect_uri:, state:, options: {}, defaults: {}, response_type: "code")` | `client_id`, `redirect_uri`, `response_type`, `state`, then each `supported_authorization_params` entry from `options` or `defaults`; nils dropped |
+| `extract_tokens(parsed_token)` | `{ access_token:, refresh_token:, id_token: }` from a token response, nils dropped |
+| `verify_nonce!(expected:, actual:)` | Constant-time nonce check; no-op when `expected` is blank. Raises `InvalidRequestError` without echoing either value |
+| `rescue_to_oauth_error(message_prefix = nil) { ... }` | Lets `StandardId::OAuthError` through; wraps anything else in one, keeping `cause` |
+
+A plugin using `env:`, `required:` or these helpers should depend on
+`standard_id >= 0.42`. `Providers::Base.setup` was removed in 0.42 — do
+one-off initialization in your own Railtie instead.
+
+**Testing a plugin, or an app that uses one:**
+
+```ruby
+# spec/rails_helper.rb
+require "standard_id/testing"
+
+# spec/initializers/standard_id_providers_spec.rb
+RSpec.describe "StandardId social providers" do
+  it_behaves_like "a registered StandardId provider", :google
+  it_behaves_like "a registered StandardId provider", :apple
+end
+
+expect(:apple).to be_a_registered_standard_id_provider.with_config_fields(:apple_client_id, :apple_team_id)
+```
+
+The shared example checks the provider is registered, that its fields
+(default: its whole `config_schema`) are declared on the `social` scope, and
+that each accepts a write the way `config/initializers/standard_id.rb` makes
+one.
 
 ## Schema DSL
 
