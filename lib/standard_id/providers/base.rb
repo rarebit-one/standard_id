@@ -340,19 +340,6 @@ module StandardId
           params[:flow].to_s.downcase == "web" ? :web : :mobile
         end
 
-        # Optional setup hook called when provider is registered.
-        #
-        # Override this method to perform initialization tasks like:
-        # - Registering additional routes
-        # - Adding custom validations
-        # - Setting up caching for JWKS
-        #
-        # @return [void]
-        #
-        def setup
-          # Override in subclasses if needed
-        end
-
         protected
 
         # Helper to build standardized response format.

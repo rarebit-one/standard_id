@@ -9,6 +9,8 @@ module StandardId
     # StandardId (see Providers::Base) rather than to ConfigSchema.
     PROVIDER_FIELD_OPTIONS = %i[env required].freeze
 
+    DEPRECATOR = ActiveSupport::Deprecation.new("1.0", "StandardId")
+
     @providers = Concurrent::Map.new
 
     class << self
@@ -23,7 +25,7 @@ module StandardId
         validate_provider!(provider_class)
         providers[name.to_s] = provider_class
         declare_config_schema(provider_class)
-        provider_class.setup if provider_class.respond_to?(:setup)
+        run_deprecated_setup(provider_class)
         provider_class
       end
 
@@ -200,6 +202,20 @@ module StandardId
 
           fallback.respond_to?(:call) ? fallback.call : fallback
         end
+      end
+
+      # Providers::Base.setup was removed in 0.42: no known plugin overrode
+      # it, and register — its only caller — runs from after_initialize, where
+      # a plugin's own Railtie can do the same work. A provider that still
+      # defines `setup` keeps working, with a deprecation warning.
+      def run_deprecated_setup(provider_class)
+        return unless provider_class.respond_to?(:setup)
+
+        DEPRECATOR.warn(
+          "#{provider_class.name || provider_class}.setup is deprecated and will not be called " \
+          "by StandardId 1.0. Move provider initialization into the plugin's Railtie."
+        )
+        provider_class.setup
       end
 
       def production?
