@@ -228,6 +228,118 @@ module StandardId
           []
         end
 
+        # --------------------------------------------------------------------
+        # Configuration & enablement
+        # --------------------------------------------------------------------
+        #
+        # Each entry returned by {config_schema} may carry two provider-level
+        # options in addition to the ConfigSchema ones (`type:`, `default:`).
+        # They are consumed by StandardId and never reach ConfigSchema:
+        #
+        # - `env:` — the ENV variable the field falls back to when the host app
+        #   never assigns it. Defaults to the upper-cased field name
+        #   (`google_client_id` → `GOOGLE_CLIENT_ID`), which is the canonical
+        #   naming scheme. Pass a String to use another variable, or `false` to
+        #   disable the ENV fallback for that field. Explicit configuration
+        #   (`c.social.google_client_id = ...`, including an explicit `nil`)
+        #   always wins over the ENV fallback.
+        # - `required: true` — the field must be present whenever the provider
+        #   is {enabled?}. Missing required fields are reported by
+        #   {configuration_errors} and by the boot-time check (see
+        #   `c.social.provider_misconfiguration`).
+        #
+        # Both options require standard_id >= 0.42. A plugin that declares them
+        # should depend on `standard_id >= 0.42` — older versions pass the
+        # options through to ConfigSchema and raise ArgumentError.
+        #
+        # @example
+        #   def self.config_schema
+        #     {
+        #       github_client_id: { type: :string, default: nil },
+        #       github_client_secret: { type: :string, default: nil, required: true },
+        #       github_enterprise_host: { type: :string, default: nil, env: false }
+        #     }
+        #   end
+
+        # Config field whose presence switches this provider on.
+        #
+        # Defaults to `:"<provider_name>_client_id"` when that field is part of
+        # {config_schema}, otherwise nil (a provider with no enabling field is
+        # always enabled once registered). Override when the provider keys off a
+        # different field.
+        #
+        # @return [Symbol, nil]
+        def enabling_config_field
+          field = :"#{provider_name}_client_id"
+          config_schema.key?(field) ? field : nil
+        end
+
+        # Config fields that must be present whenever the provider is enabled.
+        #
+        # Defaults to the {config_schema} fields declared with `required: true`.
+        #
+        # @return [Array<Symbol>]
+        def required_config_fields
+          config_schema.select { |_name, options| options.is_a?(Hash) && options[:required] }.keys.map(&:to_sym)
+        end
+
+        # Whether the host app has switched this provider on.
+        #
+        # True when {enabling_config_field} is present in the configuration (or
+        # when the provider has no enabling field). Says nothing about whether
+        # the rest of the configuration is complete — see {configuration_errors}
+        # and {configured?}.
+        #
+        # @return [Boolean]
+        def enabled?
+          field = enabling_config_field
+          return true if field.nil?
+
+          config_value(field).present?
+        end
+
+        # Human-readable problems with this provider's configuration.
+        #
+        # Empty when the provider is disabled: a provider nobody switched on
+        # cannot be misconfigured. Messages name fields, never their values.
+        #
+        # @return [Array<String>]
+        def configuration_errors
+          return [] unless enabled?
+
+          missing = required_config_fields.select { |field| config_value(field).blank? }
+          return [] if missing.empty?
+
+          trigger = enabling_config_field ? " when #{enabling_config_field} is set" : ""
+          missing.map { |field| "#{field} is required#{trigger}" }
+        end
+
+        # Enabled and free of {configuration_errors}.
+        #
+        # @return [Boolean]
+        def configured?
+          enabled? && configuration_errors.empty?
+        end
+
+        # The flow a native/API callback is running, used as `context[:flow]`
+        # for {resolve_params}.
+        #
+        # Called by the API callback endpoint (`/api/oauth/callback/:provider`).
+        # The default honours an explicit `flow=web` param only for providers
+        # that {supports_mobile_callback?} — those are the providers whose web
+        # and native flows differ (e.g. Apple's distinct Services ID vs bundle
+        # ID audiences). Everything else is treated as `:mobile`, which is what
+        # the API endpoint served before this hook existed. Override to
+        # recognise other flows.
+        #
+        # @param params [#[]] Request params
+        # @return [Symbol] `:web` or `:mobile`
+        def flow_for(params)
+          return :mobile unless supports_mobile_callback?
+
+          params[:flow].to_s.downcase == "web" ? :web : :mobile
+        end
+
         # Optional setup hook called when provider is registered.
         #
         # Override this method to perform initialization tasks like:

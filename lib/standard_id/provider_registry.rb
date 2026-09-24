@@ -5,6 +5,10 @@ module StandardId
     class ProviderNotFoundError < StandardError; end
     class InvalidProviderError < StandardError; end
 
+    # Keys a provider's `config_schema` entry may carry that belong to
+    # StandardId (see Providers::Base) rather than to ConfigSchema.
+    PROVIDER_FIELD_OPTIONS = %i[env required].freeze
+
     @providers = Concurrent::Map.new
 
     class << self
@@ -84,8 +88,58 @@ module StandardId
         return if schema.nil? || schema.empty?
 
         schema.each do |field_name, options|
-          StandardId::ConfigSchema.add_field(scope: :social, name: field_name, **options)
+          StandardId::ConfigSchema.add_field(scope: :social, name: field_name, **options.except(*PROVIDER_FIELD_OPTIONS))
         end
+      end
+
+      # Registered providers the host app has switched on (see
+      # Providers::Base.enabled?).
+      #
+      # @return [Hash{String => Class}] Provider name => class
+      def enabled
+        all.select { |_name, provider_class| provider_class.enabled? }
+      end
+
+      # Configuration problems across every registered provider.
+      #
+      # @return [Hash{String => Array<String>}] Provider name => errors, only
+      #   for providers that have any
+      def configuration_errors
+        all.each_with_object({}) do |(name, provider_class), errors|
+          provider_errors = provider_class.configuration_errors
+          errors[name] = provider_errors if provider_errors.any?
+        end
+      end
+
+      # Boot-time check that every enabled provider is fully configured.
+      #
+      # Run by StandardId::Engine once every plugin has registered. A provider
+      # whose client ID is set but whose other required fields are not starts
+      # its sign-in flow fine and only fails at the callback — after the user
+      # has already authenticated with the provider — so this surfaces it at
+      # boot instead.
+      #
+      # Behaviour follows `c.social.provider_misconfiguration`:
+      # - `:warn` (default) — log a warning in every environment.
+      # - `:raise` — raise StandardId::ConfigurationError in production; log a
+      #   warning in every other environment, so a developer without production
+      #   credentials can still boot the app.
+      #
+      # @param mode [Symbol] Override the configured mode
+      # @param logger [Logger, nil]
+      # @return [Hash{String => Array<String>}] the errors found
+      # @raise [StandardId::ConfigurationError]
+      def validate_configuration!(mode: StandardId.config.social.provider_misconfiguration, logger: StandardId.logger)
+        errors = configuration_errors
+        return errors if errors.empty?
+
+        message = "StandardId social provider configuration is incomplete: " +
+                  errors.map { |name, provider_errors| "#{name} (#{provider_errors.join('; ')})" }.join(", ")
+
+        raise StandardId::ConfigurationError, message if mode.to_s == "raise" && production?
+
+        logger&.warn("[StandardId] #{message}")
+        errors
       end
 
       # Get provider by name
@@ -113,6 +167,10 @@ module StandardId
       end
 
       private
+
+      def production?
+        defined?(Rails) && Rails.respond_to?(:env) && Rails.env.production?
+      end
 
       def validate_provider!(provider_class)
         unless provider_class.is_a?(Class)

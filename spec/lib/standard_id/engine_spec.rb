@@ -12,6 +12,27 @@ RSpec.describe StandardId::Engine do
     end
   end
 
+  describe "validate_social_providers initializer" do
+    subject(:initializer) do
+      described_class.initializers.find { |i| i.name == "standard_id.validate_social_providers" }
+    end
+
+    it "is declared" do
+      expect(initializer).not_to be_nil
+    end
+
+    it "validates the registry from after_initialize, once plugins have registered" do
+      app = instance_double(Rails::Application, config: Rails.application.config)
+      allow(StandardId::ProviderRegistry).to receive(:validate_configuration!)
+
+      # The app is already initialized, so ActiveSupport runs the newly added
+      # after_initialize hook immediately.
+      initializer.run(app)
+
+      expect(StandardId::ProviderRegistry).to have_received(:validate_configuration!)
+    end
+  end
+
   describe "provider_config_schemas initializer" do
     subject(:initializer) do
       described_class.initializers.find { |i| i.name == "standard_id.provider_config_schemas" }
