@@ -88,8 +88,28 @@ module StandardId
         return if schema.nil? || schema.empty?
 
         schema.each do |field_name, options|
-          StandardId::ConfigSchema.add_field(scope: :social, name: field_name, **options.except(*PROVIDER_FIELD_OPTIONS))
+          field_options = options.except(*PROVIDER_FIELD_OPTIONS)
+          env_name = env_var_for(field_name, options)
+          field_options[:default] = env_default(env_name, options[:default]) if env_name
+
+          StandardId::ConfigSchema.add_field(scope: :social, name: field_name, **field_options)
         end
+      end
+
+      # The ENV variable a provider config field falls back to, or nil.
+      #
+      # Canonical scheme: the upper-cased field name (`apple_private_key` →
+      # `APPLE_PRIVATE_KEY`). A provider overrides it per field with
+      # `env: "OTHER_NAME"`, or opts out with `env: false`.
+      #
+      # @param field_name [Symbol, String]
+      # @param options [Hash] the field's config_schema entry
+      # @return [String, nil]
+      def env_var_for(field_name, options = {})
+        env = options.fetch(:env, true)
+        return nil if env == false || env.nil?
+
+        env == true ? field_name.to_s.upcase : env.to_s
       end
 
       # Registered providers the host app has switched on (see
@@ -167,6 +187,20 @@ module StandardId
       end
 
       private
+
+      # A default that prefers a non-blank ENV value, then the field's own
+      # default. Evaluated lazily (ConfigSchema calls it when the config is
+      # built, or on first read of a field declared afterwards), and only when
+      # the host never assigned the field — an explicit assignment, even of
+      # nil, always wins.
+      def env_default(env_name, fallback)
+        lambda do
+          value = ENV[env_name]
+          next value if value.present?
+
+          fallback.respond_to?(:call) ? fallback.call : fallback
+        end
+      end
 
       def production?
         defined?(Rails) && Rails.respond_to?(:env) && Rails.env.production?
