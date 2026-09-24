@@ -1,3 +1,6 @@
+require "uri"
+require "active_support/security_utils"
+
 module StandardId
   module Providers
     # Base class for social login providers.
@@ -251,6 +254,118 @@ module StandardId
             user_info: user_info,
             tokens: tokens.compact
           }.with_indifferent_access
+        end
+
+        # Read one of this provider's config fields.
+        #
+        # Goes through the top-level `StandardId.config` accessor — the same
+        # way the provider plugins read their own credentials — so the value
+        # seen here always matches the one the provider will use.
+        #
+        # @param field [Symbol, String]
+        # @return [Object, nil]
+        def config_value(field)
+          StandardId.config.public_send(field)
+        end
+
+        # Run the block, re-raising any non-OAuth error as StandardId::OAuthError.
+        #
+        # StandardId::OAuthError (and subclasses such as InvalidRequestError)
+        # propagate unchanged. Anything else — network, JSON, OpenSSL, JWT
+        # errors — is wrapped so callers only ever handle OAuthError, with the
+        # original exception kept as `cause`.
+        #
+        # @param message_prefix [String, nil] Prepended to the wrapped error's
+        #   message, e.g. "Failed to fetch JWK" → "Failed to fetch JWK: <msg>"
+        # @return [Object] the block's return value
+        # @raise [StandardId::OAuthError]
+        #
+        # @example
+        #   def fetch_user_info(access_token:)
+        #     rescue_to_oauth_error do
+        #       response = HttpClient.get_with_bearer(USERINFO_ENDPOINT, access_token)
+        #       JSON.parse(response.body)
+        #     end
+        #   end
+        #
+        def rescue_to_oauth_error(message_prefix = nil)
+          yield
+        rescue StandardId::OAuthError
+          raise
+        rescue StandardError => e
+          message = message_prefix ? "#{message_prefix}: #{e.message}" : e.message
+          raise StandardId::OAuthError, message, cause: e
+        end
+
+        # Verify an ID token's `nonce` claim against the one the server issued.
+        #
+        # No-op when `expected` is blank (flows without a server-generated
+        # nonce). Comparison is constant-time. The error message deliberately
+        # does not include either nonce: the expected value is a server-side
+        # secret for the duration of the flow, and error messages end up in
+        # redirects, logs and error trackers.
+        #
+        # @param expected [String, nil] Nonce stored when the flow started
+        # @param actual [String, nil] `nonce` claim from the verified ID token
+        # @return [void]
+        # @raise [StandardId::InvalidRequestError] on mismatch
+        def verify_nonce!(expected:, actual:)
+          return if expected.blank?
+          return if actual.is_a?(String) && ActiveSupport::SecurityUtils.secure_compare(actual, expected.to_s)
+
+          raise StandardId::InvalidRequestError, "ID token nonce mismatch"
+        end
+
+        # Build an OAuth 2.0 authorization-code URL.
+        #
+        # Emits `client_id`, `redirect_uri`, `response_type`, `state`, then one
+        # entry per {supported_authorization_params}, taking the caller's value
+        # from `options` or falling back to `defaults`. Nil values are dropped.
+        #
+        # @param endpoint [String] Provider authorization endpoint
+        # @param client_id [String]
+        # @param redirect_uri [String]
+        # @param state [String]
+        # @param options [Hash] Caller-supplied authorization params
+        # @param defaults [Hash] Per-param fallbacks (e.g. `{ scope: "openid email" }`)
+        # @param response_type [String]
+        # @return [String]
+        #
+        # @example
+        #   def self.authorization_url(state:, redirect_uri:, **options)
+        #     build_authorization_url(
+        #       endpoint: AUTH_ENDPOINT,
+        #       client_id: StandardId.config.github_client_id,
+        #       redirect_uri:, state:, options:,
+        #       defaults: { scope: DEFAULT_SCOPE }
+        #     )
+        #   end
+        #
+        def build_authorization_url(endpoint:, client_id:, redirect_uri:, state:, options: {}, defaults: {}, response_type: "code")
+          query = {
+            client_id: client_id,
+            redirect_uri: redirect_uri,
+            response_type: response_type,
+            state: state
+          }
+
+          supported_authorization_params.each do |param|
+            query[param] = options[param] || defaults[param]
+          end
+
+          "#{endpoint}?#{URI.encode_www_form(query.compact)}"
+        end
+
+        # Pick the standard tokens out of a token-endpoint response.
+        #
+        # @param parsed_token [Hash] Parsed token response (String or Symbol keys)
+        # @return [Hash{Symbol => String}] `access_token`, `refresh_token` and
+        #   `id_token`, nil entries removed
+        def extract_tokens(parsed_token)
+          %i[access_token refresh_token id_token].each_with_object({}) do |key, tokens|
+            value = parsed_token[key.to_s] || parsed_token[key]
+            tokens[key] = value unless value.nil?
+          end
         end
       end
     end
