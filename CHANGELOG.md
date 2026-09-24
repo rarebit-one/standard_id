@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Requires Rails 8.1** (`rails >= 8.1`, was `>= 8.0`). Every consumer app
+  runs 8.1; 8.0 was never exercised in CI.
+
 ## [0.43.1] - 2026-09-24
 
 Fixes found while shipping 0.43.0. **Take this instead of 0.43.0** — hosts on `c.passwordless.delivery = :built_in` with the WebEngine mounted (jumpdrive-web, nutripod-web) would otherwise email email-verification codes as "your sign-in code".

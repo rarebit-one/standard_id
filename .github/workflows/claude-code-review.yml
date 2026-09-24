@@ -16,7 +16,6 @@ concurrency:
 
 jobs:
   review:
-    if: github.actor != 'dependabot[bot]'
     permissions:
       contents: read
       pull-requests: write
