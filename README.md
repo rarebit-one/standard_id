@@ -1503,12 +1503,12 @@ StandardId never deletes expired rows on its own. Four cleanup jobs do, and **al
 
 | Job | Deletes | Grace windows (`perform` kwargs) | Recommended cadence |
 |---|---|---|---|
-| `StandardId::CleanupExpiredSessionsJob` | browser/device/service sessions expired > grace | `grace_period_seconds:` 7 days | hourly (minute 6) |
+| `StandardId::CleanupExpiredSessionsJob` | browser/device/service sessions expired > grace and holding no live refresh token (dead tokens are detached, not deleted) | `grace_period_seconds:` 7 days; `batch_size:` 1,000 | hourly (minute 6) |
 | `StandardId::CleanupExpiredRefreshTokensJob` | refresh tokens expired or revoked > grace | `grace_period_seconds:` 7 days | hourly (minute 3) |
 | `StandardId::CleanupExpiredAuthorizationCodesJob` | OAuth authorization codes expired > 7 days or consumed > 1 day | `grace_period_seconds:`, `consumed_grace_period_seconds:` | hourly (minute 9) |
 | `StandardId::CleanupExpiredCodeChallengesJob` | OTP code challenges expired > 7 days or used > 1 day | `grace_period_seconds:`, `used_grace_period_seconds:` | hourly (minute 13) |
 
-Retention is bounded by the grace windows, not the cadence; each job is a single `DELETE`, so running hourly keeps that statement small on busy tables (daily is fine for small apps). Stagger them off minute 0.
+Retention is bounded by the grace windows, not the cadence. Three of the jobs are a single `DELETE`, so running hourly keeps that statement small on busy tables (daily is fine for small apps). `CleanupExpiredSessionsJob` instead works in batches of `batch_size:` sessions: one transaction per batch, holding a `SELECT … FOR UPDATE SKIP LOCKED` on the candidates, an `UPDATE` detaching their dead refresh tokens and the `DELETE`. It never deletes a session whose refresh token is still live, because refresh tokens outlive session expiry by design; such a session goes on a later run, once its tokens are dead. Stagger the jobs off minute 0.
 
 `rails g standard_id:install` adds all four to `config/recurring.yml` (Solid Queue) under `production:` when that file exists (`--skip-recurring` to opt out; re-running is a no-op). An engine cannot register Solid Queue recurring tasks itself — Solid Queue reads one schedule file — so existing apps should paste this under their `production:` key:
 

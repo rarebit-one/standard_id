@@ -89,6 +89,19 @@ RSpec.describe StandardId::CleanupExpiredSessionsJob, type: :job do
       expect(live_rt).to be_active
     end
 
+    # A session-less live token (client_credentials / M2M) must not reach the
+    # "has a live token" subquery: a NULL inside NOT IN makes the predicate
+    # unknown for every row, which would silently stop all cleanup.
+    it "is not blocked by live refresh tokens that have no session" do
+      StandardId::RefreshToken.create!(account: account, session: nil, expires_at: 20.days.from_now,
+                                       token_digest: Digest::SHA256.hexdigest(SecureRandom.hex(8)))
+      session = session_expired(30.days)
+
+      described_class.new.perform(grace_period_seconds: 7.days.to_i)
+
+      expect(StandardId::Session.exists?(session.id)).to be(false)
+    end
+
     it "cleans up in batches, each in its own transaction" do
       sessions = Array.new(5) { session_expired(30.days) }
       sessions.each { |s| refresh_token_for(s, expires_at: 20.days.ago) }
