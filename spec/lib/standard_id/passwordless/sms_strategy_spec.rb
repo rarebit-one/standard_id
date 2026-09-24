@@ -4,10 +4,6 @@ RSpec.describe StandardId::Passwordless::SmsStrategy do
   let(:request) { instance_double("ActionDispatch::Request", remote_ip: "127.0.0.1", user_agent: "RSpec") }
   subject(:strategy) { described_class.new(request) }
 
-  before do
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-  end
-
   describe "#validate_username!" do
     it "accepts a valid E.164 phone number" do
       expect { strategy.send(:validate_username!, "+14155550123") }.not_to raise_error
@@ -19,12 +15,11 @@ RSpec.describe StandardId::Passwordless::SmsStrategy do
   end
 
   describe "#start!" do
-    it "creates a challenge and calls sender" do
-      sender = double("sender")
-      expect(sender).to receive(:call).with("+14155550123", kind_of(String))
-      allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(sender)
+    it "creates a challenge and publishes the code for delivery" do
+      codes = capture_passwordless_codes
 
       challenge = strategy.start!(connection: "sms", username: "+14155550123")
+      expect(codes).to contain_exactly(["+14155550123", kind_of(String)])
       expect(challenge).to be_persisted
       expect(challenge.channel).to eq("sms")
       expect(challenge.target).to eq("+14155550123")

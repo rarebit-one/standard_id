@@ -44,15 +44,24 @@ module StandardId
   #
   # == Delivery modes
   #
-  # * +:built_in+ — uses the engine's bundled mailer
-  #   (+StandardId::PasswordlessMailer+) when
-  #   +StandardId.config.passwordless.delivery+ is +:built_in+. Works for
-  #   +channel: :email+ only.
-  # * +:custom+ — calls the configured +passwordless_email_sender+ or
-  #   +passwordless_sms_sender+ callback.
-  # * +:manual+ — skip delivery entirely; the raw +code+ is returned on the
-  #   result so the caller can deliver it however they like. Useful for
-  #   custom widget/embedded flows that want full control over the channel.
+  # Every mode publishes +StandardId::Events::PASSWORDLESS_CODE_GENERATED+
+  # (synchronously, inside the call); the payload carries +delivery:+ and
+  # +skip_sender:+ so subscribers can tell the modes apart.
+  #
+  # * +:built_in+ (default) — follow the global
+  #   +StandardId.config.passwordless.delivery+: when that is +:built_in+ the
+  #   engine's +PasswordlessMailer+ sends the code (+channel: :email+ only);
+  #   otherwise the host's own +PASSWORDLESS_CODE_GENERATED+ subscriber does.
+  # * +:custom+ — the host's +PASSWORDLESS_CODE_GENERATED+ subscriber delivers
+  #   this code; the engine mailer never does, even when the global setting is
+  #   +:built_in+. Use it for a realm whose message differs from the sign-in
+  #   email. Nothing is sent unless the host subscribes. (Before 0.43 this
+  #   called +passwordless_email_sender+ / +passwordless_sms_sender+, both
+  #   removed in 0.43.)
+  # * +:manual+ — no subscriber should deliver (+skip_sender: true+); the raw
+  #   +code+ is returned on the result so the caller can deliver it however
+  #   they like. Useful for custom widget/embedded flows that want full
+  #   control over the channel.
   module Otp
     VALID_CHANNELS  = %w[email sms].freeze
     VALID_DELIVERIES = %i[built_in custom manual].freeze
@@ -112,13 +121,6 @@ module StandardId
           return failure_issue_result(:invalid_request, "target: is required")
         end
 
-        # Fail loud when the caller asked for :custom delivery but has not
-        # configured the corresponding sender callback. Without this guard
-        # BaseStrategy#start! would silently skip delivery (the sender_callback
-        # is nil and `&.call` no-ops) while Otp.issue still returned a success
-        # result — making host apps believe the OTP was sent when it was not.
-        assert_custom_sender_configured!(channel_s) if delivery_sym == :custom
-
         strategy = build_strategy(channel_s, request, realm: realm_s)
 
         begin
@@ -127,7 +129,8 @@ module StandardId
             code_length: code_length,
             expires_in: normalize_expires_in(expires_in),
             metadata: metadata,
-            skip_sender: delivery_sym == :manual
+            skip_sender: delivery_sym == :manual,
+            delivery: delivery_sym
           )
         rescue StandardId::InvalidRequestError => e
           # Validation failures from the strategy (invalid email/phone format,
@@ -225,17 +228,6 @@ module StandardId
           error_code: error_code,
           error_message: error_message
         )
-      end
-
-      def assert_custom_sender_configured!(channel)
-        attr = channel == "email" ? :passwordless_email_sender : :passwordless_sms_sender
-        sender = StandardId.config.public_send(attr)
-        return if sender.respond_to?(:call)
-
-        raise StandardId::ConfigurationError,
-          "Otp.issue(delivery: :custom) requires StandardId.config.#{attr} to be a callable " \
-          "(got #{sender.inspect}). Configure it in an initializer, or use delivery: :built_in " \
-          "to let the engine's event subscriber deliver, or delivery: :manual to receive the raw code."
       end
     end
 

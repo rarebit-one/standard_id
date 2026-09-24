@@ -60,7 +60,7 @@ module StandardId
       # fallback keeps working for later examples.
       def round_trip(field, value)
         social = StandardId.config.social
-        assigned = social.key?(field.to_sym)
+        assigned = social.assigned?(field)
         original = social.to_h[field.to_sym]
         social.public_send(:"#{field}=", value)
         social.public_send(field)

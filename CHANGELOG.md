@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-09-24
+
+**Breaking minor.** Removes everything 0.42 deprecated. Every consumer cleared those warnings in its Phase 3 adoption, so for the five apps the upgrade is a version bump — see **Upgrade notes**.
+
+### Upgrade notes
+
+If your app boots on 0.42 with no `StandardId` deprecation warning, **you need change nothing**. Checked against `origin/main` of fundbright-web, jumpdrive-web, luminality-web, nutripod-web and sidekick-web: none assigns a removed setting, uses the singular scope `profile_type:`, calls `Otp.issue(delivery: :custom)`, defines `Providers::Base.setup` or references a `DEPRECATOR` constant. What remains is comments (jumpdrive-web and luminality-web's initializers still carry the old commented-out `# c.passwordless_*_sender` lines; jumpdrive-web the commented `# c.rate_limits.password_login_per_*` lines) — worth deleting, harmless to keep.
+
+| Removed | What to do instead |
+|---|---|
+| `c.passwordless_email_sender`, `c.passwordless_sms_sender` | A `StandardId::Events::PASSWORDLESS_CODE_GENERATED` subscriber (skip when `event[:skip_sender]`), with `c.passwordless.delivery = :custom` (the default) — as fundbright-web already does. |
+| `c.passwordless.enabled` | `c.web.passwordless_login` (it had no effect since 0.8). |
+| `c.oauth.client_id`, `c.oauth.client_secret` | Delete — never read. |
+| `c.rate_limits.password_login_per_ip`, `password_login_per_email` | `c.rate_limits.login_per_ip`, `login_per_email`. `RateLimitHandling.login_per_ip` / `.login_per_email` now read only these. |
+| Scope config `profile_type: "X"` | `profile_types: ["X"]`. |
+| `Providers::Base.setup` (called with a warning when a provider defined it) | Initialize in the plugin's Railtie; `setup` is no longer called. standard_id-apple 0.6, standard_id-google 0.5 and standard_id-provider define none. |
+| `StandardId::ScopeConfig::DEPRECATOR`, `StandardId::ProviderRegistry::DEPRECATOR` | `StandardId.deprecator` (still registered as `Rails.application.deprecators[:standard_id]`). |
+
+Assigning a removed setting now raises `StandardId::ConfigurationError` **at boot**, with the replacement in the message (`StandardId.config.oauth.client_id was removed in StandardId 0.43: …`), rather than the generic "Unknown field" — and, for the two base-scope senders written through the top-level config, rather than being silently stored and ignored. Reading `StandardId.config.passwordless_email_sender` still returns `nil`, so a host spec asserting it is unset (fundbright-web's `spec/lib/otp_delivery_spec.rb`) keeps passing. A scope still using `profile_type:` raises at boot too (`ScopeConfig.validate_all!`, run by the engine): ignoring the key would have left the scope with no profile requirement at all.
+
+`ignored_columns` for `ClientApplication#refresh_token_lifetime` is **kept**. All five apps have merged the column-drop migration, but it only runs with each app's next production deploy, and ignoring an absent column is harmless. It goes in a later minor.
+
+`ostruct` was already dropped from the runtime dependencies in 0.42 (nothing in `app/` or `lib/` uses `OpenStruct`); it stays a development dependency for the specs.
+
+### Changed
+
+- **`StandardId::Otp.issue(delivery: :custom)` no longer needs a sender callback.** It hard-required `passwordless_email_sender` / `passwordless_sms_sender` (raising `ConfigurationError` without one) even after 0.42 deprecated them. It now publishes `PASSWORDLESS_CODE_GENERATED` like the other modes, with `delivery: :custom` in the payload; the engine's `PasswordlessDeliverySubscriber` skips such events even when `c.passwordless.delivery` is `:built_in`, so the host's own subscriber is the only one that delivers. Nothing is sent unless the host subscribes. The YARD docs and README table, which still said `:custom` "calls `passwordless_email_sender`", are fixed.
+- **`PASSWORDLESS_CODE_GENERATED` payload gains `delivery:`** — the `Otp.issue` mode (`:built_in` / `:custom` / `:manual`), `nil` when the code was not issued through `Otp.issue` (sign-in). `skip_sender` is unchanged.
+- **WebEngine `verify_email` / `verify_phone` start actions issue their code through `Otp.issue`** (realm `"verification"`, 10-minute expiry as before), so delivery goes through the event — the built-in mailer under `delivery: :built_in`, the host subscriber otherwise. They used to call the sender callbacks directly and sent nothing without them. They now also get the strategy's format validation, `username_validator`, retry-delay cooldown and previous-code invalidation; a rejected target renders 422.
+- The passwordless strategies no longer have a `sender_callback`.
+
+### Added
+
+- **`StandardId::CleanupAllJob`** runs the four cleanup jobs inline — one recurring entry, so the schedule can carry one cron monitor (the gem's jobs carry none). A failure in one does not skip the rest; the first error is re-raised afterwards so the run still fails its check-in. Subclass it to attach a Sentry cron monitor — README *Scheduled Maintenance* has the snippet. This is jumpdrive-web's `StandardIdCleanupJob`, upstreamed: jumpdrive-web can make its job a subclass (keeping its monitor); the other four apps can collapse their four entries into one if they want a monitor.
+- **`ConfigSchema::Scope#assigned?(field)`** — true only when the host assigned the field (even to `nil`). `key?` is true for every declared field, since defaults are written at config build, so it could not tell a provider field set in the initializer from one falling back to ENV.
+- **`ConfigSchema::Scope#refresh_defaults!`** re-resolves the default of every unassigned field — including provider ENV fallbacks, which are otherwise read once at boot.
+- **`StandardId::Testing::ConfigHelpers#with_provider_env`** (`require "standard_id/testing"`; also `StandardId::Testing.with_provider_env`): sets ENV variables, re-resolves unassigned fields, runs the block and restores both, so a host can test "set `APPLE_CLIENT_ID` → provider enabled". The provider round-trip helper now restores a never-assigned field via `assigned?`.
+- `ConfigSchema` DSL `removed :name, "hint"` for settings taken out of the schema.
+
+### Documentation
+
+- README Sentry span snippet: `finish` now guards `set_span(parent)` (`Scope#set_span` raises `ArgumentError` on `nil`) and says why a missing parent means no span.
+- README: ENV-fallback resolution timing, `assigned?` and `with_provider_env`; the passwordless-delivery section shows the `skip_sender` guard and every payload key.
+- `docs/MIGRATION_GUIDE.md`: a 0.42 → 0.43 section.
+
 ## [0.42.0] - 2026-09-24
 
 ### Upgrade

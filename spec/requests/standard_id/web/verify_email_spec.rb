@@ -11,12 +11,11 @@ RSpec.describe "StandardId Web Verify Email", type: :request do
 
   describe "POST /verify_email/start" do
     it "creates a verification challenge and sends code" do
-      sender = double("email_sender")
-      expect(sender).to receive(:call).with("user@example.com", kind_of(String))
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      codes = capture_passwordless_codes
 
       http_post "/verify_email/start", params: { email: "user@example.com" }
 
+      expect(codes).to contain_exactly(["user@example.com", kind_of(String)])
       expect(response).to have_http_status(:see_other)
       expect(response).to redirect_to(standard_id_web.login_path)
 
@@ -31,6 +30,24 @@ RSpec.describe "StandardId Web Verify Email", type: :request do
     it "returns unprocessable when email missing" do
       http_post "/verify_email/start", params: { email: "" }
       expect(response).to have_http_status(:unprocessable_content)
+    end
+
+    it "returns unprocessable, issuing nothing, for a malformed email" do
+      codes = capture_passwordless_codes
+
+      http_post "/verify_email/start", params: { email: "not-an-email" }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(codes).to be_empty
+      expect(StandardId::CodeChallenge.where(realm: "verification").count).to eq(0)
+    end
+
+    it "is delivered by the bundled mailer when c.passwordless.delivery is :built_in" do
+      allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+
+      expect {
+        http_post "/verify_email/start", params: { email: "user@example.com" }
+      }.to have_enqueued_mail(StandardId::PasswordlessMailer, :otp_email)
     end
   end
 

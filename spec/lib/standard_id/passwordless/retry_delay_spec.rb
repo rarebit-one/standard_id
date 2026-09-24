@@ -8,8 +8,6 @@ RSpec.describe "Passwordless retry_delay cooldown", type: :model do
   subject(:strategy) { StandardId::Passwordless::EmailStrategy.new(request) }
   let(:username) { "user@example.com" }
 
-  before { allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil) }
-
   context "when retry_delay is set" do
     before { allow(StandardId::Passwordless).to receive(:retry_delay).and_return(30) }
 

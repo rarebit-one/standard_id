@@ -11,8 +11,7 @@ module StandardId
       layout "public"
 
       # RAR-51: Rate limit login attempts by IP (20 per 15 minutes). Reads the
-      # mechanism-agnostic `login_per_ip` alias, falling back to the deprecated
-      # `password_login_per_ip` — this action branches password OR passwordless,
+      # mechanism-agnostic `login_per_ip` — this action branches password OR passwordless,
       # so on a passwordless app this governs the OTP-send limit, not a password
       # login. See StandardId::RateLimitHandling.login_per_ip.
       rate_limit to: StandardId::RateLimitHandling.login_per_ip,

@@ -52,24 +52,24 @@ RSpec.describe "StandardId config schema" do
     end
 
     it "returns nil when name is nil" do
-      StandardId.config.scopes = { borrower: { profile_type: "BorrowerProfile" } }
+      StandardId.config.scopes = { borrower: { profile_types: ["BorrowerProfile"] } }
       expect(StandardId.scope_for(nil)).to be_nil
     end
 
     it "returns nil when name is blank" do
-      StandardId.config.scopes = { borrower: { profile_type: "BorrowerProfile" } }
+      StandardId.config.scopes = { borrower: { profile_types: ["BorrowerProfile"] } }
       expect(StandardId.scope_for("")).to be_nil
     end
 
     it "returns nil for an unknown scope" do
-      StandardId.config.scopes = { borrower: { profile_type: "BorrowerProfile" } }
+      StandardId.config.scopes = { borrower: { profile_types: ["BorrowerProfile"] } }
       expect(StandardId.scope_for(:admin)).to be_nil
     end
 
     it "returns a ScopeConfig for a known scope" do
       StandardId.config.scopes = {
         borrower: {
-          profile_type: "BorrowerProfile",
+          profile_types: ["BorrowerProfile"],
           after_sign_in_path: "/borrower/dashboard",
           no_profile_message: "No borrower account found.",
           label: "Borrower Login",
@@ -86,7 +86,7 @@ RSpec.describe "StandardId config schema" do
     end
 
     it "accepts a string name and converts to symbol lookup" do
-      StandardId.config.scopes = { lender: { profile_type: "LenderProfile" } }
+      StandardId.config.scopes = { lender: { profile_types: ["LenderProfile"] } }
 
       scope = StandardId.scope_for("lender")
       expect(scope).to be_a(StandardId::ScopeConfig)

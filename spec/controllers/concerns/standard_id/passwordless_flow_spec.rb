@@ -20,11 +20,6 @@ RSpec.describe StandardId::PasswordlessFlow do
 
   let(:controller) { controller_class.new(request) }
 
-  before do
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-  end
-
   def create_challenge(channel:, target:, code: otp_code, expires_at: 10.minutes.from_now)
     StandardId::CodeChallenge.create!(
       realm: "authentication",

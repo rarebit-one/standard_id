@@ -239,7 +239,6 @@ RSpec.describe "Multiple WebEngine mounts with scope defaults", type: :request d
     it "redirects passwordless login to the same mount's login_verify" do
       allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
       allow(StandardId.config.passwordless).to receive(:connection).and_return("email")
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(double("sender", call: true))
 
       http_post "/borrower/login", params: { login: { email: "mount-prefix@example.com" } }
 

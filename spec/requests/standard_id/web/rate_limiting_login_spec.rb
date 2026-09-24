@@ -22,7 +22,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
     end
 
     it "returns 429 when IP limit is exceeded" do
-      ip_limit = StandardId.config.rate_limits.password_login_per_ip # 20
+      ip_limit = StandardId.config.rate_limits.login_per_ip # 20
 
       # Make enough requests to exceed the limit
       ip_limit.times do
@@ -41,7 +41,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
     end
 
     it "redirects with flash when email limit is exceeded" do
-      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+      email_limit = StandardId.config.rate_limits.login_per_email # 5
 
       email_limit.times do
         http_post "/login", params: { login: { email: email, password: "wrong" } }
@@ -55,7 +55,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
     it "does not rate limit a different email after one email is exhausted" do
       other_email = "other@example.com"
       create_account_with_password(email: other_email, password: password)
-      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+      email_limit = StandardId.config.rate_limits.login_per_email # 5
 
       email_limit.times do
         http_post "/login", params: { login: { email: email, password: "wrong" } }
@@ -72,7 +72,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
     # falls back to the remote IP when the target is blank, keeping blank spam
     # bounded per-IP without poisoning any real target's bucket.
     it "does not throttle a real email when blank-target spam exhausts the shared bucket" do
-      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+      email_limit = StandardId.config.rate_limits.login_per_email # 5
 
       (email_limit + 1).times do
         http_post "/login", params: { login: { email: "" } }
@@ -90,7 +90,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
     end
 
     it "sets a flash alert message and includes Retry-After header" do
-      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+      email_limit = StandardId.config.rate_limits.login_per_email # 5
 
       email_limit.times do
         http_post "/login", params: { login: { email: email, password: "wrong" } }
@@ -107,13 +107,10 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
     before do
       allow(StandardId.config.web).to receive(:passwordless_login).and_return(true)
       allow(StandardId.config.passwordless).to receive(:connection).and_return("email")
-      sender = double("email_sender")
-      allow(sender).to receive(:call)
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
     end
 
     it "rate limits passwordless login initiation by email" do
-      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+      email_limit = StandardId.config.rate_limits.login_per_email # 5
 
       email_limit.times do
         http_post "/login", params: { login: { email: email } }
@@ -133,7 +130,7 @@ RSpec.describe "Rate limiting: Web Login (RAR-51)", type: :request do
     # which raised (→ 500) for hosts that define no root route and for cross-origin
     # referrers (Rails' open-redirect guard). It must bounce to the form's own path.
     it "redirects to the form path, ignoring a cross-origin Referer" do
-      email_limit = StandardId.config.rate_limits.password_login_per_email # 5
+      email_limit = StandardId.config.rate_limits.login_per_email # 5
 
       email_limit.times do
         http_post "/login", params: { login: { email: email, password: "wrong" } }

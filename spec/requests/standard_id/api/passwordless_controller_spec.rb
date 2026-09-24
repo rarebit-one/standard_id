@@ -3,20 +3,13 @@ require "rails_helper"
 RSpec.describe "StandardId::Api::PasswordlessController", type: :request do
   let(:path) { "/api/passwordless/start" }
 
-  before do
-    # Default no-op senders unless specifically asserted
-    allow(StandardId.config).to receive(:passwordless_email_sender).and_return(nil)
-    allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(nil)
-  end
-
   describe "POST /api/passwordless/start" do
     it "starts email flow and returns ok" do
-      sender = double("email_sender")
-      expect(sender).to receive(:call).with("user@example.com", kind_of(String))
-      allow(StandardId.config).to receive(:passwordless_email_sender).and_return(sender)
+      codes = capture_passwordless_codes
 
       http_post_json path, params: { connection: "email", email: "user@example.com" }
 
+      expect(codes).to contain_exactly(["user@example.com", kind_of(String)])
       expect(response).to have_http_status(:ok)
       body = json_body
       expect(body).to include("message" => "Code sent successfully")
@@ -29,12 +22,11 @@ RSpec.describe "StandardId::Api::PasswordlessController", type: :request do
     end
 
     it "starts sms flow and returns ok" do
-      sender = double("sms_sender")
-      expect(sender).to receive(:call).with("+14155550123", kind_of(String))
-      allow(StandardId.config).to receive(:passwordless_sms_sender).and_return(sender)
+      codes = capture_passwordless_codes
 
       http_post_json path, params: { connection: "sms", phone_number: "+14155550123" }
 
+      expect(codes).to contain_exactly(["+14155550123", kind_of(String)])
       expect(response).to have_http_status(:ok)
       body = json_body
       expect(body).to include("message" => "Code sent successfully")

@@ -72,9 +72,7 @@ RSpec.describe StandardId::LifecycleHooks do
     end
 
     it "returns the ScopeConfig when scope is configured" do
-      scope_config = StandardId::ScopeConfig::DEPRECATOR.silence do
-        StandardId::ScopeConfig.new(:borrower, { profile_type: "BorrowerProfile" })
-      end
+      scope_config = StandardId::ScopeConfig.new(:borrower, { profile_types: ["BorrowerProfile"] })
       allow(mock_request).to receive(:path_parameters).and_return({ scope: :borrower })
       allow(StandardId).to receive(:scope_for).with(:borrower).and_return(scope_config)
 
@@ -146,7 +144,7 @@ RSpec.describe StandardId::LifecycleHooks do
   describe "scope context in hooks" do
     let(:scope_config) do
       StandardId::ScopeConfig.new(:borrower, {
-        profile_type: "BorrowerProfile",
+        profile_types: ["BorrowerProfile"],
         after_sign_in_path: "/borrower/dashboard",
         no_profile_message: "No access."
       })
@@ -273,7 +271,7 @@ RSpec.describe StandardId::LifecycleHooks do
   describe "built-in profile validation" do
     let(:scope_config) do
       StandardId::ScopeConfig.new(:borrower, {
-        profile_type: "BorrowerProfile",
+        profile_types: ["BorrowerProfile"],
         after_sign_in_path: "/borrower/dashboard",
         no_profile_message: "No access."
       })
@@ -717,60 +715,6 @@ RSpec.describe StandardId::LifecycleHooks do
           expect(captured[:scope]).to eq(authorizer_only_scope)
         end
       end
-    end
-  end
-
-  # ─────────────────────────────────────────────────────────────────────────
-  # Back-compat — apps using the old :profile_type (singular) schema
-  # ─────────────────────────────────────────────────────────────────────────
-  describe "backward compatibility — legacy :profile_type schema" do
-    let(:scope_config) do
-      StandardId::ScopeConfig::DEPRECATOR.silence do
-        StandardId::ScopeConfig.new(:borrower, {
-          profile_type: "BorrowerProfile",
-          after_sign_in_path: "/borrower",
-          no_profile_message: "No borrower."
-        })
-      end
-    end
-
-    before do
-      allow(mock_request).to receive(:path_parameters).and_return({ scope: :borrower })
-      allow(StandardId).to receive(:scope_for).with(:borrower).and_return(scope_config)
-    end
-
-    it "still validates profile existence using the legacy single type" do
-      allow(StandardId.config).to receive(:profile_resolver).and_return(->(_a, _t) { true })
-
-      expect {
-        controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil })
-      }.not_to raise_error
-    end
-
-    it "still denies when the legacy single type is missing" do
-      allow(StandardId.config).to receive(:profile_resolver).and_return(->(_a, _t) { false })
-
-      expect {
-        controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil })
-      }.to raise_error(StandardId::AuthenticationDenied, "No borrower.")
-    end
-
-    it "still exposes :profile_type (singular) in hook context" do
-      allow(StandardId.config).to receive(:profile_resolver).and_return(->(_a, _t) { true })
-      received_context = nil
-      allow(StandardId.config).to receive(:before_sign_in).and_return(
-        ->(_account, _request, context) { received_context = context; nil }
-      )
-
-      controller.invoke_before_sign_in(account, { mechanism: "password", provider: nil })
-
-      expect(received_context[:profile_type]).to eq("BorrowerProfile")
-      expect(received_context[:profile_types]).to eq(["BorrowerProfile"])
-    end
-
-    it "still returns the legacy scope config via current_scope_config when no scope_resolver is set" do
-      allow(StandardId.config).to receive(:scope_resolver).and_return(nil)
-      expect(controller.current_scope_config).to eq(scope_config)
     end
   end
 

@@ -1,24 +1,15 @@
 require "rails_helper"
 
 RSpec.describe StandardId::ScopeConfig do
-  # Silence the :profile_type deprecation warning in default describe blocks —
-  # the dedicated "deprecation warning" describe below asserts it instead.
-  let(:silence_deprecations) do
-    ->(&block) { ActiveSupport::Deprecation.new("2.0", "StandardId").silence { block.call } }
-  end
-
   describe "#initialize" do
-    it "sets all attributes from config hash (singular profile_type, back-compat)" do
-      config = nil
-      silence_deprecations.call do
-        config = described_class.new(:borrower, {
-          profile_type: "BorrowerProfile",
-          after_sign_in_path: "/borrower/dashboard",
-          no_profile_message: "No borrower account found.",
-          label: "Borrower Login",
-          allow_registration: false
-        })
-      end
+    it "sets all attributes from config hash" do
+      config = described_class.new(:borrower, {
+        profile_types: ["BorrowerProfile"],
+        after_sign_in_path: "/borrower/dashboard",
+        no_profile_message: "No borrower account found.",
+        label: "Borrower Login",
+        allow_registration: false
+      })
 
       expect(config.name).to eq(:borrower)
       expect(config.profile_type).to eq("BorrowerProfile")
@@ -64,13 +55,15 @@ RSpec.describe StandardId::ScopeConfig do
       expect(config.allow_registration).to eq(true)
     end
 
-    it "raises when both :profile_type and :profile_types are provided" do
-      expect {
-        described_class.new(:borrower, {
-          profile_type: "BorrowerProfile",
-          profile_types: ["BorrowerProfile"]
-        })
-      }.to raise_error(ArgumentError, /both :profile_type and :profile_types/)
+    it "raises ConfigurationError for the removed singular :profile_type key (alone or with :profile_types)" do
+      [
+        { profile_type: "BorrowerProfile" },
+        { "profile_type" => "BorrowerProfile" },
+        { profile_type: "BorrowerProfile", profile_types: ["BorrowerProfile"] }
+      ].each do |config|
+        expect { described_class.new(:borrower, config) }
+          .to raise_error(StandardId::ConfigurationError, /:profile_type was removed in StandardId 0\.43.*profile_types:/)
+      end
     end
 
     it "uses a plural-aware default no_profile_message when multiple types are configured" do
@@ -94,17 +87,18 @@ RSpec.describe StandardId::ScopeConfig do
     end
   end
 
-  describe "deprecation warning for :profile_type (singular)" do
-    it "fires an ActiveSupport::Deprecation warning when :profile_type is used" do
-      expect(described_class::DEPRECATOR).to receive(:warn).with(/:profile_type is deprecated/)
+  describe ".validate_all!" do
+    it "builds every configured scope, so a removed key fails at boot" do
+      scopes = { members: { profile_types: ["MemberProfile"] }, legacy: { profile_type: "BorrowerProfile" } }
 
-      described_class.new(:borrower, { profile_type: "BorrowerProfile" })
+      expect { described_class.validate_all!(scopes) }
+        .to raise_error(StandardId::ConfigurationError, /:profile_type was removed/)
     end
 
-    it "does NOT warn when :profile_types (plural) is used" do
-      expect(described_class::DEPRECATOR).not_to receive(:warn)
-
-      described_class.new(:borrower, { profile_types: ["BorrowerProfile"] })
+    it "accepts valid, empty and nil scope maps" do
+      expect { described_class.validate_all!({ members: { profile_types: ["MemberProfile"] }, open: nil }) }.not_to raise_error
+      expect { described_class.validate_all!({}) }.not_to raise_error
+      expect { described_class.validate_all!(nil) }.not_to raise_error
     end
   end
 
