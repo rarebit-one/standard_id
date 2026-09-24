@@ -37,6 +37,19 @@ module StandardId
       StandardId::ProviderRegistry.declare_config_schemas!
     end
 
+    # Check every enabled social provider is fully configured, once all of
+    # them have registered.
+    #
+    # Provider plugins register from `config.after_initialize` hooks added
+    # when their gem is required — before any initializer runs. A hook added
+    # from inside an initializer is appended after all of those, so it sees
+    # the complete registry.
+    initializer "standard_id.validate_social_providers" do |app|
+      app.config.after_initialize do
+        StandardId::ProviderRegistry.validate_configuration!
+      end
+    end
+
     initializer "standard_id.filter_parameters" do |app|
       app.config.filter_parameters += %i[
         code_verifier

@@ -39,12 +39,25 @@ module StandardId
           notice: flash[:notice],
           alert: flash[:alert]
         }.compact,
-        social_providers: {
-          google_enabled: StandardId.config.google_client_id.present?,
-          apple_enabled: StandardId.config.apple_client_id.present?
-        },
+        social_providers: social_provider_flags,
+        enabled_social_providers: StandardId.enabled_social_providers.keys,
         enabled_mechanisms: web_enabled_mechanisms
       }.deep_merge(additional_props)
+    end
+
+    # `{ "<name>_enabled": Boolean }` for every registered provider.
+    #
+    # google_enabled / apple_enabled are always present (false when the
+    # plugin is not installed) so front ends written against the original
+    # two-key shape keep working. New front ends should iterate
+    # `enabled_social_providers` instead.
+    LEGACY_SOCIAL_PROVIDER_FLAGS = { google_enabled: false, apple_enabled: false }.freeze
+    private_constant :LEGACY_SOCIAL_PROVIDER_FLAGS
+
+    def social_provider_flags
+      StandardId::ProviderRegistry.all.each_with_object(LEGACY_SOCIAL_PROVIDER_FLAGS.dup) do |(name, provider), flags|
+        flags[:"#{name}_enabled"] = provider.enabled?
+      end
     end
 
     def web_enabled_mechanisms

@@ -17,6 +17,18 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
     allow_any_instance_of(described_class).to receive(:find_or_create_account_from_social).and_return(account)
   end
 
+  describe "POST #callback (google)" do
+    it "ignores flow=web for a provider without a separate mobile flow" do
+      expect_any_instance_of(described_class).to receive(:get_user_info_from_provider)
+        .with(hash_including(flow: :mobile))
+        .and_return(user_info:, tokens: {})
+
+      post :callback, params: { provider: "google", code: "abc123", flow: "web" }
+
+      expect(response).to have_http_status(:ok)
+    end
+  end
+
   describe "POST #callback (apple)" do
     it "passes the flow parameter through" do
       expect_any_instance_of(described_class).to receive(:get_user_info_from_provider)
@@ -37,6 +49,27 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
       post :callback, params: { provider: "apple", code: "abc123" }
 
       expect(response).to have_http_status(:ok)
+    end
+
+    it "honours flow=web for a provider that supports distinct web and mobile flows" do
+      expect_any_instance_of(described_class).to receive(:get_user_info_from_provider)
+        .with(hash_including(flow: :web))
+        .and_return(user_info:, tokens: {})
+
+      post :callback, params: { provider: "apple", code: "abc123", flow: "WEB" }
+
+      expect(response).to have_http_status(:ok)
+    end
+
+    it "delegates flow resolution to the provider's flow_for" do
+      allow(StandardId::Providers::Apple).to receive(:flow_for).and_return(:custom)
+      expect_any_instance_of(described_class).to receive(:get_user_info_from_provider)
+        .with(hash_including(flow: :custom))
+        .and_return(user_info:, tokens: {})
+
+      post :callback, params: { provider: "apple", code: "abc123" }
+
+      expect(StandardId::Providers::Apple).to have_received(:flow_for)
     end
 
     context "with scope parameter" do
