@@ -65,6 +65,7 @@ require "concurrent/delay"
 
 require "standard_id/providers/base"
 require "standard_id/provider_registry"
+require "standard_id/providers/plugin_railtie"
 
 module StandardId
   CONFIG = Concurrent::Delay.new { ConfigSchema.build }
