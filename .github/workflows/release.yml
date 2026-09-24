@@ -10,7 +10,7 @@ jobs:
     uses: rarebit-one/.github/.github/workflows/reusable-gem-release.yml@v2
     with:
       gem-name: standard_id
-      ruby-version: "4.0.1"
+      ruby-version: "4.0.4"
     secrets:
       slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
     permissions:

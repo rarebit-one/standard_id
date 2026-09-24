@@ -37,6 +37,6 @@ See the `/worktree` and `/start` skills for full conventions and flags.
 
 Note that the provider plugins have a narrower consumer set than the engine itself: `standard_id-apple` and `standard_id-google` are consumed only by `luminality-web` and `sidekick-web`.
 
-Three consumers live in sibling workspaces — `fundbright-web` in `~/Workspace/fundbright/`, `luminality-web` in `~/Workspace/luminalityai/`, `sidekick-web` in `~/Workspace/sidekick-labs/` — so don't assume every consumer sits beside this repo.
+Three consumers live in sibling workspaces — `fundbright-web` in `~/Workspace/fundbright/`, `luminality-web` in `~/Workspace/luminality/`, `sidekick-web` in `~/Workspace/sidekick-labs/` — so don't assume every consumer sits beside this repo.
 
 After publishing a new version via `/publish-gem`, roll it out with the workspace-level `/rollout-gem standard_id [<version>]` skill (defined at the rarebit-one workspace root, one directory above this repo). The canonical consumer matrix — including version constraints and any non-rubygems sources — lives in that skill's `SKILL.md`; the list here is a summary so version pins don't drift between two files.
