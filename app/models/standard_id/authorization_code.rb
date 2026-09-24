@@ -60,8 +60,10 @@ module StandardId
       )
     end
 
+    # Preloads :account — every caller (the token exchange) reads it, and hosts
+    # running strict_loading_by_default would otherwise raise on the lazy read.
     def self.lookup(plaintext_code)
-      find_by(code_hash: hash_for(plaintext_code))
+      includes(:account).find_by(code_hash: hash_for(plaintext_code))
     end
 
     def self.hash_for(plaintext_code)

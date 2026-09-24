@@ -1,7 +1,11 @@
 module StandardId
   class ScopeConfig
     # @!attribute [r] allow_registration
-    #   Reserved for future use — controls whether new accounts can register under this scope.
+    #   Whether passwordless sign-in under this scope may create a new account
+    #   (default true). It can only RESTRICT: registration happens iff the
+    #   global switch allows it (web.passwordless_registration for the
+    #   WebEngine; the caller's `allow_registration:` for host controllers using
+    #   StandardId::PasswordlessFlow) AND this is true. See #allow_registration?.
     # @!attribute [r] profile_types
     #   Array of profile-type class names accepted by this scope. Any profile matching any of
     #   these types satisfies the built-in profile check.
@@ -20,11 +24,9 @@ module StandardId
                 :allow_registration,
                 :authorizer
 
-    # Shared deprecator instance. Creating a new ActiveSupport::Deprecation on
-    # every extract_profile_types call bypasses the host app's configured
-    # deprecation behaviour (Rails 7.1+ routes through deprecation registries)
-    # and allocates for every scope init. One instance is enough.
-    DEPRECATOR = ActiveSupport::Deprecation.new("2.0", "StandardId")
+    # Kept as an alias for hosts/specs that reference it; it is the gem-wide
+    # StandardId.deprecator, registered in Rails.application.deprecators.
+    DEPRECATOR = StandardId.deprecator
 
     # Normalize profile-type inputs from config.
     #
@@ -59,7 +61,8 @@ module StandardId
       @after_sign_in_path = config[:after_sign_in_path]
       @no_profile_message = config[:no_profile_message] || default_no_profile_message
       @label = config[:label] || name.to_s.humanize
-      @allow_registration = config.fetch(:allow_registration, true)
+      # A present-but-nil key means "not configured", i.e. the default (true).
+      @allow_registration = config[:allow_registration].nil? ? true : config[:allow_registration]
       @authorizer = config[:authorizer]
     end
 
@@ -80,6 +83,20 @@ module StandardId
 
     def authorizer?
       authorizer.respond_to?(:call)
+    end
+
+    def allow_registration?
+      allow_registration != false
+    end
+
+    # Combine a global/caller registration switch with a (possibly nil) scope.
+    # No scope → the global value unchanged; a scope can only turn it off.
+    #
+    # @param global [Boolean]
+    # @param scope_config [StandardId::ScopeConfig, nil]
+    def self.registration_allowed?(global, scope_config)
+      return false unless global
+      scope_config.nil? || scope_config.allow_registration?
     end
 
     private

@@ -18,6 +18,8 @@ module StandardId
           * writes config/initializers/standard_id.rb
           * mounts StandardId::WebEngine and StandardId::ApiEngine in config/routes.rb
           * copies the engine's migrations into db/migrate/
+          * schedules the four cleanup jobs in config/recurring.yml (Solid Queue),
+            when that file exists
 
         Use --skip-* flags to opt out of individual steps when re-running on an
         existing install. The generator is idempotent — already-installed
@@ -30,6 +32,20 @@ module StandardId
         desc: "Do not append engine mount lines to config/routes.rb"
       class_option :skip_migrations, type: :boolean, default: false,
         desc: "Do not copy StandardId migrations into db/migrate"
+      class_option :skip_recurring, type: :boolean, default: false,
+        desc: "Do not add the cleanup jobs to config/recurring.yml"
+
+      # Every cleanup job the engine ships, with the recommended Solid Queue
+      # schedule. Hourly, staggered off minute 0: each job is one DELETE, and
+      # running it hourly keeps that batch small on busy tables. The jobs'
+      # own grace windows (7 days expired / 1 day consumed) are what bound
+      # retention, not the cadence — daily is fine for small apps.
+      CLEANUP_JOBS = {
+        "standard_id_cleanup_expired_sessions" => ["StandardId::CleanupExpiredSessionsJob", "every hour at minute 6"],
+        "standard_id_cleanup_expired_refresh_tokens" => ["StandardId::CleanupExpiredRefreshTokensJob", "every hour at minute 3"],
+        "standard_id_cleanup_expired_authorization_codes" => ["StandardId::CleanupExpiredAuthorizationCodesJob", "every hour at minute 9"],
+        "standard_id_cleanup_expired_code_challenges" => ["StandardId::CleanupExpiredCodeChallengesJob", "every hour at minute 13"]
+      }.freeze
 
       def create_initializer_file
         return say_status("skip", "config/initializers/standard_id.rb (--skip-initializer)", :yellow) if options[:skip_initializer]
@@ -79,6 +95,35 @@ module StandardId
         run_migration_copy_task
       end
 
+      # Solid Queue reads a single recurring schedule (config/recurring.yml);
+      # an engine cannot contribute entries to it, so the generator writes
+      # them. Inserted under the `production:` key only — the one environment
+      # every recurring.yml has and where cleanup matters.
+      def schedule_cleanup_jobs
+        return say_status("skip", "config/recurring.yml (--skip-recurring)", :yellow) if options[:skip_recurring]
+
+        path = "config/recurring.yml"
+        full_path = File.join(destination_root, path)
+
+        unless File.exist?(full_path)
+          say_status("skip", "#{path} not found — schedule the cleanup jobs with your scheduler (see below)", :yellow)
+          return
+        end
+
+        content = File.read(full_path)
+        if content.include?("StandardId::CleanupExpired")
+          say_status("identical", "#{path} (StandardId cleanup jobs already scheduled)", :blue)
+          return
+        end
+
+        unless content.match?(/^production:[ \t]*\r?\n/)
+          say_status("warn", "#{path} has no top-level `production:` key — add the cleanup jobs manually:\n#{recurring_snippet}", :red)
+          return
+        end
+
+        inject_into_file path, indent(recurring_snippet, 2), after: /^production:[ \t]*\r?\n/
+      end
+
       def print_post_install_message
         say ""
         say "=" * 79
@@ -116,10 +161,13 @@ module StandardId
         say ""
         say "     bin/rails db:migrate"
         say ""
-        say "5. Scheduled maintenance — schedule the cleanup jobs (e.g. daily):"
+        say "5. Scheduled maintenance — the cleanup jobs must run on a schedule"
+        say "   (added to config/recurring.yml if you use Solid Queue; otherwise"
+        say "   schedule them yourself, hourly or at least daily):"
         say ""
-        say "     StandardId::CleanupExpiredSessionsJob"
-        say "     StandardId::CleanupExpiredRefreshTokensJob"
+        CLEANUP_JOBS.each_value { |(job, _)| say "     #{job}" }
+        say ""
+        say "   See the README's Scheduled Maintenance section."
         say ""
         say "6. Social providers — install provider plugins and register them:"
         say ""
@@ -158,6 +206,19 @@ module StandardId
         def indent(text, spaces)
           prefix = " " * spaces
           text.each_line.map { |line| line.strip.empty? ? line : prefix + line }.join
+        end
+
+        def recurring_snippet
+          entries = CLEANUP_JOBS.map do |key, (job, schedule)|
+            <<~YAML
+              #{key}:
+                class: #{job}
+                schedule: #{schedule}
+            YAML
+          end
+          "# StandardId cleanup jobs (added by standard_id:install). Retention is\n" \
+            "# bounded by each job's grace window; the cadence only sizes the DELETE.\n" +
+            entries.join
         end
 
         def engine_mount_snippet

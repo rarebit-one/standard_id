@@ -1,4 +1,6 @@
 class CreateStandardIdClientGrants < ActiveRecord::Migration[8.0]
+  include StandardId::MigrationHelpers
+
   def change
     create_table :standard_id_client_grants, id: primary_key_type do |t|
       # The account that granted consent. Required — consent is per-user.

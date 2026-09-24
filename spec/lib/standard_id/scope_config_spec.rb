@@ -136,4 +136,32 @@ RSpec.describe StandardId::ScopeConfig do
       expect(config.accepts_profile_type?("")).to eq(false)
     end
   end
+
+  describe "allow_registration" do
+    it "treats an explicit nil as the default (true)" do
+      expect(described_class.new(:s, allow_registration: nil).allow_registration?).to be(true)
+    end
+
+    it "is false only when set to false" do
+      expect(described_class.new(:s, allow_registration: false).allow_registration?).to be(false)
+      expect(described_class.new(:s, {}).allow_registration?).to be(true)
+    end
+  end
+
+  describe ".registration_allowed?" do
+    let(:open_scope) { described_class.new(:open, allow_registration: true) }
+    let(:closed_scope) { described_class.new(:closed, allow_registration: false) }
+
+    it "is the global value when no scope is active" do
+      expect(described_class.registration_allowed?(true, nil)).to be(true)
+      expect(described_class.registration_allowed?(false, nil)).to be(false)
+    end
+
+    it "lets a scope only restrict" do
+      expect(described_class.registration_allowed?(true, open_scope)).to be(true)
+      expect(described_class.registration_allowed?(true, closed_scope)).to be(false)
+      expect(described_class.registration_allowed?(false, open_scope)).to be(false)
+      expect(described_class.registration_allowed?(false, closed_scope)).to be(false)
+    end
+  end
 end

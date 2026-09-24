@@ -14,4 +14,10 @@ StandardId.configure do |c|
   # challenge" cases) aren't throttled. The dedicated retry_delay spec sets its
   # own value. Mirrors how the test env neutralizes rate limiting (null_store).
   c.passwordless.retry_delay = 0
+
+  # The dummy runs the engine's migrations straight from the gem's db/migrate
+  # (rails/tasks/engine.rake) rather than copies, so the missing-migration
+  # check would report every one. It is exercised directly in
+  # spec/lib/standard_id/migration_check_spec.rb.
+  c.missing_migrations = :ignore
 end

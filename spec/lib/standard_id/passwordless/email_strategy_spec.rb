@@ -168,7 +168,7 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
       account = strategy.send(:find_or_create_account!, email)
       expect(account).to be_a(Account)
 
-      identifier = StandardId::EmailIdentifier.find_by(value: email)
+      identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: email)
       expect(identifier).to be_present
       expect(identifier.account).to eq(account)
       expect(identifier).to be_verified

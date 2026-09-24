@@ -9,7 +9,10 @@ module StandardId
     # StandardId (see Providers::Base) rather than to ConfigSchema.
     PROVIDER_FIELD_OPTIONS = %i[env required].freeze
 
-    DEPRECATOR = ActiveSupport::Deprecation.new("1.0", "StandardId")
+    # The gem-wide StandardId.deprecator (registered in
+    # Rails.application.deprecators), kept as a constant for existing callers.
+    # The Base.setup message names its own removal version (1.0).
+    DEPRECATOR = StandardId.deprecator
 
     @providers = Concurrent::Map.new
 

@@ -9,8 +9,11 @@ StandardId::ConfigSchema.define do
     field :cache_store, type: :any, default: nil
     field :logger, type: :any, default: nil
     field :web_layout, type: :string, default: nil
-    field :passwordless_email_sender, type: :any, default: nil
-    field :passwordless_sms_sender, type: :any, default: nil
+    # Deprecated since 0.1.7 (see docs/MIGRATION_GUIDE.md), still honoured.
+    field :passwordless_email_sender, type: :any, default: nil,
+      deprecated: "deliver the code from a StandardId::Events::PASSWORDLESS_CODE_GENERATED subscriber instead (it runs synchronously in the request, so I18n.locale is still available; skip it when event[:skip_sender] is true) and call Otp.issue with its default delivery: :built_in. Removal in v2.0; see docs/MIGRATION_GUIDE.md."
+    field :passwordless_sms_sender, type: :any, default: nil,
+      deprecated: "deliver the code from a StandardId::Events::PASSWORDLESS_CODE_GENERATED subscriber instead (it runs synchronously in the request, so I18n.locale is still available; skip it when event[:skip_sender] is true) and call Otp.issue with its default delivery: :built_in. Removal in v2.0; see docs/MIGRATION_GUIDE.md."
     field :issuer, type: :string, default: nil
 
     # Whether `JwtService.decode` REQUIRES a matching `iss` claim.
@@ -54,6 +57,17 @@ StandardId::ConfigSchema.define do
     # `reflection.strict_loading?` return false — silently disabling strict
     # loading for every app that never asked for it.
     field :association_strict_loading, type: :any, default: nil
+
+    # Boot-time check for StandardId migrations the host never copied in
+    # (StandardId::MigrationCheck). :warn, :raise or :ignore. nil (default)
+    # means :warn in development/test and :ignore elsewhere — it never raises
+    # in production unless you ask it to.
+    field :missing_migrations, type: :symbol, default: nil
+
+    # Gem migration names (e.g. "add_target_created_at_index_to_code_challenges")
+    # or original versions the check should skip — for a migration the host
+    # deliberately superseded or deferred.
+    field :ignored_migrations, type: :array, default: -> { [] }
 
     # Scope-aware authentication: maps scope names to profile-based access config.
     # Each scope is a hash with keys: :profile_types (Array<String>), :after_sign_in_path,
@@ -139,9 +153,11 @@ StandardId::ConfigSchema.define do
   end
 
   scope :passwordless do
-    # Deprecated: use web.passwordless_login to control WebEngine passwordless login.
-    # Retained for backwards compatibility with consuming apps that set this field.
-    field :enabled, type: :boolean, default: false
+    # Deprecated since 0.8: use web.passwordless_login to control WebEngine
+    # passwordless login. Never read; retained so host initializers that set it
+    # still boot.
+    field :enabled, type: :boolean, default: false,
+      deprecated: "it has had no effect since 0.8. Use web.passwordless_login (WebEngine) instead, and remove this line. Removal in v2.0."
     field :connection, type: :string, default: "email"
     field :code_ttl, type: :integer, default: 600 # 10 minutes in seconds
 
@@ -296,8 +312,12 @@ StandardId::ConfigSchema.define do
     # RefreshTokenFlow::MAX_REUSE_LEEWAY_SECONDS.
     field :refresh_token_reuse_leeway, type: :integer, default: 0
     field :token_lifetimes, type: :hash, default: -> { {} }
-    field :client_id, type: :string, default: nil
-    field :client_secret, type: :string, default: nil
+    # Never read by the gem. OAuth clients are StandardId::ClientApplication
+    # rows with ClientSecretCredential secrets.
+    field :client_id, type: :string, default: nil,
+      deprecated: "it is not read anywhere — OAuth clients are StandardId::ClientApplication records. Remove this line. Removal in v2.0."
+    field :client_secret, type: :string, default: nil,
+      deprecated: "it is not read anywhere — client secrets are StandardId::ClientSecretCredential records. Remove this line. Removal in v2.0."
     field :scope_claims, type: :hash, default: -> { {} }
     field :claim_resolvers, type: :hash, default: -> { {} }
     # List of audience values that tokens issued and accepted by this app may
@@ -588,8 +608,10 @@ StandardId::ConfigSchema.define do
     # these values (see StandardId::RateLimitHandling.login_per_ip). New name
     # wins when explicitly set. Mirrors the max_attempts ->
     # max_attempts_per_challenge deprecation-alias precedent.
-    field :password_login_per_ip, type: :integer, default: 20        # per 15 minutes; deprecated alias of login_per_ip
-    field :password_login_per_email, type: :integer, default: 5      # per 15 minutes; deprecated alias of login_per_email
+    field :password_login_per_ip, type: :integer, default: 20, # per 15 minutes; deprecated alias of login_per_ip
+      deprecated: "use rate_limits.login_per_ip (same meaning; it also governs passwordless OTP sends). Removal in v2.0."
+    field :password_login_per_email, type: :integer, default: 5, # per 15 minutes; deprecated alias of login_per_email
+      deprecated: "use rate_limits.login_per_email (same meaning; it also governs passwordless OTP sends). Removal in v2.0."
 
     # RAR-60: OTP verification
     field :otp_verify_per_ip, type: :integer, default: 20            # per 15 minutes

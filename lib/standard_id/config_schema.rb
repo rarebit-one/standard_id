@@ -1,5 +1,6 @@
 require "active_support/ordered_options"
 require "concurrent/map"
+require "standard_id/deprecator"
 
 module StandardId
   # Lightweight configuration schema backed by ActiveSupport::OrderedOptions.
@@ -9,7 +10,10 @@ module StandardId
   # to the owning scope (so host apps can read base-scope fields like
   # `config.account_class_name` without the `base.` prefix).
   class ConfigSchema
-    Field = Struct.new(:name, :type, :default) do
+    # +deprecation+ is a message (String) for a field kept only so existing
+    # host initializers still boot. Assigning a non-nil value warns through
+    # StandardId.deprecator; reads and schema defaults never warn.
+    Field = Struct.new(:name, :type, :default, :deprecation) do
       def default_value
         return default.call if default.respond_to?(:call)
         return default.dup if default.is_a?(Array) || default.is_a?(Hash)
@@ -35,9 +39,9 @@ module StandardId
       self
     end
 
-    def add_field(scope:, name:, type: :string, default: nil)
+    def add_field(scope:, name:, type: :string, default: nil, deprecated: nil)
       fields = ensure_scope(scope)
-      fields.compute_if_absent(name.to_sym) { Field.new(name.to_sym, type, default) }
+      fields.compute_if_absent(name.to_sym) { Field.new(name.to_sym, type, default, deprecated) }
     end
 
     # Register a scope without adding a field. Allows `define { scope :foo }` so
@@ -100,8 +104,8 @@ module StandardId
         DSL.new(@schema, name.to_sym).instance_eval(&block) if block
       end
 
-      def field(name, type: :string, default: nil, **)
-        @schema.add_field(scope: @scope_name, name: name, type: type, default: default)
+      def field(name, type: :string, default: nil, deprecated: nil, **)
+        @schema.add_field(scope: @scope_name, name: name, type: type, default: default, deprecated: deprecated)
       end
     end
 
@@ -122,6 +126,7 @@ module StandardId
 
       def []=(key, value)
         validate!(key)
+        warn_if_deprecated(key, value)
         super(key.to_sym, value)
       end
 
@@ -152,6 +157,24 @@ module StandardId
         return if @schema.field?(@scope_name, key)
         raise StandardId::ConfigurationError,
           "Unknown field '#{key}' for scope '#{@scope_name}'. Valid fields: #{@schema.scopes[@scope_name]&.keys}"
+      end
+
+      def warn_if_deprecated(key, value)
+        return if value.nil?
+
+        message = @schema.field_for(@scope_name, key)&.deprecation
+        return if message.nil?
+
+        # Point the warning at the host's assignment, not at this file.
+        # (OrderedOptions' method_missing forwards `c.foo = x` to #[]=.)
+        callstack = caller_locations(1).reject do |location|
+          location.path == __FILE__ || location.path.end_with?("active_support/ordered_options.rb")
+        end
+        StandardId.deprecator.warn("StandardId.config.#{config_path(key)} is deprecated: #{message}", callstack)
+      end
+
+      def config_path(key)
+        @scope_name == :base ? key.to_s : "#{@scope_name}.#{key}"
       end
 
       def cast_read(key, value)

@@ -1,6 +1,6 @@
 # StandardId
 
-A comprehensive authentication engine for Rails applications, built on the security primitives introduced in Rails 7/8. StandardId provides a complete, secure-by-default solution for identity management, reducing boilerplate and eliminating common security pitfalls.
+A comprehensive authentication engine for Rails applications, built on the security primitives introduced in Rails 8. StandardId provides a complete, secure-by-default solution for identity management, reducing boilerplate and eliminating common security pitfalls.
 
 ## Features
 
@@ -773,6 +773,48 @@ StandardAudit::AuditLog.from_ip("192.168.1.1")
 
 See the [StandardAudit README](https://github.com/rarebit-one/standard_audit) for the full query interface, async processing, GDPR compliance, and multi-tenancy support.
 
+### Instrumentation (tracing spans)
+
+Separately from the domain events above, the OAuth token endpoint is instrumented with `ActiveSupport::Notifications` block events so you can add tracing spans or timings without patching gem internals. Names follow the Rails `<event>.<library>` convention, so `standard_id.*` audit subscribers never see them:
+
+| Event (`StandardId::Instrumentation::…`) | Wraps | Payload |
+|---|---|---|
+| `AUTHENTICATE` — `authenticate.standard_id` | every token grant's `authenticate!` (for `refresh_token`: JWT decode + token lookup + reuse detection) | `flow`, `grant_type` |
+| `AUDIENCE_PROFILE_BINDING` — `audience_profile_binding.standard_id` | audience→profile binding (account load + resolver) | `flow`, `grant_type`, `audience` |
+| `AUDIENCE_PROFILE_RESOLVE` — `audience_profile_resolve.standard_id` | `Oauth::AudienceProfileResolver.resolve!` (nested inside the binding event) | `audience` |
+
+A raised error appears as `:exception` / `:exception_object` in the finish payload. Sentry child spans, nested the same way:
+
+```ruby
+# config/initializers/standard_id_tracing.rb
+return unless defined?(Sentry)
+
+module StandardIdSentrySpans
+  STACK = :standard_id_sentry_spans
+
+  def self.start(name, _id, payload)
+    scope = Sentry.get_current_scope
+    parent = scope&.get_span
+    span = parent&.start_child(
+      op: "standard_id.#{name.delete_suffix('.standard_id')}",
+      description: Array(payload[:audience]).join(", ").presence
+    )
+    (Thread.current[STACK] ||= []) << [span, parent]
+    scope.set_span(span) if span
+  end
+
+  def self.finish(_name, _id, _payload)
+    span, parent = Thread.current[STACK]&.pop
+    return unless span
+
+    span.finish
+    Sentry.get_current_scope.set_span(parent)
+  end
+end
+
+ActiveSupport::Notifications.subscribe(StandardId::Instrumentation::PATTERN, StandardIdSentrySpans)
+```
+
 ## Account Status (Activation/Deactivation)
 
 StandardId provides an optional `AccountStatus` concern for managing account activation and deactivation. This uses Rails enum with the event system to enforce status checks and handle side effects without modifying core authentication logic.
@@ -1391,9 +1433,56 @@ bundle exec rspec spec/controllers/
   rejected with `invalid_request`.
 - Rate limiting on authentication endpoints
 
+## Missing Migrations
+
+`standard_id:install:migrations` copies the engine's migrations with new timestamps, so a gem migration that was never copied is invisible to Rails' own pending-migration check. StandardId checks for that itself, by migration name:
+
+- **At boot** (file-system only, no database): `config.missing_migrations` — `:warn` (default in development/test: logs and prints to stderr), `:raise` (fails boot with `StandardId::ConfigurationError`), or `:ignore` (default in every other environment — it never raises in production unless you opt in).
+- **`StandardId::MigrationCheck.pending(check_database: true)`** returns every gem migration that is `:not_installed` or installed but `:not_run` (one `schema_migrations` read).
+- **Health check** — `StandardId::Checks::Migrations` is [standard_health](https://github.com/rarebit-one/standard_health)-compatible (duck-typed, no dependency). Register it non-critical so a missing migration degrades `/health/ready` without failing it:
+
+  ```ruby
+  c.register_check :standard_id_migrations, StandardId::Checks::Migrations, critical: false
+  ```
+
+Two cases are built in and documented in `StandardId::MigrationCheck`:
+
+- **Superseded** (`SUPERSEDED_BY`): `20260414200000_add_target_created_at_index_to_code_challenges` counts as satisfied when `20260416180511` (whose partial, concurrently built index replaces it) is installed.
+- **Deferred upgrade steps** (`DEFERRED_UPGRADE_STEPS`): `20260915000000_remove_refresh_token_lifetime_…` is reported with `severity: :info`, as a pending upgrade step to run once 0.41.1+ is deployed everywhere. It is logged at info level at boot and listed under `pending_upgrade_steps` in an `:ok` health result. It never warns, raises or degrades.
+
+Any other migration you deliberately skipped goes in `config.ignored_migrations`, by name or original version.
+
 ## Scheduled Maintenance
 
-StandardId ships cleanup jobs (`StandardId::CleanupExpiredSessionsJob`, `StandardId::CleanupExpiredRefreshTokensJob`) and rake wrappers (`standard_id:cleanup:all`, `:sessions`, `:refresh_tokens`) to prune expired rows. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for SolidQueue, sidekiq-cron, whenever, and system-cron scheduling examples.
+StandardId never deletes expired rows on its own. Four cleanup jobs do, and **all four must be scheduled** — an unscheduled one lets its table grow forever (code challenges hold the plaintext OTP):
+
+| Job | Deletes | Grace windows (`perform` kwargs) | Recommended cadence |
+|---|---|---|---|
+| `StandardId::CleanupExpiredSessionsJob` | browser/device/service sessions expired > grace | `grace_period_seconds:` 7 days | hourly (minute 6) |
+| `StandardId::CleanupExpiredRefreshTokensJob` | refresh tokens expired or revoked > grace | `grace_period_seconds:` 7 days | hourly (minute 3) |
+| `StandardId::CleanupExpiredAuthorizationCodesJob` | OAuth authorization codes expired > 7 days or consumed > 1 day | `grace_period_seconds:`, `consumed_grace_period_seconds:` | hourly (minute 9) |
+| `StandardId::CleanupExpiredCodeChallengesJob` | OTP code challenges expired > 7 days or used > 1 day | `grace_period_seconds:`, `used_grace_period_seconds:` | hourly (minute 13) |
+
+Retention is bounded by the grace windows, not the cadence; each job is a single `DELETE`, so running hourly keeps that statement small on busy tables (daily is fine for small apps). Stagger them off minute 0.
+
+`rails g standard_id:install` adds all four to `config/recurring.yml` (Solid Queue) under `production:` when that file exists (`--skip-recurring` to opt out; re-running is a no-op). An engine cannot register Solid Queue recurring tasks itself — Solid Queue reads one schedule file — so existing apps should paste this under their `production:` key:
+
+```yaml
+  standard_id_cleanup_expired_sessions:
+    class: StandardId::CleanupExpiredSessionsJob
+    schedule: every hour at minute 6
+  standard_id_cleanup_expired_refresh_tokens:
+    class: StandardId::CleanupExpiredRefreshTokensJob
+    schedule: every hour at minute 3
+  standard_id_cleanup_expired_authorization_codes:
+    class: StandardId::CleanupExpiredAuthorizationCodesJob
+    schedule: every hour at minute 9
+  standard_id_cleanup_expired_code_challenges:
+    class: StandardId::CleanupExpiredCodeChallengesJob
+    schedule: every hour at minute 13
+```
+
+Rake wrappers (`standard_id:cleanup:all`, `:sessions`, `:refresh_tokens`, `:authorization_codes`, `:code_challenges`) run the same jobs inline. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for sidekiq-cron, whenever and system-cron examples.
 
 ## Contributing
 

@@ -36,6 +36,7 @@ module StandardId
     end
 
     def mark_account_verified!
+      preload_associations(:account)
       return if account.nil?
 
       return unless account.has_attribute?(:verified)

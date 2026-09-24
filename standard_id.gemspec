@@ -6,7 +6,7 @@ Gem::Specification.new do |spec|
   spec.authors     = ["Jaryl Sim"]
   spec.email       = ["code@jaryl.dev"]
   spec.homepage    = "https://github.com/rarebit-one/standard_id"
-  spec.summary     = "A comprehensive authentication engine for Rails, built on the security primitives introduced in Rails 7/8."
+  spec.summary     = "A comprehensive authentication engine for Rails, built on the security primitives introduced in Rails 8."
   spec.description = "StandardId is an authentication engine that provides a complete, secure-by-default solution for identity management, reducing boilerplate and eliminating common security pitfalls."
   spec.license     = "MIT"
 
@@ -24,8 +24,9 @@ Gem::Specification.new do |spec|
   spec.add_dependency "rails", ">= 8.0"
   spec.add_dependency "bcrypt", "~> 3.1"
   spec.add_dependency "jwt", ">= 2.7", "< 4"
-  spec.add_dependency "ostruct"
   spec.add_dependency "concurrent-ruby", "~> 1.3"
 
   spec.add_development_dependency "factory_bot", "~> 6.5"
+  # Specs only (OpenStruct test doubles); no runtime code uses it.
+  spec.add_development_dependency "ostruct"
 end

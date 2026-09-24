@@ -15,7 +15,7 @@ module StandardId
       normalized = email.to_s.strip.downcase
       return if normalized.blank?
 
-      identifier = StandardId::EmailIdentifier.find_by(value: normalized)
+      identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: normalized)
       return if identifier.nil?
 
       password_credential = identifier.account

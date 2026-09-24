@@ -14,7 +14,7 @@ module StandardId
       # Only the normal rotation path (revoke old + create new) is wrapped
       # in a transaction for atomicity.
       def execute
-        authenticate!
+        instrumented_authenticate!
         response = nil
         StandardId::RefreshToken.transaction do
           rotate_current_refresh_token!

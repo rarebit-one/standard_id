@@ -1,4 +1,6 @@
 class CreateStandardIdRefreshTokens < ActiveRecord::Migration[8.0]
+  include StandardId::MigrationHelpers
+
   def change
     create_table :standard_id_refresh_tokens, id: primary_key_type do |t|
       t.references :account, type: primary_key_type, null: false, foreign_key: true, index: true

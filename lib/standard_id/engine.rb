@@ -37,6 +37,13 @@ module StandardId
       StandardId::ProviderRegistry.declare_config_schemas!
     end
 
+    # Route StandardId deprecation warnings through the host's deprecation
+    # behaviour (`config.active_support.deprecation`, `report_deprecations`,
+    # `Rails.application.deprecators.silence`).
+    initializer "standard_id.deprecator" do |app|
+      app.deprecators[:standard_id] = StandardId.deprecator if app.respond_to?(:deprecators)
+    end
+
     # Check every enabled social provider is fully configured, once all of
     # them have registered.
     #
@@ -92,6 +99,7 @@ module StandardId
       StandardId::Config::ScopeClaimsValidator.validate!
 
       StandardId::Engine.verify_host_cookie_encryption!(app)
+      StandardId::MigrationCheck.verify_at_boot!
       StandardId::Engine.warn_if_allowed_audiences_empty_in_production!
     end
 

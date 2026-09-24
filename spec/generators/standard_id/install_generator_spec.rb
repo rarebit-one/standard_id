@@ -174,4 +174,81 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
       expect(output).to include("mount StandardId::ApiEngine")
     end
   end
+
+  describe "config/recurring.yml" do
+    let(:recurring_path) { File.join(destination_root, "config/recurring.yml") }
+    let(:job_classes) do
+      %w[
+        StandardId::CleanupExpiredSessionsJob
+        StandardId::CleanupExpiredRefreshTokensJob
+        StandardId::CleanupExpiredAuthorizationCodesJob
+        StandardId::CleanupExpiredCodeChallengesJob
+      ]
+    end
+
+    it "schedules all four cleanup jobs under production:" do
+      File.write(recurring_path, <<~YAML)
+        production:
+          clear_solid_queue_finished_jobs:
+            command: "SolidQueue::Job.clear_finished_in_batches"
+            schedule: every hour at minute 12
+
+        development:
+          noop:
+            command: "true"
+            schedule: every day
+      YAML
+
+      run_generator
+
+      parsed = YAML.safe_load_file(recurring_path)
+      production_classes = parsed["production"].values.filter_map { |task| task["class"] }
+      expect(production_classes).to match_array(job_classes)
+      expect(parsed["production"]).to have_key("clear_solid_queue_finished_jobs")
+      expect(parsed["development"].keys).to eq(["noop"])
+      expect(parsed["production"]["standard_id_cleanup_expired_code_challenges"]["schedule"]).to eq("every hour at minute 13")
+    end
+
+    it "is idempotent" do
+      File.write(recurring_path, "production:\n")
+
+      run_generator
+      first = File.read(recurring_path)
+      output = run_generator
+
+      expect(File.read(recurring_path)).to eq(first)
+      expect(output).to include("already scheduled")
+    end
+
+    it "warns and prints the snippet when there is no production: key" do
+      File.write(recurring_path, "default: &default\n  a:\n    command: \"true\"\n    schedule: every day\n")
+
+      output = run_generator
+
+      expect(output).to include("no top-level `production:` key")
+      expect(output).to include("StandardId::CleanupExpiredCodeChallengesJob")
+      expect(File.read(recurring_path)).not_to include("StandardId::")
+    end
+
+    it "does not create the file when the app has none" do
+      output = run_generator
+
+      expect(File).not_to exist(recurring_path)
+      expect(output).to include("config/recurring.yml not found")
+    end
+
+    it "honours --skip-recurring" do
+      File.write(recurring_path, "production:\n")
+
+      run_generator(["--skip-recurring"])
+
+      expect(File.read(recurring_path)).to eq("production:\n")
+    end
+
+    it "lists every cleanup job in the post-install message" do
+      output = run_generator
+
+      job_classes.each { |job| expect(output).to include(job) }
+    end
+  end
 end

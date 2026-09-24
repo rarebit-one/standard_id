@@ -1,4 +1,6 @@
 class CreateStandardIdAuthorizationCodes < ActiveRecord::Migration[8.0]
+  include StandardId::MigrationHelpers
+
   def change
     create_table :standard_id_authorization_codes, id: primary_key_type do |t|
       # Link to account when available (can be nil for pre-auth flows)
