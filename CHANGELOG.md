@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-09-24
+
 ### Upgrade
 
 - **Hosts can delete their `StandardId::* .strict_loading_by_default = false` block** (fundbright-web, luminality-web, nutripod-web `config/initializers/strict_loading.rb`; sidekick-web's StandardId lines in the same file). Every gem model now works under `strict_loading_by_default = true` + `:raise` through every gem flow; see Fixed. Keep an exemption only if *your own* code lazily traverses a gem association (e.g. `identifier.account` in a host controller) — prefer `includes` there instead.
