@@ -1,5 +1,9 @@
 module StandardId
   class CodeChallenge < ApplicationRecord
+    # Transient (not persisted): set by the built-in PasswordlessDeliverySubscriber
+    # once it has enqueued the email, so the passwordless strategy can report
+    # PASSWORDLESS_CODE_SENT truthfully.
+    attr_accessor :built_in_delivered
     self.table_name = "standard_id_code_challenges"
 
     # Well-known realms used by the engine itself. Host apps may create

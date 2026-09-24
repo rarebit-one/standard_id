@@ -28,7 +28,8 @@ module StandardIdConfigIsolation
     top = config.to_h
     scopes = top.each_with_object({}) do |(key, value), acc|
       next unless value.is_a?(StandardId::ConfigSchema::Scope)
-      acc[key] = { scope: value, values: value.to_h, resolver: value.resolver }
+      acc[key] = { scope: value, values: value.to_h, resolver: value.resolver,
+                   assigned: value.instance_variable_get(:@assigned_keys)&.dup }
     end
     { top: top, scopes: scopes }
   end
@@ -38,6 +39,8 @@ module StandardIdConfigIsolation
     snapshot[:scopes].each_value do |state|
       state[:scope].replace(state[:values])
       state[:scope].resolver = state[:resolver]
+      # Scope#assigned? tracking (0.43+) must roll back with the values.
+      state[:scope].instance_variable_set(:@assigned_keys, state[:assigned]&.dup)
     end
   end
 

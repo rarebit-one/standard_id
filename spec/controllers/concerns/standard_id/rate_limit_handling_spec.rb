@@ -5,6 +5,7 @@ RSpec.describe StandardId::RateLimitHandling do
     let(:rate_limits) { StandardId.config.rate_limits }
 
     around do |example|
+      snapshot = {}
       snapshot = %i[login_per_ip login_per_email].index_with { |field| rate_limits[field] }
       example.run
     ensure

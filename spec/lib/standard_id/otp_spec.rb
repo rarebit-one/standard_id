@@ -153,10 +153,19 @@ RSpec.describe StandardId::Otp do
         allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
       end
 
-      it "enqueues the bundled PasswordlessMailer for email" do
+      it "enqueues the bundled verification email (not the sign-in one) for a non-authentication realm" do
         expect {
           described_class.issue(
             realm: realm, target: email, channel: :email,
+            request: request, delivery: :built_in
+          )
+        }.to have_enqueued_mail(StandardId::PasswordlessMailer, :verification_email)
+      end
+
+      it "enqueues the sign-in email for the authentication realm" do
+        expect {
+          described_class.issue(
+            realm: StandardId::Otp::DEFAULT_REALM, target: email, channel: :email,
             request: request, delivery: :built_in
           )
         }.to have_enqueued_mail(StandardId::PasswordlessMailer, :otp_email)
@@ -171,6 +180,59 @@ RSpec.describe StandardId::Otp do
         )
 
         expect(codes.events.map { |e| e[:delivery] }).to eq([:built_in])
+      end
+    end
+
+    describe "PASSWORDLESS_CODE_SENT delivery_status" do
+      def sent_statuses
+        statuses = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_SENT) { |e| statuses << e[:delivery_status] }
+        yield
+        statuses
+      ensure
+        ActiveSupport::Notifications.unsubscribe(subscription)
+      end
+
+      def issue(**opts)
+        described_class.issue(realm: realm, target: email, channel: :email, request: request, **opts)
+      end
+
+      it "is \"sent\" when the built-in mailer enqueued the email" do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+
+        expect(sent_statuses { issue }).to eq(["sent"])
+      end
+
+      it "is \"failed\" when the built-in mailer was responsible but could not enqueue" do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+        allow(StandardId::PasswordlessMailer).to receive(:with).and_raise(StandardError, "SMTP down")
+
+        expect(sent_statuses { issue }).to eq(["failed"])
+      end
+
+      it "is \"delegated\" when a host subscriber delivers (global :custom)" do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:custom)
+
+        expect(sent_statuses { issue }).to eq(["delegated"])
+      end
+
+      it "is \"delegated\" for Otp.issue(delivery: :custom) even under a global :built_in" do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+
+        expect(sent_statuses { issue(delivery: :custom) }).to eq(["delegated"])
+      end
+
+      it "is \"delegated\" for SMS (there is no built-in SMS delivery)" do
+        allow(StandardId.config.passwordless).to receive(:delivery).and_return(:built_in)
+
+        statuses = sent_statuses do
+          described_class.issue(realm: realm, target: phone, channel: :sms, request: request)
+        end
+        expect(statuses).to eq(["delegated"])
+      end
+
+      it "is not emitted for delivery: :manual" do
+        expect(sent_statuses { issue(delivery: :manual) }).to eq([])
       end
     end
 
