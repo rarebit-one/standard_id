@@ -70,6 +70,7 @@ require "concurrent/delay"
 
 require "standard_id/providers/base"
 require "standard_id/provider_registry"
+require "standard_id/providers/plugin_railtie"
 
 module StandardId
   CONFIG = Concurrent::Delay.new { ConfigSchema.build }
@@ -108,6 +109,26 @@ module StandardId
       scope_hash = config.scopes[name.to_sym]
       return nil unless scope_hash
       ScopeConfig.new(name, scope_hash)
+    end
+
+    # Registered social providers the host app has switched on.
+    #
+    # @return [Hash{String => Class}] Provider name => provider class
+    # @see StandardId::Providers::Base.enabled?
+    def enabled_social_providers
+      ProviderRegistry.enabled
+    end
+
+    # Whether the named social provider is registered AND switched on.
+    #
+    # Safe to call for a provider whose plugin gem is not installed — returns
+    # false rather than raising. Prefer this over checking a client ID
+    # directly (`StandardId.config.google_client_id.present?`).
+    #
+    # @param name [Symbol, String] e.g. :google
+    # @return [Boolean]
+    def social_provider_enabled?(name)
+      ProviderRegistry.registered?(name) && ProviderRegistry.get(name).enabled?
     end
 
     def skip_host_authorization(framework: nil, callback: nil)

@@ -55,17 +55,10 @@ module StandardId
         # must not emit. The error re-raises into the standard
         # handle_oauth_error JSON response.
         def fetch_provider_user_info
-          get_user_info_from_provider(flow: resolve_flow_for(provider.provider_name))
+          get_user_info_from_provider(flow: provider.flow_for(params))
         rescue StandardId::OAuthError => e
           emit_social_auth_failed(e)
           raise
-        end
-
-        def resolve_flow_for(connection)
-          return :mobile unless connection == "apple"
-
-          flow_param = params[:flow].to_s.downcase
-          flow_param == "web" ? :web : :mobile
         end
 
         # The `except` list is the trust boundary — non-reserved values are

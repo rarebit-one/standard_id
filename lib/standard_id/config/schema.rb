@@ -571,6 +571,11 @@ StandardId::ConfigSchema.define do
     field :allowed_redirect_url_prefixes, type: :array, default: []
     field :available_scopes, type: :array, default: -> { [] }
     field :link_strategy, type: :symbol, default: :strict
+    # What to do at boot when an enabled social provider is missing required
+    # config (e.g. apple_client_id set without apple_private_key). :warn logs
+    # in every environment; :raise raises StandardId::ConfigurationError in
+    # production and logs elsewhere. See ProviderRegistry.validate_configuration!
+    field :provider_misconfiguration, type: :symbol, default: :warn
   end
 
   scope :web do

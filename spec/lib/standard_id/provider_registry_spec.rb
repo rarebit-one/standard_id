@@ -45,7 +45,7 @@ RSpec.describe StandardId::ProviderRegistry do
       expect(described_class.registered?(:test)).to be true
     end
 
-    it "calls setup on the provider if defined" do
+    it "still calls a provider-defined setup, with a deprecation warning" do
       setup_called = false
       provider_with_setup = Class.new(StandardId::Providers::Base) do
         define_singleton_method(:provider_name) { "setup_test" }
@@ -53,10 +53,20 @@ RSpec.describe StandardId::ProviderRegistry do
         define_singleton_method(:get_user_info) { |**| {} }
         define_singleton_method(:setup) { setup_called = true }
       end
+      allow(described_class::DEPRECATOR).to receive(:warn)
 
       described_class.register(:setup_test, provider_with_setup)
 
       expect(setup_called).to be true
+      expect(described_class::DEPRECATOR).to have_received(:warn).with(/\.setup is deprecated/)
+    end
+
+    it "does not warn for providers that do not define setup" do
+      allow(described_class::DEPRECATOR).to receive(:warn)
+
+      described_class.register(:test, test_provider_class)
+
+      expect(described_class::DEPRECATOR).not_to have_received(:warn)
     end
 
     it "registers config_schema fields with the StandardId schema" do

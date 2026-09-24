@@ -56,8 +56,8 @@ RSpec.describe StandardId::Providers::Base do
     end
 
     describe ".setup" do
-      it "does nothing by default" do
-        expect { base_class.setup }.not_to raise_error
+      it "is no longer part of the interface" do
+        expect(base_class).not_to respond_to(:setup)
       end
     end
   end

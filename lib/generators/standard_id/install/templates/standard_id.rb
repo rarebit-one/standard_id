@@ -439,14 +439,36 @@ StandardId.configure do |c|
   # declared later from the plugin's Railtie, and apps worked around it by
   # wrapping the writes in `Rails.application.config.after_initialize`. That
   # wrapper is no longer needed, and it still works if you have one.
+  #
+  # ENV defaults (standard_id >= 0.42): every provider field you do not assign
+  # falls back to the ENV variable named after it, upper-cased — so with the
+  # canonical variables below set, you need none of these lines. Assign a
+  # field only to read it from somewhere else (a differently named variable,
+  # Rails credentials); an explicit assignment, even of nil, always wins.
+  #
+  #   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+  #   APPLE_CLIENT_ID, APPLE_MOBILE_CLIENT_ID,
+  #   APPLE_PRIVATE_KEY, APPLE_KEY_ID, APPLE_TEAM_ID
+  #
+  # A provider is enabled when its client ID is present
+  # (StandardId.social_provider_enabled?(:google)). An enabled provider missing
+  # fields its plugin marks required is reported at boot — see
+  # c.social.provider_misconfiguration below.
 
-  # c.social.google_client_id     = ENV["GOOGLE_CLIENT_ID"]
-  # c.social.google_client_secret = ENV["GOOGLE_CLIENT_SECRET"]
-  # c.social.apple_mobile_client_id = ENV["APPLE_MOBILE_CLIENT_ID"]
-  # c.social.apple_client_id        = ENV["APPLE_CLIENT_ID"]
-  # c.social.apple_private_key      = ENV["APPLE_PRIVATE_KEY"]
+  # c.social.google_client_id       = Rails.application.credentials.dig(:google, :client_id)
+  # c.social.google_client_secret   = Rails.application.credentials.dig(:google, :client_secret)
+  # c.social.apple_client_id        = ENV["APPLE_CLIENT_ID"]         # web (Services ID) flow
+  # c.social.apple_mobile_client_id = ENV["APPLE_MOBILE_CLIENT_ID"]  # native id_token flow
+  # c.social.apple_private_key      = ENV["APPLE_PRIVATE_KEY"]       # .p8 PEM, newlines intact
   # c.social.apple_key_id           = ENV["APPLE_KEY_ID"]
   # c.social.apple_team_id          = ENV["APPLE_TEAM_ID"]
+
+  # What to do at boot when an enabled provider is missing required fields
+  # (e.g. APPLE_CLIENT_ID set without APPLE_PRIVATE_KEY — the sign-in flow
+  # would start, then fail at the callback). :warn logs a warning; :raise
+  # raises StandardId::ConfigurationError in production and warns elsewhere.
+  # Default: :warn
+  # c.social.provider_misconfiguration = :raise
 
   # Mobile redirect URI allow-list — custom schemes used by native apps.
   # Default: []
