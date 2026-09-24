@@ -1,4 +1,6 @@
 class CreateStandardIdClientApplications < ActiveRecord::Migration[7.1]
+  include StandardId::MigrationHelpers
+
   def change
     create_table :standard_id_client_applications, id: primary_key_type do |t|
       # Polymorphic owner association (Account, Organization, etc.)

@@ -1,4 +1,6 @@
 class CreateStandardIdCodeChallenges < ActiveRecord::Migration[8.0]
+  include StandardId::MigrationHelpers
+
   def change
     create_table :standard_id_code_challenges, id: primary_key_type do |t|
       t.string :realm, null: false         # e.g., authentication, verification
