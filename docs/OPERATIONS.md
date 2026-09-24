@@ -12,7 +12,7 @@ StandardId records (sessions, refresh tokens, authorization codes, code challeng
 | `standard_id:cleanup:sessions` | Deletes expired browser/device/service sessions |
 | `standard_id:cleanup:refresh_tokens` | Deletes expired or revoked OAuth refresh tokens |
 | `standard_id:cleanup:authorization_codes` | Deletes expired or consumed OAuth authorization codes |
-| `standard_id:cleanup:code_challenges` | Deletes expired or used PKCE code challenges |
+| `standard_id:cleanup:code_challenges` | Deletes expired or used OTP code challenges |
 
 Each task honours `GRACE_DAYS` (default `7`) — rows are only deleted once they have been expired for that many days. Consumed authorization codes and used code challenges use a separate 1-day grace window (not env-configurable for now).
 
@@ -25,24 +25,24 @@ The tasks call `perform_now` on the underlying jobs, so they run synchronously i
 
 ### Scheduling
 
-Pick whatever your app already uses — running cleanup nightly is usually enough.
+Pick whatever your app already uses. Schedule **all four** jobs; hourly (staggered off minute 0) keeps each `DELETE` small, while nightly is enough for small apps — the grace windows, not the cadence, bound retention.
 
-**SolidQueue recurring tasks** (`config/recurring.yml`):
+**SolidQueue recurring tasks** (`config/recurring.yml`) — `rails g standard_id:install` writes this for you when the file exists:
 
 ```yaml
 production:
-  standard_id_cleanup_sessions:
+  standard_id_cleanup_expired_sessions:
     class: StandardId::CleanupExpiredSessionsJob
-    schedule: every day at 3am
-  standard_id_cleanup_refresh_tokens:
+    schedule: every hour at minute 6
+  standard_id_cleanup_expired_refresh_tokens:
     class: StandardId::CleanupExpiredRefreshTokensJob
-    schedule: every day at 3:15am
-  standard_id_cleanup_authorization_codes:
+    schedule: every hour at minute 3
+  standard_id_cleanup_expired_authorization_codes:
     class: StandardId::CleanupExpiredAuthorizationCodesJob
-    schedule: every day at 3:30am
-  standard_id_cleanup_code_challenges:
+    schedule: every hour at minute 9
+  standard_id_cleanup_expired_code_challenges:
     class: StandardId::CleanupExpiredCodeChallengesJob
-    schedule: every day at 3:45am
+    schedule: every hour at minute 13
 ```
 
 **sidekiq-cron** (`config/schedule.yml`):

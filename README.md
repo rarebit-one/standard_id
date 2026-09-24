@@ -1286,7 +1286,35 @@ bundle exec rspec spec/controllers/
 
 ## Scheduled Maintenance
 
-StandardId ships cleanup jobs (`StandardId::CleanupExpiredSessionsJob`, `StandardId::CleanupExpiredRefreshTokensJob`) and rake wrappers (`standard_id:cleanup:all`, `:sessions`, `:refresh_tokens`) to prune expired rows. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for SolidQueue, sidekiq-cron, whenever, and system-cron scheduling examples.
+StandardId never deletes expired rows on its own. Four cleanup jobs do, and **all four must be scheduled** — an unscheduled one lets its table grow forever (code challenges hold the plaintext OTP):
+
+| Job | Deletes | Grace windows (`perform` kwargs) | Recommended cadence |
+|---|---|---|---|
+| `StandardId::CleanupExpiredSessionsJob` | browser/device/service sessions expired > grace | `grace_period_seconds:` 7 days | hourly (minute 6) |
+| `StandardId::CleanupExpiredRefreshTokensJob` | refresh tokens expired or revoked > grace | `grace_period_seconds:` 7 days | hourly (minute 3) |
+| `StandardId::CleanupExpiredAuthorizationCodesJob` | OAuth authorization codes expired > 7 days or consumed > 1 day | `grace_period_seconds:`, `consumed_grace_period_seconds:` | hourly (minute 9) |
+| `StandardId::CleanupExpiredCodeChallengesJob` | OTP code challenges expired > 7 days or used > 1 day | `grace_period_seconds:`, `used_grace_period_seconds:` | hourly (minute 13) |
+
+Retention is bounded by the grace windows, not the cadence; each job is a single `DELETE`, so running hourly keeps that statement small on busy tables (daily is fine for small apps). Stagger them off minute 0.
+
+`rails g standard_id:install` adds all four to `config/recurring.yml` (Solid Queue) under `production:` when that file exists (`--skip-recurring` to opt out; re-running is a no-op). An engine cannot register Solid Queue recurring tasks itself — Solid Queue reads one schedule file — so existing apps should paste this under their `production:` key:
+
+```yaml
+  standard_id_cleanup_expired_sessions:
+    class: StandardId::CleanupExpiredSessionsJob
+    schedule: every hour at minute 6
+  standard_id_cleanup_expired_refresh_tokens:
+    class: StandardId::CleanupExpiredRefreshTokensJob
+    schedule: every hour at minute 3
+  standard_id_cleanup_expired_authorization_codes:
+    class: StandardId::CleanupExpiredAuthorizationCodesJob
+    schedule: every hour at minute 9
+  standard_id_cleanup_expired_code_challenges:
+    class: StandardId::CleanupExpiredCodeChallengesJob
+    schedule: every hour at minute 13
+```
+
+Rake wrappers (`standard_id:cleanup:all`, `:sessions`, `:refresh_tokens`, `:authorization_codes`, `:code_challenges`) run the same jobs inline. See [docs/OPERATIONS.md](docs/OPERATIONS.md) for sidekiq-cron, whenever and system-cron examples.
 
 ## Contributing
 
