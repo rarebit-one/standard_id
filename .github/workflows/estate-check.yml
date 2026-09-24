@@ -1,0 +1,17 @@
+name: estate-check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "23 2 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  estate-check:
+    uses: rarebit-one/.github/.github/workflows/estate-check.yml@main
+    with:
+      mode: report

@@ -1,0 +1,18 @@
+# Canonical hook map, rendered per vendor by estate-sync.
+# No `run` = an estate hook, vendored at .agents/hooks/<id>.sh.
+version = 1
+
+[[hook]]
+id = "enforce-worktree"
+timeout = 10
+events = [{ on = "pre_tool", tools = ["edit", "write", "notebook"] }]
+
+[[hook]]
+id = "pre-push-prepare"
+timeout = 120
+events = [{ on = "pre_tool", tools = ["bash"] }]
+
+[[hook]]
+id = "enforce-signed-commits"
+timeout = 30
+events = [{ on = "pre_tool", tools = ["bash"] }]
