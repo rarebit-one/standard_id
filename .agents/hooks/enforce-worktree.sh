@@ -10,17 +10,21 @@
 #   2 — block (in main checkout)
 #
 # No interactive bypass — CI environments are the only exception. If the hook
-# itself has a bug, a human must fix it manually (edit the file or remove from
-# settings.json).
+# itself has a bug, a human must fix it manually (edit the file or remove
+# from settings.json).
 #
 # Note: This hook covers Edit, Write, and NotebookEdit tools. Bash tool writes
-# (echo/sed/tee/cp) are not intercepted — the CLAUDE.md instruction is the
-# enforcement layer for those. Covering Bash reliably would require parsing
-# arbitrary shell commands, which is brittle.
+# that INTRODUCE content into a main checkout (rsync, bin/devcontainer-exec,
+# git stash pop/apply, git apply, patch, sed -i, …) are covered by the
+# companion hook enforce-worktree-bash.sh (registered on the Bash matcher).
+# Together they enforce the worktree-only mandate across both write paths.
 
-# Guard: jq required for JSON parsing
+# Guard: jq required for JSON parsing. jq is a setup prerequisite in this
+# workspace; warn LOUDLY if it goes missing rather than disabling silently
+# (a silently-disabled mandate is how main got scribbled on). Fail open — a
+# missing common tool must not halt all edits.
 if ! command -v jq >/dev/null 2>&1; then
-  echo "⚠️  enforce-worktree.sh: jq not found, hook disabled" >&2
+  echo "⚠️  enforce-worktree.sh: jq not found — WORKTREE MANDATE DISABLED until jq is installed" >&2
   exit 0
 fi
 
