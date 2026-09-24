@@ -253,9 +253,18 @@ StandardId.configure do |c|
   #   Account.create!(email: identifier.value)
   # }
 
-  # Deprecated senders (prefer event subscriptions + built_in delivery):
-  # c.passwordless_email_sender = ->(email, code) { PasswordlessMailer.with(code: code, to: email).deliver_later }
-  # c.passwordless_sms_sender   = ->(phone, code) { SmsProvider.send_code(phone: phone, code: code) }
+  # c.passwordless_email_sender / c.passwordless_sms_sender are DEPRECATED
+  # (assigning them emits a StandardId deprecation warning). Deliver codes from
+  # an event subscriber instead — it runs synchronously in the request, so
+  # I18n.locale etc. are still available:
+  #
+  # StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
+  #   next if event[:skip_sender] # Otp.issue(delivery: :manual)
+  #   case event[:channel]
+  #   when "email" then PasswordlessMailer.with(code: event[:code_challenge].code, to: event[:identifier]).deliver_later
+  #   when "sms"   then SmsProvider.send_code(phone: event[:identifier], code: event[:code_challenge].code)
+  #   end
+  # end
 
   # ---------------------------------------------------------------------------
   # API engine — OAuth / JWT
@@ -479,12 +488,10 @@ StandardId.configure do |c|
 
   # Login limits. The login action branches password OR passwordless, so on a
   # passwordless app these govern the OTP-SEND limit. Prefer the
-  # mechanism-agnostic names; the deprecated password_login_* names still work
-  # (the new name wins when both are set).
+  # mechanism-agnostic names; the old password_login_per_ip/_per_email names
+  # still work but emit a deprecation warning (the new name wins when both are set).
   # c.rate_limits.login_per_ip                   = 20  # per 15 minutes
   # c.rate_limits.login_per_email                = 5   # per 15 minutes
-  # c.rate_limits.password_login_per_ip          = 20  # deprecated alias of login_per_ip
-  # c.rate_limits.password_login_per_email       = 5   # deprecated alias of login_per_email
   # c.rate_limits.otp_verify_per_ip              = 20  # per 15 minutes
   # c.rate_limits.verification_start_per_target  = 3   # per 15 minutes
   # c.rate_limits.verification_start_per_ip      = 10  # per hour

@@ -37,6 +37,13 @@ module StandardId
       StandardId::ProviderRegistry.declare_config_schemas!
     end
 
+    # Route StandardId deprecation warnings through the host's deprecation
+    # behaviour (`config.active_support.deprecation`, `report_deprecations`,
+    # `Rails.application.deprecators.silence`).
+    initializer "standard_id.deprecator" do |app|
+      app.deprecators[:standard_id] = StandardId.deprecator if app.respond_to?(:deprecators)
+    end
+
     initializer "standard_id.filter_parameters" do |app|
       app.config.filter_parameters += %i[
         code_verifier

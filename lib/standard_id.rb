@@ -1,4 +1,5 @@
 require "standard_id/version"
+require "standard_id/deprecator"
 require "standard_id/current_attributes"
 require "standard_id/engine"
 require "standard_id/web_engine"

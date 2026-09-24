@@ -7,9 +7,11 @@ RSpec.describe StandardId::RateLimitHandling do
     around do |example|
       snapshot = %i[login_per_ip login_per_email password_login_per_ip password_login_per_email]
                    .index_with { |field| rate_limits[field] }
-      example.run
+      # The deprecated names warn on assignment; that is covered in
+      # config_deprecations_spec, so keep this spec's output quiet.
+      StandardId.deprecator.silence { example.run }
     ensure
-      snapshot.each { |field, value| rate_limits[field] = value }
+      StandardId.deprecator.silence { snapshot.each { |field, value| rate_limits[field] = value } }
     end
 
     it "falls back to the shared default (20 / 5) when neither name is customised" do

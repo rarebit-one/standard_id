@@ -20,11 +20,9 @@ module StandardId
                 :allow_registration,
                 :authorizer
 
-    # Shared deprecator instance. Creating a new ActiveSupport::Deprecation on
-    # every extract_profile_types call bypasses the host app's configured
-    # deprecation behaviour (Rails 7.1+ routes through deprecation registries)
-    # and allocates for every scope init. One instance is enough.
-    DEPRECATOR = ActiveSupport::Deprecation.new("2.0", "StandardId")
+    # Kept as an alias for hosts/specs that reference it; it is the gem-wide
+    # StandardId.deprecator, registered in Rails.application.deprecators.
+    DEPRECATOR = StandardId.deprecator
 
     # Normalize profile-type inputs from config.
     #

@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Hosts can delete their `StandardId::* .strict_loading_by_default = false` block** (fundbright-web, luminality-web, nutripod-web `config/initializers/strict_loading.rb`; sidekick-web's StandardId lines in the same file). Every gem model now works under `strict_loading_by_default = true` + `:raise` through every gem flow; see Fixed. Keep an exemption only if *your own* code lazily traverses a gem association (e.g. `identifier.account` in a host controller) — prefer `includes` there instead.
 
+### Deprecated
+
+Runtime warnings only — every setting below still works exactly as before and is removed in v2.0.
+
+- **`StandardId.deprecator`**, registered as `Rails.application.deprecators[:standard_id]`, so StandardId warnings follow the host's `config.active_support.deprecation` behaviour (`:raise` in test, `:log`/`:notify` elsewhere) and `Rails.application.deprecators.silence`. `ScopeConfig::DEPRECATOR` is now an alias of it; it previously was a private, unregistered instance that only ever printed to stderr. Schema fields can declare `deprecated: "message"`; assigning a non-nil value warns (pointing at the assigning line), reads never do.
+- **`oauth.client_id` / `oauth.client_secret`** — never read. OAuth clients are `ClientApplication` / `ClientSecretCredential` records. Delete the lines.
+- **`passwordless.enabled`** — no effect since 0.8. Use `web.passwordless_login`.
+- **`rate_limits.password_login_per_ip` / `password_login_per_email`** — use `rate_limits.login_per_ip` / `login_per_email` (same values; they also govern passwordless OTP sends).
+- **Scope config `profile_type:` (singular)** — already warned; now through the registered deprecator. Use `profile_types: [...]`.
+- **`passwordless_email_sender` / `passwordless_sms_sender`** — deprecated since 0.1.7 in docs, now at runtime. Deliver from a `StandardId::Events::PASSWORDLESS_CODE_GENERATED` subscriber (skip when `event[:skip_sender]`), which runs synchronously inside the request — so fundbright-web's `I18n.locale` capture for `AuthMailer` works unchanged — and leave `passwordless.delivery = :custom` so the engine's built-in mailer stays out of the way. Callers of `Otp.issue(delivery: :custom)` switch to the default `delivery: :built_in`, which then defers to that subscriber. Note: the WebEngine `verify_email` / `verify_phone` start actions still call the senders directly and emit no event, so a host relying on them should keep the sender until that is addressed.
+
 ### Fixed
 
 - **Gem flows no longer lazy-load under strict loading, so gem models run strict.** The dummy app previously exempted `Identifier`, `Session`, `Credential`, `PasswordCredential`, `ClientSecretCredential` and `AuthorizationCode`; that list is gone and the whole suite runs with every gem model strict. Fixed reads:
