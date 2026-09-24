@@ -49,7 +49,7 @@ RSpec.describe StandardId::Oauth::PasswordlessOtpFlow do
       expect(result[:expires_in]).to be_a(Integer)
 
       # Identifier remains verified and linked
-      identifier = StandardId::EmailIdentifier.find_by(value: "user@example.com")
+      identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: "user@example.com")
       expect(identifier).to be_present
       expect(identifier.verified?).to eq(true)
       expect(identifier.account).to eq(account)

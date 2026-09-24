@@ -27,7 +27,7 @@ module StandardId
       end
 
       def validate_client_secret!(client_id, client_secret)
-        client_secret_credential = StandardId::ClientSecretCredential.active.find_by(client_id: client_id)
+        client_secret_credential = StandardId::ClientSecretCredential.active.includes(:client_application).find_by(client_id: client_id)
         unless client_secret_credential&.authenticate_client_secret(client_secret)
           raise StandardId::InvalidClientError, "Client authentication failed"
         end

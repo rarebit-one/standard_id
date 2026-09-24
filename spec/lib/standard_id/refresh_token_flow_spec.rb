@@ -434,7 +434,7 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       # Deliberately NOT revoke! — this is the form that leaves refresh tokens
       # live, and the whole reason the check moved into the flow.
       session.update!(revoked_at: Time.current)
-      expect(session.refresh_tokens.reload.first.revoked_at).to be_nil
+      expect(StandardId::RefreshToken.where(session_id: session.id).first.revoked_at).to be_nil
 
       allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
       flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
@@ -445,7 +445,7 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
     it "rejects a refresh when the session was revoked via a bulk update_all (no cascade)" do
       create_refresh_token_record(session: session)
       StandardId::Session.where(id: session.id).update_all(revoked_at: Time.current)
-      expect(session.refresh_tokens.reload.first.revoked_at).to be_nil
+      expect(StandardId::RefreshToken.where(session_id: session.id).first.revoked_at).to be_nil
 
       allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
       flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)

@@ -181,7 +181,7 @@ module StandardId
     # loop and leave later sessions without their SESSION_REVOKED event, which
     # would permanently desync audit-trail consumers from the DB.
     def self.publish_session_revocations(sessions, account:, reason:, now:)
-      shared_account = account || sessions.first.account
+      shared_account = account || preload_associations(sessions.first, :account).first&.account
 
       sessions.each do |session|
         session.revoked_at = now
@@ -277,6 +277,7 @@ module StandardId
     end
 
     def emit_session_revoked_event
+      preload_associations(:account)
       StandardId::Events.publish(
         StandardId::Events::SESSION_REVOKED,
         session: self,

@@ -92,6 +92,7 @@ RSpec.describe StandardId::Oauth::TokenGrantFlow do
 
       creds_double = instance_double("StandardId::ClientSecretCredential", authenticate_client_secret: true)
       scope_double = double("scope", find_by: creds_double)
+      allow(scope_double).to receive(:includes).with(:client_application).and_return(scope_double)
       allow(StandardId::ClientSecretCredential).to receive(:active).and_return(scope_double)
 
       # Stub JWT generation since execute will call generate_token_response afterwards

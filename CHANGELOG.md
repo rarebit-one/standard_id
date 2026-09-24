@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Upgrade
+
+- **Hosts can delete their `StandardId::* .strict_loading_by_default = false` block** (fundbright-web, luminality-web, nutripod-web `config/initializers/strict_loading.rb`; sidekick-web's StandardId lines in the same file). Every gem model now works under `strict_loading_by_default = true` + `:raise` through every gem flow; see Fixed. Keep an exemption only if *your own* code lazily traverses a gem association (e.g. `identifier.account` in a host controller) — prefer `includes` there instead.
+
 ### Fixed
+
+- **Gem flows no longer lazy-load under strict loading, so gem models run strict.** The dummy app previously exempted `Identifier`, `Session`, `Credential`, `PasswordCredential`, `ClientSecretCredential` and `AuthorizationCode`; that list is gone and the whole suite runs with every gem model strict. Fixed reads:
+  - `AuthorizationCode.lookup` preloads `:account` (read by the token exchange's `OAUTH_CODE_CONSUMED` event and `token_account` — Sentry FUNDBRIGHT-WEB-X).
+  - Client-secret authentication (`TokenGrantFlow#validate_client_secret!`) preloads `:client_application` (read by the client-credentials `AUTHENTICATION_SUCCEEDED` event and `token_client`).
+  - The social-login identifier lookup and `PasswordResetDeliveryJob` preload `:account`.
+  - `Session.revoke_sessions!` without an `account:` (the OAuth revocation endpoint), `Session#revoke!`'s `SESSION_REVOKED` event and `Identifier#mark_account_verified!` (after-commit callback on `verify!`) preload `:account` onto the already-loaded record via the new `StandardId::ApplicationRecord.preload_associations` — they receive records they did not query, so no `includes` could reach them.
+  - **One declared exemption:** `Credentiable`'s `has_one :credential` (on `PasswordCredential` and `ClientSecretCredential`) is declared `strict_loading: false`. Its `touch: true` makes Rails read the association from inside its own save/destroy callbacks (`Builder::HasOne.touch_record`), which no call site can preload; without it every credential save raised. It is a one-row read, never an N+1.
 
 - **Hosts running StrongMigrations no longer have to hand-wrap `20260416180511_add_partial_indexes_for_active_session_and_challenge_lookups`.** Its partial `standard_id_code_challenges (realm, channel, target, created_at) WHERE used_at IS NULL` index trips StrongMigrations' "non-unique index with more than three columns" check, so fundbright, luminality and nutripod each had to wrap it in `safety_assured` when installing it. The shape is deliberate (three equality predicates plus the `ORDER BY created_at` column, partial, built CONCURRENTLY), so the migration now asserts that one `add_index` safe itself when StrongMigrations is loaded — the same pattern `20260924000000` uses. Hosts that already installed a hand-wrapped copy need do nothing.
 

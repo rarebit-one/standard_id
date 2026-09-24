@@ -58,7 +58,7 @@ RSpec.describe StandardId::Passwordless::SmsStrategy do
       account = strategy.send(:find_or_create_account!, phone)
       expect(account).to be_a(Account)
 
-      identifier = StandardId::PhoneNumberIdentifier.find_by(value: phone)
+      identifier = StandardId::PhoneNumberIdentifier.includes(:account).find_by(value: phone)
       expect(identifier).to be_present
       expect(identifier.account).to eq(account)
       expect(identifier).to be_verified

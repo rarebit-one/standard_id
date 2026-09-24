@@ -36,7 +36,7 @@ RSpec.describe StandardId::Web::SignupForm, type: :model do
       expect(account).to be_present
       expect(account.email).to eq("newuser@example.com")
 
-      identifier = StandardId::EmailIdentifier.find_by!(value: "newuser@example.com")
+      identifier = StandardId::EmailIdentifier.includes(:account).find_by!(value: "newuser@example.com")
       expect(identifier.account).to eq(account)
 
       password_cred = StandardId::PasswordCredential.find_by!(login: "newuser@example.com")

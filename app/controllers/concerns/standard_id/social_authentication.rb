@@ -38,7 +38,7 @@ module StandardId
 
       emit_social_user_info_fetched(provider, social_info, email)
 
-      identifier = StandardId::EmailIdentifier.find_by(value: email)
+      identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: email)
 
       if identifier.present?
         validate_social_link!(identifier, provider)

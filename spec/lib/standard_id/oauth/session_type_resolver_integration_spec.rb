@@ -82,7 +82,7 @@ RSpec.describe "OAuth session_type_resolver integration" do
       StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
     }.to change(StandardId::DeviceSession, :count).by(1)
 
-    session = StandardId::DeviceSession.order(:created_at).last
+    session = StandardId::DeviceSession.includes(:account).order(:created_at).last
     expect(session.account).to eq(account)
     expect(session.device_agent).to eq("AdminKit/1.0 Android")
     expect(session.ip_address).to eq("10.0.0.5")
@@ -197,7 +197,7 @@ RSpec.describe "OAuth session_type_resolver integration" do
 
     StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
 
-    session = StandardId::DeviceSession.order(:created_at).last
+    session = StandardId::DeviceSession.includes(:account).order(:created_at).last
     token = StandardId::RefreshToken.order(:created_at).last
 
     expect(session).to be_present
@@ -223,7 +223,7 @@ RSpec.describe "OAuth session_type_resolver integration" do
 
     StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
 
-    session = StandardId::DeviceSession.order(:created_at).last
+    session = StandardId::DeviceSession.includes(:account).order(:created_at).last
     token = StandardId::RefreshToken.order(:created_at).last
     expect(token.session_id).to eq(session.id)
 
@@ -243,7 +243,7 @@ RSpec.describe "OAuth session_type_resolver integration" do
 
     StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
 
-    session = StandardId::DeviceSession.order(:created_at).last
+    session = StandardId::DeviceSession.includes(:account).order(:created_at).last
     token = StandardId::RefreshToken.order(:created_at).last
 
     expect(token.revoked_at).to be_nil
@@ -262,7 +262,7 @@ RSpec.describe "OAuth session_type_resolver integration" do
 
     StandardId::Oauth::PasswordlessOtpFlow.new(build_params, request).execute
 
-    session = StandardId::DeviceSession.order(:created_at).last
+    session = StandardId::DeviceSession.includes(:account).order(:created_at).last
     token = StandardId::RefreshToken.order(:created_at).last
 
     session.update_columns(expires_at: 1.hour.ago)
