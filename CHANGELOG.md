@@ -7,10 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.2] - 2026-09-25
+
+### Fixed
+
+- **`CleanupExpiredSessionsJob` failed on every run once an expired session had a refresh token** (sidekick-web SIDEKICK-WEB-3K / cron monitor SIDEKICK-WEB-3M: `PG::ForeignKeyViolation … violates foreign key constraint "fk_rails_db44ba6f6e" on table "standard_id_refresh_tokens"`). `standard_id_refresh_tokens.session_id` references `standard_id_sessions` with no `ON DELETE` action, and `Session.where(...).delete_all` skipped the model's `dependent: :nullify`. This affected every host that schedules the job, directly or through `CleanupAllJob`, and nothing was ever cleaned up. Now, per batch of 1,000 (`batch_size:`), in one transaction, with the candidate rows re-checked under `FOR UPDATE SKIP LOCKED`:
+  - **An expired session that still has a live refresh token (unrevoked, unexpired) is kept.** Refresh tokens deliberately outlive their session's expiry: `RefreshTokenFlow#validate_parent_session!` checks revocation, not expiry, since 0.35.x, so `refresh_token_lifetime` alone decides how long a client stays signed in (jumpdrive-web runs 1-day browser sessions against 30-day refresh tokens). Deleting such a session would detach its token and lose "revoking this session ends its access". Revoking the token, as `Session#destroy` does, would sign the client out early. The session is collected on a later run, once its tokens are dead, so at most `refresh_token_lifetime` after it would otherwise have gone.
+  - **Dead refresh tokens (revoked or expired) of the sessions being deleted are detached** (`session_id` → `NULL`, as `dependent: :nullify` does) rather than deleted. `CleanupExpiredRefreshTokensJob` removes them on its own window, and until then a replayed revoked token still triggers reuse detection.
+  - A host whose copy of the migration added `on_delete: :nullify` to that FK (sidekick-web's `db/schema.rb` shows one, although its production constraint evidently has none) no longer has live tokens silently detached from their sessions either.
+- The other cleanup jobs had no such hazard. Nothing references `standard_id_authorization_codes` or `standard_id_code_challenges`, and the only foreign key into `standard_id_refresh_tokens` is its own `previous_token_id`, which is `ON DELETE SET NULL`. `standard_id_refresh_tokens.session_id` is the only foreign key into `standard_id_sessions`, in the gem, standard_id-provider and all five apps.
+
 ### Changed
 
-- **Requires Rails 8.1** (`rails >= 8.1`, was `>= 8.0`). Every consumer app
-  runs 8.1; 8.0 was never exercised in CI.
+- **Requires Rails 8.1** (`rails >= 8.1`, was `>= 8.0`; #344, merged since 0.43.1). All five consumer apps already run Rails 8.1.3.1, and 8.0 was never tested in CI.
+
+### Upgrade notes
+
+Bump only. The first run after upgrading deletes, in batches, the backlog of expired sessions the job never managed to remove.
 
 ## [0.43.1] - 2026-09-24
 
