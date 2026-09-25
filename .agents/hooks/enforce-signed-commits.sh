@@ -16,7 +16,7 @@
 #   2 - block (an explicit signing bypass)
 #
 # To skip this hook (a human decision; agents need the user's approval):
-#   - Set SKIP_SIGNED_COMMITS_HOOK=1 environment variable
+#   - Export SKIP_SIGNED_COMMITS_HOOK=1 in your own shell (an inline prefix no longer works)
 #
 # Signing bypasses are BLOCKED (exit 2), not opt-outs: `--no-gpg-sign` and
 # `-c commit.gpgsign=false|0|no|off`. Workspace rule: never use them; a human
@@ -61,12 +61,11 @@ if [[ ! "$COMMAND" =~ $GIT_COMMIT_RE ]]; then
   exit 0
 fi
 
-# Allow explicit opt-out via env var (exported) or inline command prefix.
-# Inline env-vars (e.g. `SKIP_SIGNED_COMMITS_HOOK=1 git commit ...`) apply
-# to the subprocess, not the hook process, so we have to inspect $COMMAND.
-# The matching allow-list entry `Bash(SKIP_SIGNED_COMMITS_HOOK=1 git commit:*)`
-# pre-approves the inline form so Claude Code doesn't prompt.
-if [[ "${SKIP_SIGNED_COMMITS_HOOK:-}" == "1" ]] || [[ "$COMMAND" == SKIP_SIGNED_COMMITS_HOOK=1* ]]; then
+# Only an EXPORTED SKIP_SIGNED_COMMITS_HOOK=1 skips the hook: that has to be set
+# in a human's shell before the session starts. An inline prefix
+# (`SKIP_SIGNED_COMMITS_HOOK=1 git commit …`) is something an agent can type, so it
+# no longer skips; the commit is signed and checked like any other.
+if [[ "${SKIP_SIGNED_COMMITS_HOOK:-}" == "1" ]]; then
   echo "⏭️  Signed commits hook skipped (SKIP_SIGNED_COMMITS_HOOK=1)" >&2
   exit 0
 fi
@@ -95,9 +94,10 @@ if printf '%s' "$SCAN" | grep -qE -- '(^|[[:space:]])--no-gpg-sign([[:space:]]|$
   echo "$REPHRASE" >&2
   exit 2
 fi
-if printf '%s' "$SCAN" | grep -qiE -- "(^|[[:space:]])-c[[:space:]]*['\"]?commit\\.gpgsign=(false|0|no|off)['\"]?([[:space:]]|\$)"; then
+if printf '%s' "$SCAN" | grep -qiE -- "(^|[[:space:]])-c[[:space:]]*['\"]?commit\\.gpgsign=['\"]?(false|0|no|off)['\"]?([[:space:]]|\$)"; then
   echo "❌ Signing bypass blocked: remove -c commit.gpgsign=... Commits here must be signed;" >&2
   echo "   if signing fails, stop and surface the error instead." >&2
+  echo "$REPHRASE" >&2
   exit 2
 fi
 
@@ -106,10 +106,12 @@ fi
 if printf '%s' "$SCAN" | grep -qiE -- "GIT_CONFIG_KEY_[0-9]+=['\"]?commit\\.gpgsign" \
    && printf '%s' "$SCAN" | grep -qiE -- "GIT_CONFIG_VALUE_[0-9]+=['\"]?(false|0|no|off)"; then
   echo "❌ Signing bypass blocked: GIT_CONFIG_KEY_n=commit.gpgsign disables signing." >&2
+  echo "$REPHRASE" >&2
   exit 2
 fi
 if printf '%s' "$SCAN" | grep -qiE -- "GIT_CONFIG_PARAMETERS=.*commit\\.gpgsign'?=['\"]?'?(false|0|no|off)"; then
   echo "❌ Signing bypass blocked: GIT_CONFIG_PARAMETERS disables commit.gpgsign." >&2
+  echo "$REPHRASE" >&2
   exit 2
 fi
 
