@@ -79,22 +79,20 @@ fi
 # Block the explicit signing bypasses (checked before the signing-key check, so
 # they are refused even where signing isn't configured). Word boundaries match
 # the flag, not the same text inside a quoted commit message.
-# Judge flags on the command with commit-message text removed: heredoc bodies
-# (`git commit -F - <<EOF`) and -m/--message arguments. Otherwise a commit whose
-# MESSAGE mentions --no-gpg-sign would be refused (review finding, round 2).
-SCAN=$(printf '%s\n' "$COMMAND" | awk '
-  skip { t=$0; sub(/^\t+/, "", t); if (t == delim) skip=0; next }
-  { print }
-  match($0, /<<-?[[:space:]]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/) {
-    d=substr($0, RSTART, RLENGTH); sub(/^<<-?[[:space:]]*/, "", d); gsub(/["\047]/, "", d); delim=d; skip=1
-  }' | sed -E \
-    -e 's/(^|[[:space:]])(-m|--message)(=|[[:space:]]+)"([^"\\]|\\.)*"/\1/g' \
-    -e "s/(^|[[:space:]])(-m|--message)(=|[[:space:]]+)'[^']*'/\\1/g" \
-    -e 's/(^|[[:space:]])(-m|--message)(=|[[:space:]]+)[^[:space:]"'"'"']+/\1/g')
+# Scan the RAW command, deliberately. This is a best-effort guard: no text scan
+# can be complete (variables, eval, aliases and scripts all hide a flag), and
+# every attempt to skip "message text" (heredoc bodies, -m arguments) opened a
+# bypass (review rounds 2-3: $(cat <<EOF …), multi-line -m, stray <<EOF). So it
+# errs toward BLOCKING: a commit whose message merely mentions a bypass flag is
+# refused, and the message says to rephrase. The authoritative controls are the
+# home deny list and the server-side signature requirement.
+SCAN="$COMMAND"
+REPHRASE="   (If the flag only appears in your commit message, rephrase the message.)"
 
 if printf '%s' "$SCAN" | grep -qE -- '(^|[[:space:]])--no-gpg-sign([[:space:]]|$)'; then
   echo "❌ Signing bypass blocked: remove --no-gpg-sign. Commits here must be signed;" >&2
   echo "   if signing fails, stop and surface the error instead." >&2
+  echo "$REPHRASE" >&2
   exit 2
 fi
 if printf '%s' "$SCAN" | grep -qiE -- "(^|[[:space:]])-c[[:space:]]*['\"]?commit\\.gpgsign=(false|0|no|off)['\"]?([[:space:]]|\$)"; then
