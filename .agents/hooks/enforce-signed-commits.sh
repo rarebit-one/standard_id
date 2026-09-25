@@ -53,7 +53,10 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""') || exit 0
 # with global options in between: `git -C DIR commit`, `git -c key=val commit`.
 # This matches: git commit, git commit -m, git -c x=y commit, etc.
 # But NOT: git commit-msg, git commit-tree
-GIT_COMMIT_RE='(^|[[:space:]&;|])git([[:space:]]+-[cC][[:space:]]+[^[:space:]]+)*[[:space:]]+commit([[:space:]]|$)'
+# Global options before the subcommand: -c/-C and the long options that take a
+# separate argument, or any other -x / --opt[=value] (e.g. --no-pager, -P).
+GIT_GLOBAL_OPTS='([[:space:]]+(-[cC]|--git-dir|--work-tree|--namespace|--exec-path|--config-env)[[:space:]]+[^[:space:]]+|[[:space:]]+--?[A-Za-z][-A-Za-z0-9]*(=[^[:space:]]+)?)*'
+GIT_COMMIT_RE="(^|[[:space:]&;|])git${GIT_GLOBAL_OPTS}[[:space:]]+commit([[:space:]]|\$)"
 if [[ ! "$COMMAND" =~ $GIT_COMMIT_RE ]]; then
   exit 0
 fi
@@ -76,14 +79,37 @@ fi
 # Block the explicit signing bypasses (checked before the signing-key check, so
 # they are refused even where signing isn't configured). Word boundaries match
 # the flag, not the same text inside a quoted commit message.
-if printf '%s' "$COMMAND" | grep -qE -- '(^|[[:space:]])--no-gpg-sign([[:space:]]|$)'; then
+# Scan the RAW command, deliberately. This is a best-effort guard: no text scan
+# can be complete (variables, eval, aliases and scripts all hide a flag), and
+# every attempt to skip "message text" (heredoc bodies, -m arguments) opened a
+# bypass (review rounds 2-3: $(cat <<EOF …), multi-line -m, stray <<EOF). So it
+# errs toward BLOCKING: a commit whose message merely mentions a bypass flag is
+# refused, and the message says to rephrase. The authoritative controls are the
+# home deny list and the server-side signature requirement.
+SCAN="$COMMAND"
+REPHRASE="   (If the flag only appears in your commit message, rephrase the message.)"
+
+if printf '%s' "$SCAN" | grep -qE -- '(^|[[:space:]])--no-gpg-sign([[:space:]]|$)'; then
   echo "❌ Signing bypass blocked: remove --no-gpg-sign. Commits here must be signed;" >&2
+  echo "   if signing fails, stop and surface the error instead." >&2
+  echo "$REPHRASE" >&2
+  exit 2
+fi
+if printf '%s' "$SCAN" | grep -qiE -- "(^|[[:space:]])-c[[:space:]]*['\"]?commit\\.gpgsign=(false|0|no|off)['\"]?([[:space:]]|\$)"; then
+  echo "❌ Signing bypass blocked: remove -c commit.gpgsign=... Commits here must be signed;" >&2
   echo "   if signing fails, stop and surface the error instead." >&2
   exit 2
 fi
-if printf '%s' "$COMMAND" | grep -qiE -- '(^|[[:space:]])-c[[:space:]]*commit\.gpgsign=(false|0|no|off)([[:space:]]|$)'; then
-  echo "❌ Signing bypass blocked: remove -c commit.gpgsign=... Commits here must be signed;" >&2
-  echo "   if signing fails, stop and surface the error instead." >&2
+
+# The same setting through git's environment: GIT_CONFIG_KEY_n=commit.gpgsign with
+# a false-ish GIT_CONFIG_VALUE_n, or GIT_CONFIG_PARAMETERS carrying it.
+if printf '%s' "$SCAN" | grep -qiE -- "GIT_CONFIG_KEY_[0-9]+=['\"]?commit\\.gpgsign" \
+   && printf '%s' "$SCAN" | grep -qiE -- "GIT_CONFIG_VALUE_[0-9]+=['\"]?(false|0|no|off)"; then
+  echo "❌ Signing bypass blocked: GIT_CONFIG_KEY_n=commit.gpgsign disables signing." >&2
+  exit 2
+fi
+if printf '%s' "$SCAN" | grep -qiE -- "GIT_CONFIG_PARAMETERS=.*commit\\.gpgsign'?=['\"]?'?(false|0|no|off)"; then
+  echo "❌ Signing bypass blocked: GIT_CONFIG_PARAMETERS disables commit.gpgsign." >&2
   exit 2
 fi
 
@@ -112,7 +138,7 @@ fi
 #
 # We insert -S right after "git commit" to ensure proper flag ordering
 # Using printf for safer interpolation (avoids issues with special characters)
-MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E 's/(git([[:space:]]+-[cC][[:space:]]+[^[:space:]]+)*[[:space:]]+commit)([[:space:]]|$)/\1 -S\3/')
+MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E "s/(git${GIT_GLOBAL_OPTS}[[:space:]]+commit)([[:space:]]|\$)/\\1 -S\\5/")
 
 echo "🔐 Auto-signing commit (added -S flag)" >&2
 
