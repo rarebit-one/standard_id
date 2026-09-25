@@ -2,174 +2,34 @@
 
 StandardId is a secure-by-default authentication engine for Rails 8 providing OAuth 2.0, passwordless auth, JWT tokens, and social login with a plugin architecture.
 
-## Quick Reference
+## Public API
+
+- Two engines, both `isolate_namespace StandardId`: `lib/standard_id/web_engine.rb`
+  (cookies, `StandardId::Web::*`) and `lib/standard_id/api_engine.rb` (JWT bearer,
+  `StandardId::Api::*`). Routes: `config/routes/web.rb`, `config/routes/api.rb`.
+- Host mixins: `app/controllers/concerns/standard_id/web_authentication.rb` and
+  `app/controllers/concerns/standard_id/api_authentication.rb`.
+- Configuration: `StandardId.config`, schema in `lib/standard_id/config/schema.rb`.
+- Events: `StandardId::Events.publish` / `.subscribe` over `ActiveSupport::Notifications`;
+  names in `lib/standard_id/events/definitions.rb`.
+- Provider plugins: subclass `lib/standard_id/providers/base.rb` and register with
+  `StandardId::ProviderRegistry.register`.
+- Errors: `lib/standard_id/errors.rb`. JWTs: `lib/standard_id/jwt_service.rb`.
+
+## Commands
 
 ```bash
-# Run tests
 bundle exec rspec
-
-# Run specific test file
-bundle exec rspec spec/models/standard_id/session_spec.rb
-
-# Run linting
-bundle exec rubocop
-
-# Auto-fix lint issues
 bundle exec rubocop -A
-
-# Database setup (uses spec/dummy app)
-bundle exec rake app:db:setup
-
-# Run migrations
+bundle exec rake app:db:setup      # uses the spec/dummy app
 bundle exec rake app:db:migrate
+bin/dev                            # boots spec/dummy (web + tailwindcss watcher)
 ```
-
-### Local Dev
 
 `bin/dev` boots the dummy app under `spec/dummy` — it provisions the SQLite DB on first run,
 then runs `spec/dummy/Procfile.dev` (web + tailwindcss watcher) via overmind/hivemind/foreman.
 
-## Project Structure
-
-```
-standard_id/
-├── app/
-│   ├── controllers/standard_id/
-│   │   ├── api/              # API controllers (JWT-based)
-│   │   └── web/              # Web controllers (cookie-based)
-│   ├── forms/                # Form objects (SignupForm, ResetPasswordForm)
-│   ├── models/standard_id/   # ActiveRecord models (STI-based)
-│   └── views/                # ERB templates
-├── lib/standard_id/
-│   ├── api/                  # API auth (guards, managers)
-│   ├── web/                  # Web auth (guards, managers)
-│   ├── oauth/                # OAuth 2.0 flows
-│   ├── passwordless/         # OTP strategies
-│   ├── providers/            # Social provider base class
-│   ├── events/               # Event system
-│   ├── config/schema.rb      # Configuration DSL
-│   └── errors.rb             # Custom exceptions
-├── config/routes/
-│   ├── web.rb                # Web engine routes
-│   └── api.rb                # API engine routes
-├── db/migrate/               # Database migrations
-└── spec/
-    ├── dummy/                # Test Rails app
-    ├── models/               # Model specs
-    ├── requests/             # Integration specs
-    └── support/              # Test helpers
-```
-
-## Key Patterns
-
-### STI (Single Table Inheritance)
-
-**Sessions** (`standard_id_sessions` table):
-- `StandardId::Session` (base)
-  - `StandardId::BrowserSession` - web sessions (cookies)
-  - `StandardId::DeviceSession` - mobile/API (JWT)
-  - `StandardId::ServiceSession` - M2M (JWT)
-
-**Identifiers** (`standard_id_identifiers` table):
-- `StandardId::Identifier` (base)
-  - `StandardId::EmailIdentifier`
-  - `StandardId::PhoneNumberIdentifier`
-  - `StandardId::UsernameIdentifier`
-
-### Delegated Type (Credentials)
-
-```ruby
-# StandardId::Credential wraps:
-- StandardId::PasswordCredential  # User passwords
-- StandardId::ClientSecretCredential  # OAuth client secrets
-```
-
-### Two Rails Engines
-
-| Engine | Mount Point | Auth Method | Namespace |
-|--------|-------------|-------------|-----------|
-| WebEngine | `/` | Cookies | `StandardId::Web::*` |
-| ApiEngine | `/api` | JWT Bearer | `StandardId::Api::*` |
-
-### Event System
-
-Uses `ActiveSupport::Notifications`. Events defined in `lib/standard_id/events/definitions.rb`:
-
-```ruby
-# Publishing
-StandardId::Events.publish(:authentication_succeeded, account: user)
-
-# Subscribing
-StandardId::Events.subscribe(:authentication_succeeded) do |event|
-  Rails.logger.info("Login: #{event[:account].email}")
-end
-```
-
-### Configuration
-
-Defined in `lib/standard_id/config/schema.rb` using StandardConfig:
-
-```ruby
-StandardId.config.account_class_name      # "User"
-StandardId.config.oauth.default_token_lifetime  # 3600
-StandardId.config.session.browser_session_lifetime  # 24.hours
-```
-
-## Database Tables
-
-| Table | Purpose |
-|-------|---------|
-| `standard_id_identifiers` | Email/phone/username (STI) |
-| `standard_id_credentials` | Credential wrapper (delegated_type) |
-| `standard_id_password_credentials` | Bcrypt password storage |
-| `standard_id_client_secret_credentials` | OAuth client secrets |
-| `standard_id_sessions` | Auth sessions (STI) |
-| `standard_id_client_applications` | OAuth clients |
-| `standard_id_authorization_codes` | OAuth auth codes |
-| `standard_id_code_challenges` | OTP codes |
-
-## Common Workflows
-
-### Adding an OAuth Flow
-
-1. Create `lib/standard_id/oauth/my_flow.rb` inheriting from base flow
-2. Define `expect_params` and `permit_params`
-3. Implement authentication logic
-4. Emit events via `StandardId::Events.publish`
-5. Add tests in `spec/lib/oauth/`
-
-### Adding a Social Provider
-
-1. Create `lib/standard_id/providers/my_provider.rb` inheriting from `Base`
-2. Implement: `provider_name`, `authorization_url`, `get_user_info`, `config_schema`
-3. Register: `StandardId::ProviderRegistry.register(:my_provider, MyProvider)`
-4. Add tests in `spec/lib/providers/`
-
-### Adding Controller Actions
-
-1. Add route in `config/routes/{web,api}.rb`
-2. Create controller in `app/controllers/standard_id/{web,api}/`
-3. Inherit from `StandardId::Web::BaseController` or `StandardId::Api::BaseController`
-4. Emit events for audit trail
-
-## Testing
-
-- **No FactoryBot in gem specs** — the gem's own specs use inline model creation. The published `StandardId::Testing` module ships FactoryBot factories for host-app convenience, but they are not used in the gem's test suite.
-- **Dummy app** at `spec/dummy/` - complete Rails app for integration tests
-- **Request helpers** in `spec/support/request_helpers.rb`
-
-```ruby
-# Example test setup
-account = Account.create!(email: "test@example.com")
-identifier = StandardId::EmailIdentifier.create!(account: account, value: account.email)
-credential = StandardId::PasswordCredential.create!(
-  login: account.email,
-  password: "password123",
-  credential_attributes: { identifier: identifier }
-)
-```
-
-## Security Notes
+## Invariants
 
 - Tokens stored as bcrypt digests or SHA256 hashes - never plaintext
 - PKCE required for public OAuth clients
@@ -177,27 +37,71 @@ credential = StandardId::PasswordCredential.create!(
 - All security events published for audit trail
 - Session expiry enforced on every request
 - Account locking/status changes revoke all sessions
+- Sessions and identifiers are STI (`standard_id_sessions`, `standard_id_identifiers`);
+  credentials are a `delegated_type`. New kinds are subclasses, not new tables.
+- New OAuth flows declare `expect_params` / `permit_params` (see
+  `lib/standard_id/oauth/base_request_flow.rb`) and emit events via `StandardId::Events.publish`.
 
-## Key Files
+## Footguns
 
-| File | Purpose |
-|------|---------|
-| `lib/standard_id/engine.rb` | Main engine initialization |
-| `lib/standard_id/errors.rb` | All custom exceptions |
-| `lib/standard_id/events.rb` | Event publishing system |
-| `lib/standard_id/jwt_service.rb` | JWT encoding/decoding |
-| `lib/standard_id/config/schema.rb` | Configuration definitions |
-| `app/controllers/concerns/standard_id/web_authentication.rb` | Web auth mixin |
-| `app/controllers/concerns/standard_id/api_authentication.rb` | API auth mixin |
+- **Test changes against the consuming apps**, not only this suite: five apps
+  mount the engine (see Consumers), and the provider plugins reach into
+  `StandardId::ProviderRegistry` and `config_schema` internals.
+- **No FactoryBot in gem specs** — the gem's own specs use inline model creation. The published `StandardId::Testing` module ships FactoryBot factories for host-app convenience, but they are not used in the gem's test suite.
+- Removed settings raise `StandardId::ConfigurationError` with a hint; upgrade
+  notes live in `docs/MIGRATION_GUIDE.md`.
+- Pre-push lefthook (`lefthook.yml`) runs rubocop, brakeman and `rspec --fail-fast`.
 
-## Dependencies
+## Workspace rules
 
-- **rails** ~> 8.0
-- **bcrypt** ~> 3.1 (password hashing)
-- **jwt** ~> 2.7 (token encoding)
-- **concurrent-ruby** (thread-safe data structures)
-- **standard_config** (configuration management)
+- **Worktrees only.** Edit in `.worktrees/<name>/`, never in the main checkout.
+  `.agents/hooks.toml` registers `enforce-worktree` (Edit/Write/NotebookEdit);
+  scripts are in `.agents/hooks/`. There are no opt-outs; CI checkouts are the
+  only exception. Bash writes into the main checkout (`sed -i`, `tee`, redirects,
+  `cp`/`mv`) are not hook-guarded yet: `enforce-worktree-bash` is not registered
+  until rarebit-one/standard_id#351 merges, so for Bash this rule is
+  instruction-enforced.
 
-Optional provider gems:
-- **standard_id-google** ~> 0.1.1
-- **standard_id-apple** ~> 0.1.1
+```bash
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@refs/remotes/origin/@@')
+DEFAULT_BRANCH=${DEFAULT_BRANCH:-main}
+git fetch origin "$DEFAULT_BRANCH"
+git worktree add .worktrees/<name> -b <branch-name> "origin/$DEFAULT_BRANCH"
+```
+
+Then work inside `.worktrees/<name>/` for the rest of the session.
+
+**Naming:** Use a task slug (e.g., `.worktrees/fix-auth-timeout`) or today's date (e.g., `.worktrees/2026-04-01`).
+
+**Why this matters:** Working directly on the main checkout causes cross-contamination between sessions — uncommitted changes, wrong branches, and dirty state leak into unrelated work. Worktrees eliminate this entirely.
+
+- **Signed commits only.** `enforce-signed-commits` adds `-S` to `git commit`; if
+  signing fails, stop and report it, and never pass `--no-gpg-sign`.
+
+See the `/worktree` and `/start` skills for full conventions and flags.
+
+## Where to look
+
+- `docs/agents/architecture.md`: layout, STI and delegated types, engines, events, config, tables, key files.
+- `docs/agents/workflows.md`: adding an OAuth flow, a social provider, a controller action.
+- `docs/agents/development.md`: the full command reference and test setup.
+- `docs/agents/security.md`: the security notes.
+- `docs/OPERATIONS.md`: scheduled cleanup jobs and rake tasks.
+- `docs/MIGRATION_GUIDE.md`: per-version upgrade steps.
+- `README.md`: host-facing configuration, the event list, and "Writing a Provider Plugin".
+
+## Consumers
+
+`standard_id` is consumed by these apps in the rarebit-one workspace:
+
+- `fundbright-web`
+- `luminality-web`
+- `nutripod-web`
+- `sidekick-web`
+- `jumpdrive-web` (the control-plane app, formerly `workspace-os`; its `Gemfile`/`Gemfile.lock` live under `control-plane/`, **not** the repo root — a `*/Gemfile` glob misses it, which is how an audit can drop this consumer without noticing. Its local checkout is `~/Workspace/rarebit-one/jumpdrive-web` — the directory rename is done; the old `workspace-os` dir was retired 2026-07-14.)
+
+Note that the provider plugins have a narrower consumer set than the engine itself: `standard_id-apple` and `standard_id-google` are consumed only by `luminality-web` and `sidekick-web`.
+
+Three consumers live in sibling workspaces — `fundbright-web` in `~/Workspace/fundbright/`, `luminality-web` in `~/Workspace/luminality/`, `sidekick-web` in `~/Workspace/sidekick-labs/` — so don't assume every consumer sits beside this repo.
+
+After publishing a new version via `/publish-gem`, roll it out with the workspace-level `/rollout-gem standard_id [<version>]` skill (defined at the rarebit-one workspace root, one directory above this repo). The canonical consumer matrix — including version constraints and any non-rubygems sources — lives in that skill's `SKILL.md`; the list here is a summary so version pins don't drift between two files.
