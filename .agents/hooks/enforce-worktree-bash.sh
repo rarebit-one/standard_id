@@ -280,20 +280,20 @@ _read_dq() {
 
 # Read a heredoc delimiter word starting at C; push it onto HD.
 _read_heredoc_delim() {
-  local line="${LINES[L]}" ch delim="" q
+  local line="${LINES[L]}" ch delim="" q quoted=0
   while [[ "${line:C:1}" == " " || "${line:C:1}" == $'\t' ]]; do C=$((C + 1)); done
   while (( C < ${#line} )); do
     ch="${line:C:1}"
     case "$ch" in
       "'"|'"')
-        q="$ch"; C=$((C + 1))
+        q="$ch"; quoted=1; C=$((C + 1))
         while (( C < ${#line} )) && [[ "${line:C:1}" != "$q" ]]; do
           delim="$delim${line:C:1}"; C=$((C + 1))
         done
         C=$((C + 1))
         ;;
       '\')
-        C=$((C + 1)); delim="$delim${line:C:1}"; C=$((C + 1))
+        quoted=1; C=$((C + 1)); delim="$delim${line:C:1}"; C=$((C + 1))
         ;;
       ' '|$'\t'|';'|'&'|'|'|')'|'<'|'>')
         break
@@ -303,24 +303,39 @@ _read_heredoc_delim() {
         ;;
     esac
   done
-  [[ -n "$delim" ]] && HD+=("$delim")
+  if [[ -n "$delim" ]]; then
+    if (( quoted )); then HD+=("Q$delim"); else HD+=("U$delim"); fi
+  fi
 }
 
 # At end of a line that opened heredocs: swallow their bodies.
 _consume_heredocs() {
-  local i=$((L + 1)) d ln trimmed
+  local i=$((L + 1)) entry d kind ln trimmed esc
   local n=${#LINES[@]}
-  for d in "${HD[@]}"; do
+  local -a pending=("${HD[@]}") bodies=()
+  for entry in "${pending[@]}"; do
+    kind="${entry:0:1}"; d="${entry:1}"
     while (( i < n )); do
       ln="${LINES[i]}"
       trimmed="$ln"
       while [[ "$trimmed" == $'\t'* ]]; do trimmed="${trimmed#	}"; done
       i=$((i + 1))
       if [[ "$ln" == "$d" || "$trimmed" == "$d" ]]; then break; fi
+      # An UNQUOTED delimiter means the body expands: $(…) and `…` in it RUN.
+      # Queue those lines to be lexed like a double-quoted string.
+      if [[ "$kind" == "U" && ( "$ln" == *'$('* || "$ln" == *'`'* ) ]]; then
+        bodies+=("$ln")
+      fi
     done
   done
   HD=()
   L=$((i - 1))
+  for ln in "${bodies[@]}"; do
+    # a heredoc body treats \$ \` \\ like a double-quoted string does, so only the
+    # double quote itself needs escaping to lex the line as one
+    esc="${ln//\"/\\\"}"
+    _analyze_text ": \"$esc\""
+  done
 }
 
 # --- command inspection -----------------------------------------------------
