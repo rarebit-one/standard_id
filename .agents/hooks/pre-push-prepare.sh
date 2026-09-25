@@ -56,8 +56,10 @@ GIT_PUSH_RE='(^|[[:space:]&;|])git[[:space:]]+(-C[[:space:]]+("[^"]+"|'\''[^'\''
 # True when a single command segment (no shell separators) is the push:
 # a `git … push` invocation or a `gh pr create`.
 _seg_is_push() {
-  if [[ "$1" =~ (^|[[:space:]])git[[:space:]] ]] \
-    && [[ "$1" =~ (^|[[:space:]])push([[:space:]]|$) ]]; then
+  # the push itself: `git [-C <dir>] push`, adjacent. Any segment that merely
+  # CONTAINS both words (`git commit -m "fix push"`) used to match, and a cd before
+  # it then selected the wrong checkout (review finding on the estate rollout).
+  if [[ "$1" =~ $GIT_PUSH_RE ]]; then
     return 0
   fi
   [[ "$1" =~ (^|[[:space:]])gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]
@@ -158,7 +160,13 @@ resolve_push_root() {
 
   if [[ -n "$push_seg" ]]; then
     dir=$(_extract_dir_arg "$push_seg" '-C')
-    if [[ -n "$dir" ]] && toplevel=$(_try_toplevel "$base" "$dir"); then
+    # a relative -C is relative to wherever the preceding `cd` left the shell
+    local cbase="$base"
+    if [[ -n "$last_cd" && "$dir" != /* ]]; then
+      local d="${last_cd/#\~\//$HOME/}"
+      cbase=$(cd "$base" >/dev/null 2>&1 && cd "$d" >/dev/null 2>&1 && pwd) || cbase="$base"
+    fi
+    if [[ -n "$dir" ]] && toplevel=$(_try_toplevel "$cbase" "$dir"); then
       printf '%s' "$toplevel"
       return 0
     fi
@@ -312,7 +320,8 @@ if [[ "$REBASE_HAPPENED" == "true" ]]; then
     # The word-boundary regex catches --force, --force-with-lease, and
     # --force-if-includes without false-matching unrelated tokens.
     if [[ ! "$COMMAND" =~ (^|[[:space:]])--force ]]; then
-      MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E 's/(git[[:space:]]+push)/\1 --force-with-lease/')
+      # insert after `push`, including the `git -C <dir> push` form (review finding)
+      MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E "s/(git([[:space:]]+-C[[:space:]]+(\"[^\"]+\"|'[^']+'|[^[:space:]]+))?[[:space:]]+push)([[:space:]]|\$)/\\1 --force-with-lease\\4/")
       echo "🔄 Injecting --force-with-lease (rebase changed history)" >&2
       jq -n --arg cmd "$MODIFIED_COMMAND" '{
         "hookSpecificOutput": {

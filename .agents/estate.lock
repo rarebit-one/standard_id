@@ -5,10 +5,10 @@ targets = ["claude"]
 
 [estate]
 repo = "rarebit-one/agent-estate"
-sha = "f05dc88568644b8ad469e927ee780d17b645bbea"
+sha = "db965b26226142578f0ac1c28fc6bb7951702bbf"
 
 [vendored]
 "enforce-signed-commits" = "sha256:c7bc4295c9f0a2a693523c5a22345396782a4080b0a0ce77920f6bc24aa4d9b3"
 "enforce-worktree" = "sha256:04ed414ecfddf7df00ddcabedbfeadbb7a77aac9fc13a28090427ae580a718f6"
 "enforce-worktree-bash" = "sha256:89863e8a61c210a708360129a9d89e27831654569f4e3d82ab4d90185509f84b"
-"pre-push-prepare" = "sha256:745fe383cb0af892bce91a3b134ae4eed500ce985079b98b356e037d8757d3e3"
+"pre-push-prepare" = "sha256:d4fac18b4bfd75986d54eaf377d90e3782aa92f364c0df0544b6b08de405ab11"
