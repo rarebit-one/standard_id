@@ -12,11 +12,15 @@
 #   5. Returns updated command via JSON output
 #
 # Exit codes:
-#   0 - Always (hook either modifies command or passes through unchanged)
+#   0 - allow (command signed via updatedInput, or passed through unchanged)
+#   2 - block (an explicit signing bypass)
 #
-# To skip this hook:
+# To skip this hook (a human decision; agents need the user's approval):
 #   - Set SKIP_SIGNED_COMMITS_HOOK=1 environment variable
-#   - Or include --no-gpg-sign in your command (explicit opt-out)
+#
+# Signing bypasses are BLOCKED (exit 2), not opt-outs: `--no-gpg-sign` and
+# `-c commit.gpgsign=false|0|no|off`. Workspace rule: never use them; a human
+# who truly needs an unsigned commit runs it in their own terminal.
 #
 # Requirements:
 #   - GPG or SSH signing must be configured in git
@@ -26,7 +30,7 @@
 #              git config --get user.signingkey (returns path like ~/.ssh/id_ed25519.pub)
 #
 # Note: This hook modifies the command before execution using updatedInput.
-#       It does NOT block unsigned commits - it automatically signs them.
+#       It signs ordinary commits and blocks the explicit signing bypasses.
 
 set -e
 
@@ -45,10 +49,12 @@ fi
 INPUT=$(cat)
 COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""') || exit 0
 
-# Only process "git commit" commands (with word boundaries)
-# This matches: git commit, git commit -m, etc.
-# But NOT: git commit-msg, git commit-tree, echo "git commit"
-if [[ ! "$COMMAND" =~ (^|[[:space:]\&\;\|])git[[:space:]]+commit([[:space:]]|$) ]]; then
+# Only process "git commit" commands (with word boundaries), including the forms
+# with global options in between: `git -C DIR commit`, `git -c key=val commit`.
+# This matches: git commit, git commit -m, git -c x=y commit, etc.
+# But NOT: git commit-msg, git commit-tree
+GIT_COMMIT_RE='(^|[[:space:]&;|])git([[:space:]]+-[cC][[:space:]]+[^[:space:]]+)*[[:space:]]+commit([[:space:]]|$)'
+if [[ ! "$COMMAND" =~ $GIT_COMMIT_RE ]]; then
   exit 0
 fi
 
@@ -67,6 +73,20 @@ if [[ "${CI:-}" == "true" ]] || [[ -n "${GITHUB_ACTIONS:-}" ]]; then
   exit 0
 fi
 
+# Block the explicit signing bypasses (checked before the signing-key check, so
+# they are refused even where signing isn't configured). Word boundaries match
+# the flag, not the same text inside a quoted commit message.
+if printf '%s' "$COMMAND" | grep -qE -- '(^|[[:space:]])--no-gpg-sign([[:space:]]|$)'; then
+  echo "❌ Signing bypass blocked: remove --no-gpg-sign. Commits here must be signed;" >&2
+  echo "   if signing fails, stop and surface the error instead." >&2
+  exit 2
+fi
+if printf '%s' "$COMMAND" | grep -qiE -- '(^|[[:space:]])-c[[:space:]]*commit\.gpgsign=(false|0|no|off)([[:space:]]|$)'; then
+  echo "❌ Signing bypass blocked: remove -c commit.gpgsign=... Commits here must be signed;" >&2
+  echo "   if signing fails, stop and surface the error instead." >&2
+  exit 2
+fi
+
 # Verify signing is configured before injecting -S
 # Both GPG and SSH signing require user.signingkey to be set
 if ! git config --get user.signingkey >/dev/null 2>&1; then
@@ -76,12 +96,6 @@ if ! git config --get user.signingkey >/dev/null 2>&1; then
   exit 0
 fi
 
-# Check for explicit opt-out (--no-gpg-sign)
-# Use word boundaries to ensure we match the flag, not text in a message
-if printf '%s' "$COMMAND" | grep -qE -- '(^|[[:space:]])--no-gpg-sign([[:space:]]|$)'; then
-  echo "⚠️  Commit without signing (--no-gpg-sign detected)" >&2
-  exit 0
-fi
 
 # Note: We intentionally don't check for existing -S/--gpg-sign flags.
 # Reason: Detecting flags vs text in quoted strings is error-prone.
@@ -98,7 +112,7 @@ fi
 #
 # We insert -S right after "git commit" to ensure proper flag ordering
 # Using printf for safer interpolation (avoids issues with special characters)
-MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E 's/(git[[:space:]]+commit)([[:space:]]|$)/\1 -S\2/')
+MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E 's/(git([[:space:]]+-[cC][[:space:]]+[^[:space:]]+)*[[:space:]]+commit)([[:space:]]|$)/\1 -S\3/')
 
 echo "🔐 Auto-signing commit (added -S flag)" >&2
 

@@ -6,9 +6,9 @@
 # is a MAIN checkout (not a worktree).
 #
 # This closes the documented gap where the editor hook is bypassed by writing
-# the working tree through Bash — the vector that scribbled 100+ stale files
-# onto fundbright-web's main (bin/devcontainer-exec rsyncing container state
-# back onto the main checkout).
+# the working tree through Bash — the vector that once scribbled 100+ stale
+# files onto an app repo's main checkout (bin/devcontainer-exec rsyncing
+# container state back onto it).
 #
 # Exit codes:
 #   0 — allow (worktree, CI, non-git path, or not a tree-mutating command)
@@ -16,7 +16,7 @@
 #              this guard could not parse confidently while in a main checkout)
 #
 # ---------------------------------------------------------------------------
-# HOW IT DECIDES (rewritten 2026-07-22, delivery-ops#328)
+# HOW IT DECIDES (rewritten 2026-07-22)
 #
 # The old implementation substring-matched its trigger words against the whole
 # command TEXT. That was wrong in both directions:
@@ -81,9 +81,11 @@ if command -v jq >/dev/null 2>&1; then
 else
   # jq is a setup prerequisite. If it is missing we cannot parse the payload,
   # so we degrade to the old, deliberately over-eager substring scan of the RAW
-  # payload rather than failing open. Degraded mode can only ever over-block,
-  # never under-block — and it still lets `brew install jq` through, so this is
-  # not a bootstrap deadlock.
+  # payload rather than failing open. The scan only knows the legacy trigger
+  # commands (bin/devcontainer-exec, rsync, patch, sed/perl -i, git apply/am/
+  # cherry-pick/revert/stash pop|apply): it over-blocks on those, but plain
+  # redirections, tee, cp and mv are NOT caught until jq is back. It still lets
+  # `brew install jq` through, so this is not a bootstrap deadlock.
   DEGRADED=1
   CMD="$INPUT"
 fi
@@ -262,10 +264,10 @@ _read_dq() {
       fi
       if [[ "$ch" == '"' ]]; then C=$((C + 1)); RET="$out"; return; fi
       if [[ "$ch" == '$' && "${line:$((C + 1)):1}" == '(' ]]; then
-        C=$((C + 2)); _lex_context ')'; line="${LINES[L]}"; continue
+        C=$((C + 2)); _lex_context ')'; line="${LINES[L]}"; out="$out$CMDSUB"; continue
       fi
       if [[ "$ch" == '`' ]]; then
-        C=$((C + 1)); _lex_context '`'; line="${LINES[L]}"; continue
+        C=$((C + 1)); _lex_context '`'; line="${LINES[L]}"; out="$out$CMDSUB"; continue
       fi
       out="$out$ch"; C=$((C + 1))
     done
@@ -326,16 +328,25 @@ _consume_heredocs() {
 IC_WORDS=()
 IC_REDIRS=()
 
+# Stands in for a $(…) / `…` inside a word. Its value is only known at run time,
+# so the word must read as unresolvable (it contains a '$'), never as the empty
+# string it would otherwise collapse to.
+CMDSUB='${__command_substitution__}'
+
 # Check one write destination; block when it lands inside a main checkout.
-_check_dest() {
-  local raw="$1"
+_check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argument)
+  local raw="$1" kind="${2:-}"
   [[ -z "$raw" ]] && return 0
   case "$raw" in
     /dev/null|/dev/stdout|/dev/stderr|/dev/tty|/dev/fd/*) return 0 ;;
-    '&'*) return 0 ;;
-    *:*) return 0 ;;   # remote spec (rsync/scp host:path) — out of scope
   esac
-  [[ "$raw" =~ ^[0-9]+$ ]] && return 0
+  if [[ "$kind" == "redir" ]]; then
+    [[ "$raw" == '&'* ]] && return 0          # >&2, 2>&1: an fd, not a file
+    [[ "$raw" =~ ^[0-9]+$ ]] && return 0      # fd number left over from N>&M
+  fi
+  if [[ "$kind" == "remote" && "$raw" =~ ^[^/]*: ]]; then
+    return 0                                  # host:path — not this machine
+  fi
   _abs_path "$raw" "$CURDIR"
   local p="$RET"
   if [[ "$RETUNRES" == "1" ]]; then
@@ -394,7 +405,7 @@ _inspect_cmd() {
 
   # Redirection targets are writes wherever the command runs.
   for t in "${r[@]}"; do
-    _check_dest "$t"
+    _check_dest "$t" redir
   done
 
   (( n == 0 )) && return 0
@@ -477,7 +488,7 @@ _inspect_cmd() {
       # lone argument must not be judged as a write target. Only treat the last
       # non-flag argument as a destination when there is something before it.
       _last_nonflag "${args[@]}"
-      (( RETCOUNT >= 2 )) && _check_dest "$RET"
+      (( RETCOUNT >= 2 )) && _check_dest "$RET" remote
       return 0 ;;
 
     patch)
@@ -500,8 +511,32 @@ _inspect_cmd() {
       return 0 ;;
 
     cp|mv|install|ln)
-      _last_nonflag "${args[@]}"
-      _check_dest "$RET"
+      # -t DIR / -tDIR / clustered -vt DIR / --target-directory[=]DIR name the
+      # destination; every non-flag argument is then a source. Otherwise the
+      # destination is the last non-flag argument.
+      local tdir="" tset=0 k=0 m=${#args[@]}
+      while (( k < m )); do
+        a="${args[k]}"
+        case "$a" in
+          --) break ;;
+          --target-directory=*) tdir="${a#*=}"; tset=1 ;;
+          --target-directory) tdir="${args[$((k + 1))]}"; tset=1; k=$((k + 1)) ;;
+          --*) : ;;
+          -*)
+            if [[ "$a" =~ ^-[A-Za-z]*t$ ]]; then
+              tdir="${args[$((k + 1))]}"; tset=1; k=$((k + 1))
+            elif [[ "$a" =~ ^-[A-Za-z]*t(.+)$ ]]; then
+              tdir="${BASH_REMATCH[1]}"; tset=1
+            fi ;;
+        esac
+        k=$((k + 1))
+      done
+      if (( tset )); then
+        _check_dest "$tdir"
+      else
+        _last_nonflag "${args[@]}"
+        _check_dest "$RET"
+      fi
       return 0 ;;
 
     tee)
@@ -635,10 +670,10 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
         C=$((C + 1)); _read_dq; LX_CUR="$LX_CUR$RET"; LX_HAVE=1 ;;
       '`')
         if [[ "$term" == '`' ]]; then C=$((C + 1)); _end_cmd; _leave_context; return; fi
-        C=$((C + 1)); _lex_context '`'; LX_HAVE=1 ;;
+        C=$((C + 1)); _lex_context '`'; LX_CUR="$LX_CUR$CMDSUB"; LX_HAVE=1 ;;
       '$')
         if [[ "${line:$((C + 1)):1}" == '(' ]]; then
-          C=$((C + 2)); _lex_context ')'; LX_HAVE=1
+          C=$((C + 2)); _lex_context ')'; LX_CUR="$LX_CUR$CMDSUB"; LX_HAVE=1
         else
           LX_CUR="$LX_CUR$ch"; LX_HAVE=1; C=$((C + 1))
         fi ;;
