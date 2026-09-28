@@ -104,24 +104,43 @@ _try_toplevel() {
   printf '%s' "$toplevel"
 }
 
+# _resolve_dir <base> <dir>
+# Prints the absolute directory `cd <dir>` would land in when run from <base>
+# (`~` expanded). Returns non-zero if either does not exist.
+_resolve_dir() {
+  local base="$1" dir="$2"
+  dir="${dir/#\~\//$HOME/}"
+  [[ "$dir" == "~" ]] && dir="$HOME"
+  (cd "$base" >/dev/null 2>&1 && cd "$dir" >/dev/null 2>&1 && pwd)
+}
+
 # resolve_push_root <command> <hook-input-json>
 #
 # Prints the absolute toplevel of the checkout the push targets.
-# The command is split into segments on `&&`, `;`, `|`, and newlines, and
-# only the segment that IS the push (git … push / gh pr create) plus the
-# segments before it are consulted — a `git -C` on some other invocation,
-# or a `cd` that runs after the push, never selects the root.
+# The command is split into list items on `&&`, `||`, `;` and newlines, and
+# each item into its pipeline stages. Only the stage that IS the push
+# (git … push / gh pr create) plus what comes before it is consulted — a
+# `git -C` on some other invocation, or a `cd` that runs after the push,
+# never selects the root. A `cd` inside a pipeline stage runs in a subshell
+# and is ignored.
 #
-# Candidate order (first one that resolves to a git checkout wins):
+# Resolution (the first that applies decides; there is no fallback between
+# them, because each fallback is a checkout the push never runs in):
 #   1. the push segment's own `git -C <dir>`
-#   2. the last `cd <dir>` in a segment before the push
-#   3. the session cwd from the hook's stdin JSON (`.cwd`, with the
-#      nested `.context.cwd` shape as fallback), else the hook's $PWD
-# Relative paths in 1–2 resolve against 3, not the hook process's cwd.
-# Returns non-zero only if no candidate is inside a git checkout.
+#   2. where the `cd <dir>` segments before the push leave the shell
+#   3. with no cd: the session cwd from the hook's stdin JSON (`.cwd`, with
+#      the nested `.context.cwd` shape as fallback), else the hook's $PWD
+# Each `cd` resolves against the directory the previous one left, starting
+# from 3 (so `cd .. && cd sibling && git push` lands in ../sibling), and a
+# relative -C resolves against that same directory. A literal `cd` to a
+# missing dir fails in bash and leaves the directory as it was; one this
+# process cannot follow (`cd -`, a runtime $VAR or glob) makes it unknown
+# until a later absolute `cd` re-anchors it.
+# Returns non-zero (the hook then skips; it never blocks) when the chosen
+# candidate is unknown or not inside a git checkout.
 resolve_push_root() {
   local command="$1" input="$2"
-  local session_cwd base seg dir last_cd="" push_seg="" toplevel
+  local session_cwd base seg dir eff eff_known saw_cd=0 push_seg="" toplevel
 
   session_cwd=$(printf '%s' "$input" | jq -r '.cwd // .context.cwd // ""' 2>/dev/null) \
     || session_cwd=""
@@ -136,43 +155,81 @@ resolve_push_root() {
     echo "   input schema likely changed — see resolve_push_root in pre-push-prepare.sh." >&2
   fi
   base="${session_cwd:-$PWD}"
+  eff="$base"
+  eff_known=1
 
-  # Split into segments. Separators inside quoted arguments split too, but
-  # the resulting fragments simply fail the cd/push matches below.
+  # Split into list items on `&&`, `||`, `;` and newlines, then each item into
+  # its pipeline stages. Separators inside quoted arguments split too, but the
+  # resulting fragments simply fail the cd/push matches below.
   local normalized="${command//&&/$'\n'}"
+  normalized="${normalized//||/$'\n'}"
   normalized="${normalized//;/$'\n'}"
-  normalized="${normalized//|/$'\n'}"
 
-  while IFS= read -r seg; do
-    if _seg_is_push "$seg"; then
-      push_seg="$seg"
-      break
-    fi
-    if [[ "$seg" =~ ^[[:space:]]*cd[[:space:]] ]]; then
-      dir=$(_extract_dir_arg "$seg" '^[[:space:]]*cd')
-      # `cd -` means OLDPWD *of the interactive shell*, which this process
-      # cannot know. Resolving it here would land on the hook's own cwd —
-      # the main checkout — silently reinstating the afb#745 bug. Ignore it
-      # and let resolution fall through to the session cwd.
-      [[ -n "$dir" && "$dir" != "-" ]] && last_cd="$dir"
-    fi
+  local item piped stages
+  while IFS= read -r item; do
+    # every stage of a pipeline runs in a subshell, so a `cd` there does not
+    # move the shell (review finding: `cd /tmp | cat; cd repo` is ./repo)
+    piped=0
+    [[ "$item" == *"|"* ]] && piped=1
+    stages="${item//|/$'\n'}"
+    while IFS= read -r seg; do
+      if _seg_is_push "$seg"; then
+        push_seg="$seg"
+        break 2
+      fi
+      if [[ "$piped" == 0 && "$seg" =~ ^[[:space:]]*cd[[:space:]] ]]; then
+        dir=$(_extract_dir_arg "$seg" '^[[:space:]]*cd')
+        # `cd -` means OLDPWD *of the interactive shell*, which this process
+        # cannot know. Resolving it here would land on the hook's own cwd —
+        # the main checkout — silently reinstating the afb#745 bug. Ignore it
+        # and let resolution fall through to the session cwd.
+        saw_cd=1
+        # chained cds compose: each resolves against where the previous one left
+        # the shell (review finding: `cd .. && cd sibling` resolved cwd/sibling).
+        # A relative cd from an unknown directory stays unknown; an absolute one
+        # (or ~) re-anchors.
+        local lit=1 next
+        [[ "$dir" == *[\$\`*?]* ]] && lit=0
+        if [[ -z "$dir" || "$dir" == "-" ]]; then
+          eff_known=0
+        elif [[ "$eff_known" == 1 ]]; then
+          if next=$(_resolve_dir "$eff" "$dir"); then
+            eff="$next"
+          elif [[ "$lit" == 0 ]]; then
+            eff_known=0
+          fi
+          # a literal target that does not exist: bash's cd fails and leaves
+          # the shell where it was, so eff stands (review finding)
+        elif [[ "$dir" == /* || "$dir" == "~" || "$dir" == "~/"* ]]; then
+          eff=$(_resolve_dir / "$dir") && eff_known=1
+        fi
+      fi
+    done <<<"$stages"
   done <<<"$normalized"
 
   if [[ -n "$push_seg" ]]; then
     dir=$(_extract_dir_arg "$push_seg" '-C')
-    # a relative -C is relative to wherever the preceding `cd` left the shell
-    local cbase="$base"
-    if [[ -n "$last_cd" && "$dir" != /* ]]; then
-      local d="${last_cd/#\~\//$HOME/}"
-      cbase=$(cd "$base" >/dev/null 2>&1 && cd "$d" >/dev/null 2>&1 && pwd) || cbase="$base"
-    fi
-    if [[ -n "$dir" ]] && toplevel=$(_try_toplevel "$cbase" "$dir"); then
+    if [[ -n "$dir" ]]; then
+      # a relative -C is relative to wherever the preceding cds left the shell
+      local cbase="$base"
+      [[ "$eff_known" == 1 ]] && cbase="$eff"
+      # an explicit -C that does not resolve is final: git exits with
+      # "cannot change to" there, so falling back would act on a checkout
+      # the command never touches (review finding)
+      toplevel=$(_try_toplevel "$cbase" "$dir") || return 1
       printf '%s' "$toplevel"
       return 0
     fi
   fi
 
-  if [[ -n "$last_cd" ]] && toplevel=$(_try_toplevel "$base" "$last_cd"); then
+  if [[ "$saw_cd" == 1 ]]; then
+    # a cd ran before the push: the push happens wherever it left the shell.
+    # If that is unknown (`cd -`, `cd "$WORKTREE"`) or not a checkout, fail
+    # rather than fall back to the session cwd, which is a different checkout
+    # than the one being pushed (review finding). Failing makes the hook skip;
+    # it never blocks the push.
+    [[ "$eff_known" == 1 ]] || return 1
+    toplevel=$(_try_toplevel "$eff" ".") || return 1
     printf '%s' "$toplevel"
     return 0
   fi
