@@ -40,10 +40,11 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""')
 # `cd <worktree> && git push` (or `git -C <worktree> push`) the checkout being
 # pushed is not the hook's cwd. Acting on the cwd meant: from a workspace root the
 # hook silently did nothing, and from a main checkout it could rebase the WRONG tree.
-# The resolver below is ported from sidekick-labs/sidekick-harness
+# The resolver below started as a port of sidekick-labs/sidekick-harness
 # (.claude/hooks/lib/resolve-push-root.sh, ai-foundations-brain#745), inlined because
-# estate hooks are vendored as single files. Its tests live in
-# hooks/tests/pre-push-prepare.test.sh.
+# estate hooks are vendored as single files; since agent-estate#20 it lexes the
+# command instead of splitting its text. Its tests live in
+# hooks/tests/resolve-push-root.test.sh and hooks/tests/pre-push-prepare.test.sh.
 
 # Matches `git push` and `git -C <dir> push`. The -C form must be gated by
 # both hooks — it is the documented way to push a worktree from elsewhere,
@@ -65,82 +66,365 @@ _seg_is_push() {
   [[ "$1" =~ (^|[[:space:]])gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]
 }
 
-# _extract_dir_arg <text> <flag-regex>
-# Prints the argument following the first <flag-regex> match in <text>,
-# handling double-quoted, single-quoted, and bare values. Each quoting
-# style is tried with an independent match, so one style can't clobber
-# another's pattern space. <flag-regex> must not contain capture groups —
-# the directory is read from BASH_REMATCH[1].
+# --- lexing -------------------------------------------------------------------
+# _rpr_lex <command>
+# Splits a command line into simple-command segments the way the shell would,
+# honouring quotes ('…', "…", $'…'), backslash escapes, $(…) and `…` (nested),
+# comments and heredoc bodies. A separator inside any of those does not split,
+# and text inside them never looks like a `cd` or a push: every segment also has
+# a MASK of the same length in which quoted/substituted text is `x`, and all
+# matching runs on the mask. (Splitting the raw text on `&&`/`;`/`|` made
+# `git commit -m "x; cd ../other"` a phantom cd, and a quoted `|` a pipeline —
+# review findings on the 3dd9736 re-vendor, agent-estate#20.)
 #
-# The patterns below are ordinary regexes; only their delimiters are dense.
-# Written out, they are:  <flag> <space> "..."  |  <flag> <space> '...'  |
-# <flag> <space> <run of chars that aren't space/;/&/|>. The single-quote
-# arm looks like line noise because a literal ' inside a '-quoted bash
-# string must be spelled '\'' — so [^']+ becomes [^'\'']+.
-_extract_dir_arg() {
-  local text="$1" flag="$2"
-  if [[ "$text" =~ ${flag}[[:space:]]+\"([^\"]+)\" ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
-  elif [[ "$text" =~ ${flag}[[:space:]]+\'([^\']+)\' ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
-  elif [[ "$text" =~ ${flag}[[:space:]]+([^[:space:]\;\&\|]+) ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
-  fi
+# Fills RPR_SEG[i] (raw text), RPR_MASK[i] and RPR_SEP[i], the separator that
+# ENDS segment i: `&&` `||` `|` `;` `nl` `&` (background) `(` `)` `;;` `eof`.
+# RPR_BAD=1 on an unterminated quote or substitution; RPR_LEAD=1 when the line
+# opens with a subshell/`;;` (a separator with no segment before it).
+_rpr_lex() {
+  local LC_ALL=C
+  local s="$1" n i=0 ch nx ctx="" top raw="" mask="" d q line rest re run
+  local -a hd=()
+  RPR_SEG=(); RPR_MASK=(); RPR_SEP=(); RPR_BAD=0; RPR_LEAD=0
+  n=${#s}
+  while (( i < n )); do
+    top="${ctx: -1}"
+    # consume a run of characters that mean nothing in this context in one step
+    # (character-at-a-time is quadratic on a long `gh pr create --body …`)
+    case "$top" in
+      "'") re="^[^']+" ;;
+      a) re="^[^'\\]+" ;;
+      '"') re='^[^"\\$`]+' ;;
+      '`') re='^[^`\\]+' ;;
+      b) re=$'^[^\\\'"`${}\n]+' ;;
+      *) re=$'^[^\\\'"`$<#;&|()\n]+' ;;
+    esac
+    if [[ "${s:i}" =~ $re ]]; then
+      run="${BASH_REMATCH[0]}"
+      raw+="$run"; i=$((i + ${#run}))
+      if [[ -z "$top" ]]; then
+        mask+="$run"
+      else
+        printf -v run '%*s' "${#run}" ''; mask+="${run// /x}"
+      fi
+      continue
+    fi
+    ch="${s:i:1}"; nx="${s:i+1:1}"
+    if [[ -n "$top" && "$top" != "(" && "$top" != b ]]; then
+      # inside '…', $'…', "…" or `…`: only its own terminator (and, in "…",
+      # a nested substitution) matters
+      if [[ "$ch" == '\' && "$top" != "'" ]]; then
+        raw+="$ch$nx"; mask+="xx"; i=$((i + 2)); continue
+      fi
+      case "$top$ch" in
+        "''"|"a'"|'""'|'``') ctx="${ctx%?}" ;;
+        '"`') ctx+='`' ;;
+        '"$') [[ "$nx" == "(" ]] && { ctx+="("; raw+='$('; mask+="xx"; i=$((i + 2)); continue; } ;;
+      esac
+      raw+="$ch"; mask+="x"; i=$((i + 1)); continue
+    fi
+    # top level, $( … ) or ${ … }: quotes, escapes, substitutions, heredocs
+    case "$ch" in
+      '\')
+        if [[ "$nx" == $'\n' ]]; then i=$((i + 2)); continue; fi   # continuation
+        raw+="$ch$nx"; mask+="xx"; i=$((i + 2)); continue ;;
+      "'"|'"'|'`')
+        ctx+="$ch"; raw+="$ch"; mask+="x"; i=$((i + 1)); continue ;;
+      '$')
+        if [[ "$nx" == "(" ]]; then ctx+="("; raw+='$('; mask+="xx"; i=$((i + 2)); continue; fi
+        if [[ "$nx" == "{" ]]; then ctx+="b"; raw+='${'; mask+="xx"; i=$((i + 2)); continue; fi
+        if [[ "$nx" == "'" ]]; then ctx+="a"; raw+="\$'"; mask+="xx"; i=$((i + 2)); continue; fi ;;
+      '<')
+        if [[ "${s:i:3}" == "<<<" ]]; then
+          raw+="<<<"; mask+="<<<"; i=$((i + 3)); continue
+        fi
+        if [[ "$nx" == "<" ]]; then
+          # heredoc: note its delimiter; the body is skipped at the next newline
+          raw+="<<"; mask+="<<"; i=$((i + 2)); q=" "
+          [[ "${s:i:1}" == "-" ]] && { raw+="-"; mask+="-"; i=$((i + 1)); q="-"; }
+          while [[ "${s:i:1}" == " " || "${s:i:1}" == $'\t' ]]; do raw+=" "; mask+=" "; i=$((i + 1)); done
+          d="$q"   # delimiter entries are "-EOF" for <<- (tabs stripped), " EOF" for <<
+          while (( i < n )); do
+            ch="${s:i:1}"
+            case "$ch" in
+              "'"|'"')
+                q="$ch"; raw+="$ch"; mask+="x"; i=$((i + 1))
+                while (( i < n )) && [[ "${s:i:1}" != "$q" ]]; do
+                  d+="${s:i:1}"; raw+="${s:i:1}"; mask+="x"; i=$((i + 1))
+                done
+                raw+="$q"; mask+="x"; i=$((i + 1)) ;;
+              '\') d+="${s:i+1:1}"; raw+="\\${s:i+1:1}"; mask+="xx"; i=$((i + 2)) ;;
+              ' '|$'\t'|$'\n'|';'|'&'|'|'|'('|')'|'<'|'>') break ;;
+              *) d+="$ch"; raw+="$ch"; mask+="x"; i=$((i + 1)) ;;
+            esac
+          done
+          [[ ${#d} -gt 1 ]] && hd+=("$d")
+          continue
+        fi ;;
+    esac
+    if [[ "$ch" == $'\n' && ${#hd[@]} -gt 0 && "$top" != b ]]; then
+      # swallow the bodies of the heredocs opened on this line
+      i=$((i + 1))
+      for d in "${hd[@]}"; do
+        while (( i < n )); do
+          rest="${s:i}"; line="${rest%%$'\n'*}"
+          i=$((i + ${#line} + 1))
+          if [[ "${d:0:1}" == "-" ]]; then
+            while [[ "$line" == $'\t'* ]]; do line="${line#?}"; done
+          fi
+          [[ "$line" == "${d:1}" ]] && break
+        done
+      done
+      hd=()
+      [[ "$top" == "(" ]] || _rpr_emit nl   # the line's own newline ends it
+      continue
+    fi
+    if [[ "$top" == "(" ]]; then
+      case "$ch" in
+        "(") ctx+="(" ;;
+        ")") ctx="${ctx%?}" ;;
+      esac
+      raw+="$ch"; mask+="x"; i=$((i + 1)); continue
+    fi
+    if [[ "$top" == b ]]; then   # inside ${ … }: `;`, `#`, `|` are operators of the expansion
+      [[ "$ch" == "}" ]] && ctx="${ctx%?}"
+      raw+="$ch"; mask+="x"; i=$((i + 1)); continue
+    fi
+    case "$ch" in
+      # context is read off the MASK, where an escaped char is `x`: `\ #` is a
+      # word, not a comment, and `\>&` is a background & (review finding)
+      '#')
+        if [[ -z "$mask" || "${mask: -1}" == " " || "${mask: -1}" == $'\t' ]]; then
+          rest="${s:i}"; line="${rest%%$'\n'*}"; i=$((i + ${#line})); continue
+        fi ;;
+      ';')
+        if [[ "$nx" == ";" ]]; then _rpr_emit ';;'; i=$((i + 2)); continue; fi
+        _rpr_emit ';'; i=$((i + 1)); continue ;;
+      $'\n') _rpr_emit nl; i=$((i + 1)); continue ;;
+      '&')
+        if [[ "$nx" == "&" ]]; then _rpr_emit '&&'; i=$((i + 2)); continue; fi
+        if [[ "$nx" != ">" && "${mask: -1}" != ">" && "${mask: -1}" != "<" ]]; then
+          _rpr_emit '&'; i=$((i + 1)); continue
+        fi ;;
+      '|')
+        if [[ "$nx" == "|" ]]; then _rpr_emit '||'; i=$((i + 2)); continue; fi
+        if [[ "${mask: -1}" != ">" ]]; then
+          _rpr_emit '|'; i=$((i + 1)); [[ "$nx" == "&" ]] && i=$((i + 1)); continue
+        fi ;;
+      '('|')') _rpr_emit "$ch"; i=$((i + 1)); continue ;;
+    esac
+    raw+="$ch"; mask+="$ch"; i=$((i + 1))
+  done
+  [[ -n "$ctx" ]] && RPR_BAD=1
+  _rpr_emit eof
 }
 
-# _try_toplevel <base> <dir>
-# Resolves <dir> (relative paths against <base>, `~` expanded) and prints
-# the git toplevel it lands in. Returns non-zero if it isn't a resolvable
-# git checkout — callers fall through to the next candidate.
-_try_toplevel() {
-  local base="$1" dir="$2" toplevel
-  dir="${dir/#\~\//$HOME/}"
-  [[ "$dir" == "~" ]] && dir="$HOME"
-  # `cd` writes the target to stdout for some arguments (notably `-`), which
-  # would otherwise be captured alongside the toplevel — send it to /dev/null.
-  toplevel=$(cd "$base" >/dev/null 2>&1 && cd "$dir" >/dev/null 2>&1 \
-    && git rev-parse --show-toplevel 2>/dev/null) || return 1
-  [[ -n "$toplevel" ]] || return 1
-  printf '%s' "$toplevel"
+# _rpr_emit <separator>: close the current segment (called from _rpr_lex).
+# A blank segment is dropped, except that it still ends a list — a line break
+# after `&&`/`||`/`|` is a continuation and ends nothing.
+_rpr_emit() {
+  if [[ "$raw" =~ ^[[:space:]]*$ ]]; then
+    local last=$(( ${#RPR_SEP[@]} - 1 ))
+    if (( last >= 0 )); then
+      case "${RPR_SEP[last]}:$1" in
+        '&&:nl'|'||:nl'|'|:nl'|*:eof) ;;
+        *:'('|*:')'|*:';;') RPR_SEP[last]="$1" ;;
+      esac
+    else
+      case "$1" in '('|')'|';;') RPR_LEAD=1 ;; esac   # e.g. a leading `(`
+    fi
+    raw=""; mask=""
+    return
+  fi
+  RPR_SEG+=("$raw"); RPR_MASK+=("$mask"); RPR_SEP+=("$1")
+  raw=""; mask=""
+}
+
+# _rpr_word <raw-text> <offset>
+# Reads the shell word at <offset> and sets RPR_W to the path it names, with a
+# leading `~`/`~/` expanded. RPR_WOK=0 when the value is only known at run time
+# ($VAR, $(…), `…`, a glob * ? [ ], a brace {a,b}, ~user/~+/~-, or an option
+# such as `-P`/`--`): those cannot be followed here, so the target is unknown.
+# RPR_WOK=2 when there is no word at all (a bare `cd`).
+_rpr_word() {
+  local LC_ALL=C
+  local s="$1" i="$2" n ch w="" started=0
+  n=${#s}
+  RPR_WOK=1
+  while (( i < n )); do
+    ch="${s:i:1}"
+    case "$ch" in
+      # an unquoted & left in a segment is a redirection (`&>`, `&>>`)
+      ' '|$'\t'|'<'|'>'|'&') break ;;
+      "'")
+        started=1; i=$((i + 1))
+        while (( i < n )) && [[ "${s:i:1}" != "'" ]]; do w+="${s:i:1}"; i=$((i + 1)); done
+        i=$((i + 1)) ;;
+      '"')
+        started=1; i=$((i + 1))
+        while (( i < n )) && [[ "${s:i:1}" != '"' ]]; do
+          ch="${s:i:1}"
+          [[ "$ch" == '$' || "$ch" == '`' ]] && RPR_WOK=0
+          if [[ "$ch" == '\' ]]; then
+            # in "…" a backslash escapes only $ ` " \ and a newline; before
+            # anything else bash keeps it (review finding)
+            case "${s:i+1:1}" in
+              '$'|'`'|'"'|'\') i=$((i + 1)); ch="${s:i:1}" ;;
+              $'\n') i=$((i + 2)); continue ;;
+            esac
+          fi
+          w+="$ch"; i=$((i + 1))
+        done
+        i=$((i + 1)) ;;
+      '\') started=1; w+="${s:i+1:1}"; i=$((i + 2)) ;;
+      '$'|'`'|'*'|'?'|'['|'{') RPR_WOK=0; started=1; w+="$ch"; i=$((i + 1)) ;;
+      '~')
+        if (( started == 0 )); then
+          case "${s:i+1:1}" in
+            ''|' '|$'\t'|'/') w+="$HOME" ;;
+            *) RPR_WOK=0; w+="$ch" ;;
+          esac
+        else
+          w+="$ch"
+        fi
+        started=1; i=$((i + 1)) ;;
+      *) started=1; w+="$ch"; i=$((i + 1)) ;;
+    esac
+  done
+  RPR_W="$w"
+  (( started == 0 )) && RPR_WOK=2
+  [[ "$RPR_WOK" == 1 && "$w" == -* ]] && RPR_WOK=0
+  return 0
 }
 
 # _resolve_dir <base> <dir>
-# Prints the absolute directory `cd <dir>` would land in when run from <base>
-# (`~` expanded). Returns non-zero if either does not exist.
+# Prints the absolute directory `cd <dir>` would land in when run from <base>.
+# Returns non-zero if either does not exist.
 _resolve_dir() {
-  local base="$1" dir="$2"
-  dir="${dir/#\~\//$HOME/}"
-  [[ "$dir" == "~" ]] && dir="$HOME"
-  (cd "$base" >/dev/null 2>&1 && cd "$dir" >/dev/null 2>&1 && pwd)
+  (cd "$1" >/dev/null 2>&1 && cd "$2" >/dev/null 2>&1 && pwd)
+}
+
+# _rpr_kind <mask>: what a simple command does to the shell's directory/flow.
+#   cd       a plain `cd [dir]`
+#   cdish    any other cd/pushd/popd (`if cd x`, `{ cd x`, `pushd x`), or an
+#            eval/source/. that may cd invisibly: unmodelled
+#   control  a compound-command keyword: flow this resolver does not model
+#   exit     `exit`/`return` [n]      true  `true`/`:`      false  `false`
+#   other    anything else: its exit status is unknown
+_rpr_kind() {
+  local m="$1"
+  if [[ "$m" =~ ^[[:space:]]*cd([[:space:]]|$) ]]; then RPR_KIND=cd
+  elif [[ "$m" =~ (^|[[:space:]])(cd|pushd|popd)([[:space:]]|$) ]]; then RPR_KIND=cdish
+  # eval/source/. run text this resolver cannot see in the CURRENT shell
+  elif [[ "$m" =~ (^|[[:space:]])(eval|source|\.)([[:space:]]|$) ]]; then RPR_KIND=cdish
+  elif [[ "$m" =~ ^[[:space:]]*(if|then|else|elif|fi|while|until|do|done|for|select|case|esac|function|\{|\})([[:space:]]|$) ]]; then RPR_KIND=control
+  elif [[ "$m" =~ ^[[:space:]]*(exit|return)([[:space:]]+[0-9]+)?[[:space:]]*$ ]]; then RPR_KIND=exit
+  elif [[ "$m" =~ ^[[:space:]]*(true|:)[[:space:]]*$ ]]; then RPR_KIND=true
+  elif [[ "$m" =~ ^[[:space:]]*false[[:space:]]*$ ]]; then RPR_KIND=false
+  else RPR_KIND=other
+  fi
+}
+
+# _rpr_cd <segment-index> <mode>
+# Applies a plain `cd` to eff/eff_known (resolve_push_root's locals). <mode>:
+#   certain  the cd runs
+#   maybe    the cd may or may not run (it follows a command whose exit status
+#            is unknown): a cd that would move the shell makes it unknown
+#   must     the push runs only if this cd succeeded (it is `&&`-chained to it)
+# Sets RPR_CD to ok | fail (a certain failure: the directory is unchanged) |
+# unk | abort (with `must`: the push cannot run from a directory known here).
+_rpr_cd() {
+  local k="$1" mode="$2" m off next from rest word
+  local redir='[[:space:]]*[0-9]*(&>>?|[<>]+[&|]?)[[:space:]]*[^[:space:]<>&]*'
+  m="${RPR_MASK[k]}"
+  [[ "$m" =~ ^[[:space:]]*cd[[:space:]]* ]]
+  off=${#BASH_REMATCH[0]}
+  rest="${m:off}"
+  # the shape must be `cd [dir] [redirections]`. A redirection BEFORE the
+  # operand (`cd >/dev/null dir`), an fd-numbered one read as the operand
+  # (`cd 2>x`), or extra operands (`cd a b` fails in bash) are not followed
+  # (review finding: `cd >/dev/null .` read as a bare cd, i.e. $HOME).
+  if [[ "$rest" =~ ^([^[:space:]\<\>\&]+)?(${redir})*[[:space:]]*$ ]]; then
+    word="${BASH_REMATCH[1]}"
+    if [[ "$word" =~ ^[0-9]+$ && "${rest:${#word}:1}" == [\<\>] ]]; then
+      eff_known=0; RPR_CD=unk; return 0
+    fi
+  else
+    eff_known=0; RPR_CD=unk; return 0
+  fi
+  _rpr_word "${RPR_SEG[k]}" "$off"
+  if [[ "$RPR_WOK" == 2 ]]; then RPR_W="$HOME"; RPR_WOK=1; fi   # bare `cd`
+  if [[ "$RPR_WOK" != 1 ]]; then
+    eff_known=0; RPR_CD=unk; return 0
+  fi
+  if [[ "$RPR_W" == /* ]]; then
+    from=/
+  elif [[ "$eff_known" == 1 ]]; then
+    from="$eff"
+  else
+    RPR_CD=unk; return 0      # relative to an unknown directory stays unknown
+  fi
+  if next=$(_resolve_dir "$from" "$RPR_W"); then
+    if [[ "$mode" == maybe ]]; then
+      [[ "$eff_known" == 1 && "$next" == "$eff" ]] || eff_known=0
+      RPR_CD=unk
+    else
+      eff="$next"; eff_known=1; RPR_CD=ok
+    fi
+    return 0
+  fi
+  # the target does not exist now. bash's cd would fail and leave the shell
+  # where it was — unless an earlier command in this line creates it
+  # (`git worktree add ../wt; cd ../wt`), which cannot be known here.
+  if [[ "$mode" == must ]]; then
+    RPR_CD=abort
+  elif [[ "$mutated" == 1 || "$mode" == maybe ]]; then
+    eff_known=0; RPR_CD=unk
+  else
+    RPR_CD=fail
+  fi
 }
 
 # resolve_push_root <command> <hook-input-json>
 #
-# Prints the absolute toplevel of the checkout the push targets.
-# The command is split into list items on `&&`, `||`, `;` and newlines, and
-# each item into its pipeline stages. Only the stage that IS the push
-# (git … push / gh pr create) plus what comes before it is consulted — a
-# `git -C` on some other invocation, or a `cd` that runs after the push,
-# never selects the root. A `cd` inside a pipeline stage runs in a subshell
-# and is ignored.
+# Prints the absolute toplevel of the checkout the push (`git [-C <dir>] push`
+# or `gh pr create`) runs in, or returns non-zero; the hook then skips — it never
+# blocks. The rule throughout: when it cannot be CERTAIN which checkout is being
+# pushed, it returns non-zero rather than name one. Acting on the wrong checkout
+# (rebasing it, counting its commits) is the failure that matters; a skipped
+# rebase is cheap.
 #
-# Resolution (the first that applies decides; there is no fallback between
-# them, because each fallback is a checkout the push never runs in):
-#   1. the push segment's own `git -C <dir>`
-#   2. where the `cd <dir>` segments before the push leave the shell
-#   3. with no cd: the session cwd from the hook's stdin JSON (`.cwd`, with
-#      the nested `.context.cwd` shape as fallback), else the hook's $PWD
-# Each `cd` resolves against the directory the previous one left, starting
-# from 3 (so `cd .. && cd sibling && git push` lands in ../sibling), and a
-# relative -C resolves against that same directory. A literal `cd` to a
-# missing dir fails in bash and leaves the directory as it was; one this
-# process cannot follow (`cd -`, a runtime $VAR or glob) makes it unknown
-# until a later absolute `cd` re-anchors it.
-# Returns non-zero (the hook then skips; it never blocks) when the chosen
-# candidate is unknown or not inside a git checkout.
+# The start directory is the session cwd from the hook's stdin JSON (`.cwd`,
+# with the nested `.context.cwd` shape as fallback), else the hook's $PWD. The
+# command is lexed (_rpr_lex) and walked up to the push, tracking where each
+# `cd` leaves the shell:
+#   * a cd resolves against the directory the previous one left; a relative cd
+#     from an unknown directory stays unknown, an absolute one (or `~`)
+#     re-anchors. A bare `cd` is $HOME.
+#   * a cd whose target is only known at run time ($VAR, `cd -`, a glob or brace,
+#     ~user, an option) makes the directory unknown.
+#   * a cd in a pipeline stage or a backgrounded (`&`) list runs in a subshell
+#     and moves nothing.
+#   * `&&` chains: before the push, `a && cd x && git push` means every step
+#     succeeded if the push runs, so each cd applies — and one whose target
+#     does not exist means the push never runs from a directory known here
+#     (skip). In a list that ends before the push, a cd that follows a command
+#     with an unknown exit status may not have run: unknown.
+#   * `||`: a cd on either side of `||` makes the directory unknown — which side
+#     ran is not knowable. The one exception is `cd <dir> || exit|return [n]`,
+#     after which the shell can only still be running in <dir>.
+#   * a literal cd to a missing directory fails and leaves the directory as it
+#     was — unless an earlier command could have created it, when it is unknown.
+#   * subshells `( … )`, braces and compound commands (if/for/while/case) are
+#     not modelled: with any cd before the push, the result is unknown.
+# The push segment's own `-C <dir>` then decides: an absolute -C resolves on its
+# own; a relative one resolves against the tracked directory, and fails when that
+# is unknown. An explicit -C that does not resolve is final (git would exit with
+# "cannot change to"), never a fallback.
 resolve_push_root() {
   local command="$1" input="$2"
-  local session_cwd base seg dir eff eff_known saw_cd=0 push_seg="" toplevel
+  local session_cwd base eff eff_known=1 mutated=0 saw_cd=0 complex=0
+  local k p=-1 s0=0 n sep m kind toplevel
 
   session_cwd=$(printf '%s' "$input" | jq -r '.cwd // .context.cwd // ""' 2>/dev/null) \
     || session_cwd=""
@@ -156,85 +440,142 @@ resolve_push_root() {
   fi
   base="${session_cwd:-$PWD}"
   eff="$base"
-  eff_known=1
 
-  # Split into list items on `&&`, `||`, `;` and newlines, then each item into
-  # its pipeline stages. Separators inside quoted arguments split too, but the
-  # resulting fragments simply fail the cd/push matches below.
-  local normalized="${command//&&/$'\n'}"
-  normalized="${normalized//||/$'\n'}"
-  normalized="${normalized//;/$'\n'}"
+  _rpr_lex "$command"
+  [[ "$RPR_BAD" == 1 ]] && return 1
+  complex="$RPR_LEAD"
+  n=${#RPR_SEG[@]}
 
-  local item piped stages
-  while IFS= read -r item; do
-    # every stage of a pipeline runs in a subshell, so a `cd` there does not
-    # move the shell (review finding: `cd /tmp | cat; cd repo` is ./repo)
-    piped=0
-    [[ "$item" == *"|"* ]] && piped=1
-    stages="${item//|/$'\n'}"
-    while IFS= read -r seg; do
-      if _seg_is_push "$seg"; then
-        push_seg="$seg"
-        break 2
+  # the push is the first segment that IS one (on the mask, so a commit message
+  # mentioning "git push" is not it); its and-or list starts after the last
+  # list terminator before it
+  for (( k = 0; k < n; k++ )); do
+    if _seg_is_push "${RPR_MASK[k]}"; then p=$k; break; fi
+  done
+  (( p >= 0 )) || return 1
+  # GIT_DIR / GIT_WORK_TREE point the push at another repository entirely.
+  # Checked on the RAW text, so a quoted `export "GIT_DIR=…"` / `env "…"` is
+  # caught too (review finding); a mere mention in an argument also skips,
+  # which is the safe direction.
+  local git_env_re='(^|[[:space:]"'\''])GIT_(DIR|WORK_TREE)='
+  for (( k = 0; k <= p; k++ )); do
+    [[ "${RPR_SEG[k]}" =~ $git_env_re ]] && return 1
+  done
+  for (( k = 0; k < p; k++ )); do
+    case "${RPR_SEP[k]}" in
+      nl|';'|'&'|'('|')'|';;') s0=$((k + 1)) ;;
+    esac
+  done
+
+  # --- lists that end before the push's own list ------------------------------
+  local ls=0 le has_or piped alive
+  while (( ls < s0 )); do
+    le=$ls
+    while (( le < s0 - 1 )); do
+      case "${RPR_SEP[le]}" in '&&'|'||'|'|') le=$((le + 1)) ;; *) break ;; esac
+    done
+    sep="${RPR_SEP[le]}"
+    case "$sep" in '('|')'|';;') complex=1 ;; esac
+    has_or=0
+    for (( k = ls; k < le; k++ )); do [[ "${RPR_SEP[k]}" == '||' ]] && has_or=1; done
+    alive=certain
+    for (( k = ls; k <= le; k++ )); do
+      _rpr_kind "${RPR_MASK[k]}"; kind="$RPR_KIND"
+      [[ "$kind" == control ]] && complex=1
+      [[ "$kind" == cd || "$kind" == cdish ]] && saw_cd=1
+      piped=0
+      [[ "${RPR_SEP[k]}" == '|' ]] && piped=1
+      (( k > ls )) && [[ "${RPR_SEP[k-1]}" == '|' ]] && piped=1
+      if [[ "$sep" == '&' || "$piped" == 1 ]]; then
+        # a subshell: a cd there moves nothing, and its status is unknown
+        [[ "$kind" == cd || "$kind" == cdish ]] || mutated=1
+        [[ "$sep" == '&' ]] || alive=maybe
+        continue
       fi
-      if [[ "$piped" == 0 && "$seg" =~ ^[[:space:]]*cd[[:space:]] ]]; then
-        dir=$(_extract_dir_arg "$seg" '^[[:space:]]*cd')
-        # `cd -` means OLDPWD *of the interactive shell*, which this process
-        # cannot know. Resolving it here would land on the hook's own cwd —
-        # the main checkout — silently reinstating the afb#745 bug. Ignore it
-        # and let resolution fall through to the session cwd.
-        saw_cd=1
-        # chained cds compose: each resolves against where the previous one left
-        # the shell (review finding: `cd .. && cd sibling` resolved cwd/sibling).
-        # A relative cd from an unknown directory stays unknown; an absolute one
-        # (or ~) re-anchors.
-        local lit=1 next
-        [[ "$dir" == *[\$\`*?]* ]] && lit=0
-        if [[ -z "$dir" || "$dir" == "-" ]]; then
-          eff_known=0
-        elif [[ "$eff_known" == 1 ]]; then
-          if next=$(_resolve_dir "$eff" "$dir"); then
-            eff="$next"
-          elif [[ "$lit" == 0 ]]; then
-            eff_known=0
-          fi
-          # a literal target that does not exist: bash's cd fails and leaves
-          # the shell where it was, so eff stands (review finding)
-        elif [[ "$dir" == /* || "$dir" == "~" || "$dir" == "~/"* ]]; then
-          eff=$(_resolve_dir / "$dir") && eff_known=1
+      if [[ "$has_or" == 1 ]]; then
+        # `cd <dir> || exit` — the only `||` shape whose surviving path is known
+        if (( le == ls + 1 )) && [[ "$kind" == cd && "${RPR_SEP[ls]}" == '||' ]] \
+          && { _rpr_kind "${RPR_MASK[le]}"; [[ "$RPR_KIND" == exit ]]; }; then
+          _rpr_cd "$k" must
+          [[ "$RPR_CD" == abort ]] && eff_known=0
+          break
         fi
+        case "$kind" in
+          cd|cdish) eff_known=0 ;;
+          other) mutated=1 ;;
+        esac
+        continue
       fi
-    done <<<"$stages"
-  done <<<"$normalized"
+      [[ "$alive" == dead ]] && break
+      case "$kind" in
+        cd)
+          _rpr_cd "$k" "$alive"
+          case "$RPR_CD" in fail) alive=dead ;; unk) alive=maybe ;; esac ;;
+        cdish) eff_known=0; alive=maybe ;;
+        exit) [[ "$alive" == certain ]] && return 1 ;;   # the push never runs
+        false) [[ "$alive" == certain ]] && alive=dead ;;
+        true) ;;
+        *) mutated=1; alive=maybe ;;
+      esac
+    done
+    ls=$((le + 1))
+  done
 
-  if [[ -n "$push_seg" ]]; then
-    dir=$(_extract_dir_arg "$push_seg" '-C')
-    if [[ -n "$dir" ]]; then
-      # a relative -C is relative to wherever the preceding cds left the shell
-      local cbase="$base"
-      [[ "$eff_known" == 1 ]] && cbase="$eff"
-      # an explicit -C that does not resolve is final: git exits with
-      # "cannot change to" there, so falling back would act on a checkout
-      # the command never touches (review finding)
-      toplevel=$(_try_toplevel "$cbase" "$dir") || return 1
-      printf '%s' "$toplevel"
-      return 0
+  # --- the push's own list: the steps before the push, and the push ----------
+  has_or=0
+  for (( k = s0; k < p; k++ )); do [[ "${RPR_SEP[k]}" == '||' ]] && has_or=1; done
+  for (( k = s0; k < p; k++ )); do
+    _rpr_kind "${RPR_MASK[k]}"; kind="$RPR_KIND"
+    [[ "$kind" == control ]] && complex=1
+    [[ "$kind" == cd || "$kind" == cdish ]] && saw_cd=1
+    [[ "${RPR_SEP[k]}" == '|' ]] && continue          # a pipeline stage
+    (( k > s0 )) && [[ "${RPR_SEP[k-1]}" == '|' ]] && continue
+    if [[ "$has_or" == 1 ]]; then
+      # which side of the `||` ran is unknowable: any cd here is fatal
+      [[ "$kind" == cd || "$kind" == cdish ]] && return 1
+      continue
     fi
+    # `&&` all the way: if the push runs, every step here ran and succeeded
+    case "$kind" in
+      cd)
+        _rpr_cd "$k" must
+        [[ "$RPR_CD" == abort ]] && return 1 ;;
+      cdish) eff_known=0 ;;
+      exit|false) return 1 ;;
+    esac
+  done
+  m="${RPR_MASK[p]}"
+  _rpr_kind "$m"
+  [[ "$RPR_KIND" == control ]] && complex=1
+
+  # subshells, braces and compound commands are not modelled; with a cd in play
+  # the directory the push runs in is not knowable
+  [[ "$complex" == 1 && "$saw_cd" == 1 ]] && return 1
+
+  # the push segment's own `git -C <dir>`
+  if [[ "$m" =~ ^(.*[[:space:]]|)git[[:space:]]+-C[[:space:]]* ]]; then
+    local off=${#BASH_REMATCH[0]} rest from
+    rest="${m:off}"
+    # `git -C a -C b push` composes; not modelled
+    [[ "$rest" =~ ^[^[:space:]]+[[:space:]]+-C([[:space:]]|$) ]] && return 1
+    _rpr_word "${RPR_SEG[p]}" "$off"
+    [[ "$RPR_WOK" == 1 ]] || return 1
+    if [[ "$RPR_W" == /* ]]; then
+      from=/
+    elif [[ "$eff_known" == 1 ]]; then
+      from="$eff"
+    else
+      # relative to a directory this process cannot know (review finding:
+      # `cd "$WT" && git -C child push` resolved cwd/child)
+      return 1
+    fi
+    eff=$(_resolve_dir "$from" "$RPR_W") || return 1
+    eff_known=1
   fi
 
-  if [[ "$saw_cd" == 1 ]]; then
-    # a cd ran before the push: the push happens wherever it left the shell.
-    # If that is unknown (`cd -`, `cd "$WORKTREE"`) or not a checkout, fail
-    # rather than fall back to the session cwd, which is a different checkout
-    # than the one being pushed (review finding). Failing makes the hook skip;
-    # it never blocks the push.
-    [[ "$eff_known" == 1 ]] || return 1
-    toplevel=$(_try_toplevel "$eff" ".") || return 1
-    printf '%s' "$toplevel"
-    return 0
-  fi
-
-  toplevel=$(_try_toplevel "$base" ".") || return 1
+  [[ "$eff_known" == 1 ]] || return 1
+  toplevel=$(cd "$eff" >/dev/null 2>&1 && git rev-parse --show-toplevel 2>/dev/null) || return 1
+  [[ -n "$toplevel" ]] || return 1
   printf '%s' "$toplevel"
 }
 
