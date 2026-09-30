@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   maintenance:
-    uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@v2
+    uses: rarebit-one/.github/.github/workflows/reusable-weekly-maintenance.yml@c368719da988ab9b9f62eaf9c2b2427cb3ae01c7 # main @ 2026-10-01 (.github#148/#149: claude-sonnet-5-5, claude-code-action v1.0.236)
     with:
       stack: ruby-gem
       lint-commands: |
