@@ -478,10 +478,14 @@ StandardId.configure do |c|
   # Default: []
   # c.social.available_scopes = %w[profile email offline_access]
 
-  # Account linking strategy:
-  #   :strict          — refuse to link a social identity unless the email
-  #                      already matches a verified identifier (default)
-  #   :trust_provider  — accept the social provider's claim and create or link
+  # Account linking strategy, for a social login whose (provider, sub) is not
+  # linked yet but whose email belongs to an existing account:
+  #   :strict          — link only if that email identifier came from the same
+  #                      provider, predates provider tracking, or the account
+  #                      already has an identifier from this provider (default)
+  #   :trust_provider  — link to the account that holds the email
+  # Under both, the provider must report the email as verified, and an email
+  # already linked to a different sub from the same provider is refused.
   # Default: :strict
   # c.social.link_strategy = :trust_provider
 

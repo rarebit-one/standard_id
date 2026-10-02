@@ -31,6 +31,25 @@ module StandardId
       provider.get_user_info(**resolved_params.compact)
     end
 
+    # Resolves the account for a social login, in this order:
+    #
+    # 1. (provider, sub) matches a StandardId::SocialIdentity → that account.
+    #    The provider's stable subject id is authoritative; the email it
+    #    reports is not consulted.
+    # 2. The email matches an existing EmailIdentifier → link to that account,
+    #    but only when
+    #      - the link_strategy allows it (validate_social_link!),
+    #      - the identifier is not already linked to a DIFFERENT sub from this
+    #        provider (possible takeover), and
+    #      - the provider reports the email as verified. Without that, the
+    #        token proves nothing about who owns the address — under
+    #        :trust_provider, or for a pre-provider-tracking identifier, any
+    #        provider token for the address would otherwise take the account.
+    #    A successful link stores the sub, so step 1 matches next time.
+    # 3. Otherwise create a new account (unchanged) and store the sub.
+    #
+    # Each refusal raises StandardId::SocialLinkError (with a `reason`) after
+    # emitting SOCIAL_LINK_BLOCKED; a duplicate account is never created.
     def find_or_create_account_from_social(raw_social_info)
       social_info = raw_social_info.to_h.with_indifferent_access
       email = social_info[:email]
@@ -38,11 +57,21 @@ module StandardId
 
       emit_social_user_info_fetched(provider, social_info, email)
 
+      subject = social_subject(social_info)
+      social_identity = find_social_identity(subject)
+      if social_identity
+        emit_social_account_linked(social_identity.account, provider, social_identity.identifier)
+        return social_identity.account
+      end
+
       identifier = StandardId::EmailIdentifier.includes(:account).find_by(value: email)
 
       if identifier.present?
         validate_social_link!(identifier, provider)
+        validate_social_subject!(identifier, provider, subject)
+        validate_social_email_verified!(identifier, provider, social_info)
         identifier.update!(provider: provider.provider_name) if identifier.provider.nil?
+        record_social_identity!(identifier, subject)
         emit_social_account_linked(identifier.account, provider, identifier)
         identifier.account
       else
@@ -52,7 +81,8 @@ module StandardId
           value: email,
           provider: provider.provider_name
         )
-        identifier.verify! if identifier.respond_to?(:verify!) && [true, "true"].include?(social_info[:email_verified])
+        identifier.verify! if identifier.respond_to?(:verify!) && social_email_verified?(social_info)
+        record_social_identity!(identifier, subject)
         emit_social_account_created(account, provider, social_info)
         account
       end
@@ -68,15 +98,95 @@ module StandardId
 
       return if strategy == :trust_provider
       # nil provider means the identifier predates provider tracking — allow
-      # through since we can't retroactively determine its origin.
+      # through since we can't retroactively determine its origin. The
+      # email_verified check (validate_social_email_verified!) still applies.
       return if identifier.provider.nil?
       return if identifier.provider == provider.provider_name
       return if account_has_social_identifier_from?(identifier.account, provider)
 
-      emit_social_link_blocked(identifier, provider)
+      refuse_social_link!(identifier, provider, :link_required)
+    end
+
+    # The identifier is already linked to another subject from this provider:
+    # a second provider account is claiming the same address.
+    def validate_social_subject!(identifier, provider, subject)
+      return if subject.nil?
+      return unless StandardId::SocialIdentity.available?
+
+      linked = StandardId::SocialIdentity.where(identifier_id: identifier.id, provider: provider.provider_name)
+      return unless linked.where.not(subject: subject).exists?
+
+      refuse_social_link!(identifier, provider, :subject_mismatch)
+    end
+
+    # Linking a login to an EXISTING account by email needs the provider to
+    # vouch for the address, under either link_strategy.
+    def validate_social_email_verified!(identifier, provider, social_info)
+      return if social_email_verified?(social_info)
+
+      refuse_social_link!(identifier, provider, :email_unverified)
+    end
+
+    def refuse_social_link!(identifier, provider, reason)
+      emit_social_link_blocked(identifier, provider, reason)
       raise StandardId::SocialLinkError.new(
         email: identifier.value,
-        provider_name: provider.provider_name
+        provider_name: provider.provider_name,
+        reason: reason
+      )
+    end
+
+    # The provider's stable subject id (OIDC `sub`), or nil when the provider
+    # reports none.
+    def social_subject(social_info)
+      social_info[:sub].presence&.to_s
+    end
+
+    # Strict: only boolean true or the string "true" (any case) count. Apple
+    # sends `email_verified` as the string "true"; Google's tokeninfo endpoint
+    # does too. Google's OAuth2 v2 userinfo endpoint names the claim
+    # `verified_email` (standard_id-google <= 0.5.0 passes it through as-is),
+    # so it is accepted as a fallback.
+    def social_email_verified?(social_info)
+      value = social_info.key?(:email_verified) ? social_info[:email_verified] : social_info[:verified_email]
+      value.to_s.strip.casecmp?("true")
+    end
+
+    def find_social_identity(subject)
+      return nil if subject.nil?
+      return nil unless social_identities_available?
+
+      StandardId::SocialIdentity.includes(:account, :identifier).find_by(provider: provider.provider_name, subject: subject)
+    end
+
+    def record_social_identity!(identifier, subject)
+      return if subject.nil?
+      return unless social_identities_available?
+
+      StandardId::SocialIdentity.find_or_create_by!(
+        provider: provider.provider_name,
+        subject: subject
+      ) do |social_identity|
+        social_identity.account = identifier.account
+        social_identity.identifier = identifier
+      end
+    end
+
+    def social_identities_available?
+      return true if StandardId::SocialIdentity.available?
+
+      StandardId::SocialAuthentication.warn_social_identities_missing!
+      false
+    end
+
+    # Logged once per process when the host has not run the migration yet.
+    def self.warn_social_identities_missing!
+      return if @social_identities_missing_warned
+
+      @social_identities_missing_warned = true
+      Rails.logger&.warn(
+        "[StandardId] standard_id_social_identities is missing, so social logins are not matched on the " \
+        "provider's subject id. Run `bin/rails standard_id:install:migrations && bin/rails db:migrate`."
       )
     end
 
@@ -154,13 +264,14 @@ module StandardId
       )
     end
 
-    def emit_social_link_blocked(identifier, provider)
+    def emit_social_link_blocked(identifier, provider, reason = :link_required)
       StandardId::Events.publish(
         StandardId::Events::SOCIAL_LINK_BLOCKED,
         email: identifier.value,
         provider: provider,
         identifier: identifier,
-        account: identifier.account
+        account: identifier.account,
+        reason: reason
       )
     end
 

@@ -154,12 +154,23 @@ module StandardId
   # NOTE: email and provider_name are exposed as reader attributes for host
   # apps to build custom error responses. If you report exceptions to an
   # error tracker (Sentry, etc.), be aware these attributes contain PII.
+  #
+  # `reason` says why the link was refused:
+  #   :link_required    — the email belongs to an account the strict
+  #                       link_strategy will not link this provider to
+  #   :email_unverified — the provider did not report the email as verified,
+  #                       so it cannot prove ownership of the existing account
+  #   :subject_mismatch — the account's email identifier is already linked to a
+  #                       different subject (`sub`) from this provider
   class SocialLinkError < OAuthError
-    attr_reader :email, :provider_name
+    REASONS = %i[link_required email_unverified subject_mismatch].freeze
 
-    def initialize(email:, provider_name:)
+    attr_reader :email, :provider_name, :reason
+
+    def initialize(email:, provider_name:, reason: :link_required)
       @email = email
       @provider_name = provider_name
+      @reason = reason
       super("This email is already associated with an account. Please sign in first to link this provider.")
     end
 

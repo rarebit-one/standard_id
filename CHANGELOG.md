@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-10-02
+
+**Security fix (L1-01): social login could take over an existing account by email.** Behaviour change and a new migration; see **Upgrade notes**.
+
+### Security
+
+- **Social logins are now matched on the provider's stable subject id (`sub`), and linking to an existing account requires a provider-verified email.** `SocialAuthentication#find_or_create_account_from_social` used to look up `EmailIdentifier.find_by(value: email)` and sign the login in to that account. It never looked at `sub`, and `email_verified` only decided whether a *new* identifier was marked verified. Under `link_strategy: :trust_provider`, or under the default `:strict` for any email identifier with a `NULL` provider (every identifier created before migration `20260311000000` added the column, and every identifier the gem creates outside social login: password signup, passwordless, `find_or_create_by_verified_email!`), a provider token that merely *claimed* an address, verified or not, signed in as that address's account. Both the web callback (`Web::Auth::Callback::ProvidersController`) and the API callback (`Api::Oauth::Callback::ProvidersController` → `Oauth::SocialFlow`) went through this method; `SocialFlow` and `SocialLoginGrant` themselves do no account lookup. Resolution is now:
+  1. `(provider, sub)` matches a `StandardId::SocialIdentity` → that account, whatever email the provider now reports.
+  2. The email matches an existing identifier → link only if the `link_strategy` allows it, the identifier is not already linked to a **different** `sub` from the same provider, and the provider reports `email_verified` as `true` or `"true"` (Apple and Google's tokeninfo send the string). This holds under `:trust_provider` too. A successful link stores the `sub`.
+  3. Otherwise a new account is created exactly as before (an unverified provider email still creates an unverified identifier), and the `sub` is stored.
+
+  Each refusal emits `SOCIAL_LINK_BLOCKED` and raises `StandardId::SocialLinkError` instead of creating a duplicate account. The web callback already turns that error into a redirect to `/login` with an alert; the API callback returns `403 access_denied`.
+
+### Added
+
+- **`standard_id_social_identities`** (migration `20261002000000_create_standard_id_social_identities`) and the `StandardId::SocialIdentity` model: `account_id`, `identifier_id` (the email identifier the link was made through), `provider`, `subject`, unique on `(provider, subject)` and on `(identifier_id, provider)`. Both foreign keys are `ON DELETE CASCADE`, so deleting an identifier or account needs no new step.
+- `StandardId::SocialLinkError#reason`: `:link_required` (the strict strategy refused, as before), `:email_unverified` or `:subject_mismatch`. `SOCIAL_LINK_BLOCKED` carries the same `reason`. The constructor's new `reason:` keyword is optional and defaults to `:link_required`, so code that builds the error itself is unaffected.
+
+### Changed
+
+- `email_verified` is read strictly: only `true` or `"true"` (any case) count. Google's OAuth2 v2 userinfo key `verified_email` is accepted when `email_verified` is absent, because standard_id-google ≤ 0.5.0 returns that endpoint's JSON unchanged on its code and access-token paths.
+
+### Upgrade notes
+
+1. **Install and run the migration**: `bin/rails standard_id:install:migrations && bin/rails db:migrate`. It creates one new, empty table; nothing existing is rewritten and nothing is backfilled. Existing social users get their row on their next login (on a verified email). Until it has run, the gem logs a warning once per process, skips subject matching, and still enforces the verified-email requirement; the boot-time missing-migration check and `StandardId::Checks::Migrations` also report it.
+2. **Upgrade standard_id-google to 0.6.0** alongside this release if you use it. Its code-exchange and access-token paths read Google's v2 userinfo endpoint, which returns `id` / `verified_email` rather than `sub` / `email_verified`, so on ≤ 0.5.0 those logins carry no `sub` (they still work, matched by verified email every time). 0.6.0 adds `sub` and `email_verified`. standard_id-apple already returns both from the verified ID token.
+3. **Expect refusals where a link used to go through silently.** A social login whose provider reports the email as unverified can no longer attach to an existing account (it previously did under `:trust_provider`, or for a `NULL`-provider identifier). Google and Apple report `email_verified: true` for the address on almost every account, so this should be rare; subscribe to `SOCIAL_LINK_BLOCKED` and read `reason` to see it. A host that builds custom copy from `SocialLinkError` may want per-`reason` messages.
+4. `link_strategy` keeps its meaning (`:strict` default, `:trust_provider`); no config change is needed.
+
+
 ## [0.43.2] - 2026-09-25
 
 ### Fixed
