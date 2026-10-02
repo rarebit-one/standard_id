@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_24_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_000000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -208,6 +208,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_000000) do
     t.index ["type"], name: "index_standard_id_sessions_on_type"
   end
 
+  create_table "standard_id_social_identities", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "identifier_id", null: false
+    t.string "provider", null: false
+    t.string "subject", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_standard_id_social_identities_on_account_id"
+    t.index ["identifier_id", "provider"], name: "index_standard_id_social_identities_on_identifier_and_provider", unique: true
+    t.index ["provider", "subject"], name: "index_standard_id_social_identities_on_provider_and_subject", unique: true
+  end
+
   add_foreign_key "standard_id_authorization_codes", "accounts"
   add_foreign_key "standard_id_client_grants", "accounts"
   add_foreign_key "standard_id_client_secret_credentials", "standard_id_client_applications", column: "client_application_id"
@@ -217,4 +229,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_24_000000) do
   add_foreign_key "standard_id_refresh_tokens", "standard_id_refresh_tokens", column: "previous_token_id", on_delete: :nullify
   add_foreign_key "standard_id_refresh_tokens", "standard_id_sessions", column: "session_id"
   add_foreign_key "standard_id_sessions", "accounts"
+  add_foreign_key "standard_id_social_identities", "accounts", on_delete: :cascade
+  add_foreign_key "standard_id_social_identities", "standard_id_identifiers", column: "identifier_id", on_delete: :cascade
 end

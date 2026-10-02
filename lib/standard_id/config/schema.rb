@@ -565,6 +565,10 @@ StandardId::ConfigSchema.define do
     field :social_account_attributes, type: :any, default: nil
     field :allowed_redirect_url_prefixes, type: :array, default: []
     field :available_scopes, type: :array, default: -> { [] }
+    # How a social login whose (provider, sub) is not linked yet may link to
+    # an existing account that holds its email: :strict or :trust_provider.
+    # Either way the provider must report the email as verified. See
+    # StandardId::SocialAuthentication#find_or_create_account_from_social.
     field :link_strategy, type: :symbol, default: :strict
     # What to do at boot when an enabled social provider is missing required
     # config (e.g. apple_client_id set without apple_private_key). :warn logs

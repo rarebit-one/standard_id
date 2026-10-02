@@ -1165,6 +1165,30 @@ redirect_to "/api/authorize?" + {
 }.to_query
 ```
 
+#### How a social login finds its account (0.44+)
+
+1. **Provider + subject.** A login whose `(provider, sub)` is stored in
+   `standard_id_social_identities` signs in to that account. The email the
+   provider reports is not consulted.
+2. **Existing email identifier.** Otherwise, if the email belongs to an
+   existing account, the login links to it only when all of these hold, and
+   raises `StandardId::SocialLinkError` (after emitting `SOCIAL_LINK_BLOCKED`)
+   when one does not. The error's `reason` says which:
+   - `link_strategy` allows it (`:link_required` under `:strict`);
+   - the identifier is not already linked to a **different** `sub` from the
+     same provider (`:subject_mismatch`);
+   - the provider reports the email as verified: `email_verified` is `true`
+     or the string `"true"` (`:email_unverified`). This applies under
+     `:trust_provider` too.
+
+   A successful link stores the `sub`, so the next login matches on step 1.
+3. **New account.** Otherwise a new account is created, as before, and the
+   `sub` is stored.
+
+Providers must return the OIDC `sub` and `email_verified` claims in
+`user_info`. A provider that returns no `sub` still works, but is matched on
+email (with the verified-email requirement) every time.
+
 ### Passwordless Authentication
 
 ```ruby
