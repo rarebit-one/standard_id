@@ -76,15 +76,22 @@ module StandardId
       end
 
       def authenticate_account(username, password)
+        # Credential reaches the account through its identifier (`delegate
+        # :account, to: :identifier`); there is no `account` association to
+        # preload, and asking for one raised AssociationNotFoundError for every
+        # login that found a credential.
         @credential = StandardId::PasswordCredential
-          .includes(credential: :account)
+          .includes(credential: { identifier: :account })
           .find_by(login: username)
 
         # Perform a dummy bcrypt comparison when the credential doesn't exist
         # to prevent user enumeration via response timing differences.
         BCrypt::Password.new(dummy_password_digest).is_password?(password) unless @credential
 
-        @credential&.authenticate(password)&.account
+        # has_secure_password's authenticate returns false (not nil) on a wrong
+        # password, so `&.account` would call false.account → NoMethodError (500).
+        authenticated = @credential&.authenticate(password)
+        authenticated ? authenticated.account : nil
       end
 
       def validate_requested_scope!
