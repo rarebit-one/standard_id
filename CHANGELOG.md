@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The OAuth `password` grant failed for every existing user.** `PasswordFlow` preloaded `credential: :account`, but `Credential` reaches the account through its identifier and has no such association. Any request that found a credential raised `ActiveRecord::AssociationNotFoundError` (500). A wrong password for an existing login also returned 500 (`false.account`) instead of `400 invalid_grant`. Both have existed since the grant was added. The grant had no request-level coverage; `spec/requests/standard_id/api/oauth/password_grant_spec.rb` now covers it.
+
 ## [0.44.0] - 2026-10-02
 
 **Security fix (L1-01): social login could take over an existing account by email.** Behaviour change and a new migration; see **Upgrade notes**.
