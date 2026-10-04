@@ -187,7 +187,7 @@ module StandardId
       return if subject.nil?
       return unless social_identities_available?
 
-      StandardId::SocialIdentity.transaction(requires_new: true) do
+      identity = StandardId::SocialIdentity.transaction(requires_new: true) do
         StandardId::SocialIdentity.find_or_create_by!(
           provider: provider.provider_name,
           subject: subject
@@ -196,6 +196,11 @@ module StandardId
           new_identity.identifier = identifier
         end
       end
+      # find_or_create_by! returns, without raising, a row a concurrent login
+      # committed before its SELECT: the same account check applies to it.
+      return identity if identity.account_id == identifier.account_id
+
+      raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
     rescue ActiveRecord::RecordNotUnique
       # A concurrent login for the same (provider, sub) committed it first.
       # Adopt it only when it points at the same account; otherwise this

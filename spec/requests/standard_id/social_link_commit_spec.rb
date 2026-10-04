@@ -131,6 +131,55 @@ RSpec.describe "Social link commit", type: :request do
     end
   end
 
+  # A concurrent callback for the same (provider, sub) commits its link to a
+  # DIFFERENT account before this request's find_or_create_by! SELECT, so the
+  # existing row comes back without a unique violation. It must be refused
+  # like the RecordNotUnique path, not adopted.
+  describe "a (provider, sub) row committed concurrently for another account" do
+    before { legacy_account }
+
+    def other_account
+      @other_account ||= Account.create!(name: "Other", email: "other-#{SecureRandom.hex(4)}@example.com").tap do |account|
+        StandardId::EmailIdentifier.create!(account: account, value: account.email, verified_at: Time.current)
+      end
+    end
+
+    def commit_rival_link(subject)
+      rival = StandardId::Identifier.find_by!(account_id: other_account.id)
+      ->(*) {
+        StandardId::SocialIdentity.create!(provider: "google", subject: subject, account: other_account, identifier: rival)
+        nil
+      }
+    end
+
+    it "web: fails with a retryable error and leaves the rival link and no session on the matched account" do
+      stub_google("g-rival-web")
+      allow(StandardId.config).to receive(:before_sign_in).and_return(commit_rival_link("g-rival-web"))
+
+      web_callback.call
+
+      expect(response).to redirect_to("/login")
+      expect(StandardId::SocialIdentity.find_by(subject: "g-rival-web").account_id).to eq(other_account.id)
+      expect(StandardId::Session.where(account_id: legacy_account.id).active).to be_empty
+      expect(StandardId::Identifier.find_by!(account_id: legacy_account.id).provider).to be_nil
+    end
+
+    it "API: answers invalid_grant and revokes what it issued for the matched account" do
+      stub_google("g-rival-api")
+      with_policy(->(account:) {
+        commit_rival_link("g-rival-api").call if account.id == legacy_account.id
+        true
+      })
+
+      api_callback.call
+
+      expect(response).to have_http_status(:bad_request)
+      expect(json).to include("error" => "invalid_grant")
+      expect(StandardId::SocialIdentity.find_by(subject: "g-rival-api").account_id).to eq(other_account.id)
+      expect(StandardId::RefreshToken.active.where(account_id: legacy_account.id)).to be_empty
+    end
+  end
+
   describe "web: the link is written only after the redirect" do
     before { legacy_account }
 

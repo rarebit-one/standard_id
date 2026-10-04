@@ -83,7 +83,10 @@ module StandardId
           record = flow&.issued_refresh_token
           return unless record&.persisted?
 
-          session = record.session
+          # Loaded by id, not through the association: the record was built
+          # with only session_id, and a host with strict_loading_by_default
+          # would raise here and mask the original error.
+          session = record.session_id && StandardId::Session.find_by(id: record.session_id)
           session.revoke!(reason: "social_sign_in_rejected") unless session.nil? || session.revoked?
           record.revoke!
         end
