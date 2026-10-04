@@ -20,6 +20,10 @@ module StandardId
         @account.id
       end
 
+      def login_method_policy_context
+        { auth_method: :social, provider: @connection, flow: :oauth_social_callback }
+      end
+
       def client_id
         @connection
       end

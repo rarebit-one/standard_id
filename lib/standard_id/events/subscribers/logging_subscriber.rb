@@ -12,6 +12,7 @@ module StandardId
           "authentication.password.failed" => :warn,
           "authentication.otp.validated" => :debug,
           "authentication.otp.failed" => :warn,
+          "authentication.method.denied" => :warn,
           "session.creating" => :debug,
           "session.created" => :info,
           "session.validating" => :debug,

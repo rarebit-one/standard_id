@@ -212,6 +212,40 @@ module StandardId
           false
         end
 
+        # Whether the `:strict` link_strategy may link this provider's login to
+        # an existing account that was created through ANOTHER provider (for
+        # example, a Google-created account) when the email addresses match.
+        #
+        # Default: false. Every provider, including Google and Apple, keeps
+        # the 0.44 behaviour: `:strict` refuses that link with
+        # SocialLinkError (reason `:link_required`).
+        #
+        # Return true ONLY for the organisation's own identity provider whose
+        # email claims the organisation itself verifies — e.g. a broker-local
+        # directory such as moneta (standard_id-void_which_binds), where an
+        # address is provisioned by the org and cannot be self-asserted. A
+        # public IdP that lets anyone register an address (Google, Apple,
+        # GitHub, ...) must never return true: trusting it would let whoever
+        # controls an address *at that IdP* take over the account holding the
+        # same address here.
+        #
+        # Returning true relaxes ONLY the `:strict` cross-provider check. All
+        # of these still apply, unchanged:
+        #   - the provider must report `email_verified` as true (or "true"),
+        #     otherwise the link is refused with reason `:email_unverified`;
+        #   - the existing email identifier must itself be verified (an
+        #     unverified address on the existing account proves nothing about
+        #     who created it — see the pre-account-hijacking note in the
+        #     README);
+        #   - the identifier must not already be linked to a different `sub`
+        #     from this provider (`:subject_mismatch`);
+        #   - a stored (provider, sub) match still wins over any email match.
+        #
+        # @return [Boolean]
+        def trusted_for_linking?
+          false
+        end
+
         # Returns list of supported authorization parameters for this provider.
         #
         # Include :nonce in this list for OIDC providers to enable nonce validation.

@@ -26,6 +26,10 @@ module StandardId
         account.id
       end
 
+      def login_method_policy_context
+        { auth_method: :passwordless, flow: :oauth_passwordless_otp_grant }
+      end
+
       def client_id
         params[:client_id]
       end

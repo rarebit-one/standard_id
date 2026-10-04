@@ -403,6 +403,19 @@ StandardId.configure do |c|
   #   context[:first_sign_in] ? "/onboarding" : nil
   # }
 
+  # Decides which authentication methods may sign an account in. Consulted in
+  # EVERY web and API flow that establishes a new authentication, after the
+  # credential is proven and before any session or token is created.
+  # Receives any subset of: account:, auth_method: (:password, :passwordless,
+  # :social, :remember_me, :unspecified), provider:, request:, flow:
+  # Return truthy to allow, false/nil to refuse, or raise
+  # StandardId::LoginMethodDenied.new("message") to refuse with a message.
+  # Default: nil (every method allowed)
+  # c.login_method_policy = ->(account:, auth_method:, provider:) {
+  #   next true unless account.staff?
+  #   auth_method == :social && provider == "void_which_binds"
+  # }
+
   # Called after a new account is created via any mechanism.
   # Receives: (account, request, context)
   #   context = { mechanism:, provider: }

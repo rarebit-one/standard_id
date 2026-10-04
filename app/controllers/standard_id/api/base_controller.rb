@@ -26,6 +26,11 @@ module StandardId
       rescue_from StandardId::AccountDeactivatedError, with: :handle_account_deactivated
       rescue_from StandardId::AccountLockedError, with: :handle_account_locked
 
+      # config.login_method_policy refused the method (token grants, social
+      # callback). Not an OAuthError — it is an AuthenticationDenied so the
+      # WebEngine's existing handling covers it — so it is mapped here.
+      rescue_from StandardId::LoginMethodDenied, with: :handle_login_method_denied
+
       protected
 
       def validate_content_type!
@@ -72,6 +77,17 @@ module StandardId
       # arbitrary text would break as well as leak.
       def handle_account_locked(_error)
         render_bearer_unauthorized!(error_description: "The account is locked")
+      end
+
+      # `403 access_denied`, the shape SocialLinkError already uses on the API
+      # callback. The policy only runs after the credential was proven, so the
+      # caller already controls it and the policy's message (e.g. "Staff must
+      # sign in with ...") tells them nothing they could not learn otherwise.
+      def handle_login_method_denied(error)
+        render json: {
+          error: error.oauth_error_code.to_s,
+          error_description: error.message
+        }, status: error.http_status
       end
 
       def handle_oauth_error(error)

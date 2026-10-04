@@ -8,6 +8,9 @@ module StandardId
       PASSWORD_VALIDATION_FAILED = "authentication.password.failed"
       OTP_VALIDATED = "authentication.otp.validated"
       OTP_VALIDATION_FAILED = "authentication.otp.failed"
+      # config.login_method_policy refused the method for the account, after
+      # the credential was proven and before any session was created.
+      AUTHENTICATION_METHOD_DENIED = "authentication.method.denied"
 
       SESSION_CREATING = "session.creating"
       SESSION_CREATED = "session.created"
@@ -75,7 +78,8 @@ module StandardId
         PASSWORD_VALIDATED,
         PASSWORD_VALIDATION_FAILED,
         OTP_VALIDATED,
-        OTP_VALIDATION_FAILED
+        OTP_VALIDATION_FAILED,
+        AUTHENTICATION_METHOD_DENIED
       ].freeze
 
       SESSION_EVENTS = [
@@ -157,6 +161,7 @@ module StandardId
         AUTHENTICATION_FAILED,
         PASSWORD_VALIDATION_FAILED,
         OTP_VALIDATION_FAILED,
+        AUTHENTICATION_METHOD_DENIED,
         # Session
         SESSION_CREATED,
         SESSION_REVOKED,

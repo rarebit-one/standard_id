@@ -32,7 +32,26 @@ module StandardId
         Current.account = load_current_account
       end
 
-      def sign_in_account(account, scope_name: nil)
+      # Creates a browser session for an account whose credential the caller
+      # has already verified.
+      #
+      # `config.login_method_policy` is consulted first, before anything is
+      # written; a refusal raises StandardId::LoginMethodDenied (an
+      # AuthenticationDenied) and no session, cookie or Rails-session change
+      # happens. The engine's own controllers pass `auth_method:` /
+      # `provider:` / `flow:`. Host code that signs accounts in itself should
+      # pass at least `auth_method:` (e.g. `:password`, `:social`); without it
+      # the policy sees `:unspecified` under flow `:web_session`, which a
+      # restrictive policy will (correctly) refuse.
+      def sign_in_account(account, scope_name: nil, auth_method: nil, provider: nil, flow: :web_session)
+        StandardId::LoginMethodPolicy.enforce!(
+          account: account,
+          auth_method: auth_method,
+          provider: provider,
+          request: request,
+          flow: flow
+        )
+
         emit_session_creating(account, "browser")
 
         # Prevent session fixation by resetting the Rails session before
@@ -201,6 +220,24 @@ module StandardId
 
         password_credential = StandardId::PasswordCredential.find_by_token_for(:remember_me, cookies[:remember_token])
         return if password_credential.blank?
+
+        # Remember-me is a re-authentication (it mints a new session), so the
+        # login-method policy applies. A refusal must not raise here — this
+        # runs on any request that asks for current_session — so it signs the
+        # visitor out instead (clearing the remember cookie, so the refused
+        # cookie is not replayed on every request). The refusal itself is
+        # published as AUTHENTICATION_METHOD_DENIED by the policy.
+        begin
+          StandardId::LoginMethodPolicy.enforce!(
+            account: password_credential.account,
+            auth_method: :remember_me,
+            request: request,
+            flow: :web_remember_me
+          )
+        rescue StandardId::LoginMethodDenied
+          clear_session!
+          return
+        end
 
         # Prevent session fixation on returning-user remember-me flow.
         # Note: standard_id_scopes are intentionally NOT preserved here —

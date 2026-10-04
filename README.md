@@ -673,6 +673,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `authentication.attempt.failed` | `account_lookup`, `auth_method`, `error_code`, `error_message` | After authentication fails |
 |  | `authentication.password.failed` | `account_lookup`, `error_code`, `error_message` | After password verification fails |
 |  | `authentication.otp.failed` | `identifier`, `channel`, `error_code`, `error_message` | After OTP verification fails |
+|  | `authentication.method.denied` | `account`, `auth_method`, `provider`, `flow`, `error_message` | `config.login_method_policy` refused the method, after the credential was proven and before any session or token was created (0.45+) |
 | Session | `session.creating` | `account`, `session_type`, `ip_address`, `user_agent` | Before a session record is created |
 |  | `session.created` | `session`, `account`, `session_type`, `token_issued`, `ip_address`, `user_agent` | After session persistence completes |
 |  | `session.validating` | `session` | Before validating an existing session |
@@ -1174,7 +1175,10 @@ redirect_to "/api/authorize?" + {
    existing account, the login links to it only when all of these hold, and
    raises `StandardId::SocialLinkError` (after emitting `SOCIAL_LINK_BLOCKED`)
    when one does not. The error's `reason` says which:
-   - `link_strategy` allows it (`:link_required` under `:strict`);
+   - `link_strategy` allows it (`:link_required` under `:strict`). Under
+     `:strict`, a provider whose `trusted_for_linking?` returns `true` may
+     link to an account created through another provider, but only when the
+     existing email identifier is itself verified (see below);
    - the identifier is not already linked to a **different** `sub` from the
      same provider (`:subject_mismatch`);
    - the provider reports the email as verified: `email_verified` is `true`
@@ -1188,6 +1192,91 @@ redirect_to "/api/authorize?" + {
 Providers must return the OIDC `sub` and `email_verified` claims in
 `user_info`. A provider that returns no `sub` still works, but is matched on
 email (with the verified-email requirement) every time.
+
+#### Trusted linking for the organisation's own IdP (0.45+)
+
+`:strict` refuses to link, say, an org-SSO login to an existing account that
+was first created by a Google login, even when the addresses match. A provider
+plugin can lift that one refusal by returning `true` from
+`Providers::Base.trusted_for_linking?` (default `false` for every provider,
+including Google and Apple, so nothing changes unless a plugin opts in).
+
+**Only the organisation's own identity provider should ever return `true`**:
+one whose email claims the organisation itself provisions and verifies, such as
+a broker-local directory (moneta, via `standard_id-void_which_binds`). A public
+IdP lets anyone register an address there; trusting it would let whoever holds
+an address *at that IdP* take over the account holding the same address here.
+
+Trust relaxes only the `:strict` cross-provider check. The link is still
+refused unless all of these hold:
+
+- the provider reports `email_verified` as `true` / `"true"`
+  (`:email_unverified` otherwise);
+- the existing email identifier is verified (`verified_at` set). This closes
+  pre-account hijacking: someone who registered an account for an address they
+  never proved must not have it handed to the address's real owner (they would
+  keep their own way in). Refused as `:link_required`;
+- the identifier is not linked to a different `sub` from the same provider
+  (`:subject_mismatch`);
+- `trusted_for_linking?` returns exactly `true` (a truthy string does not count).
+
+A stored `(provider, sub)` match still wins over any email match.
+
+### Restricting sign-in methods (`login_method_policy`, 0.45+)
+
+`c.login_method_policy` decides, per account, which authentication methods may
+sign it in, for example "staff must sign in with the org IdP". The default
+(`nil`) allows everything.
+
+```ruby
+StandardId.configure do |c|
+  # Any subset of: account:, auth_method:, provider:, request:, flow:
+  c.login_method_policy = ->(account:, auth_method:, provider:) {
+    next true unless account.staff?
+    next true if auth_method == :social && provider == "void_which_binds"
+
+    raise StandardId::LoginMethodDenied, "Staff must sign in with Void Which Binds"
+  }
+end
+```
+
+Return a truthy value to allow, `false`/`nil` to refuse with a generic
+message, or raise `StandardId::LoginMethodDenied` with your own message. Any
+other exception propagates, so a broken policy fails closed.
+
+The policy is consulted in every flow that establishes a new authentication,
+**after** the credential is proven (password checked, code verified, provider
+token verified) and **before** any session, token or cookie is created. Because
+it runs only after the credential is proven, its message reaches only someone
+who already controls the credential; a wrong password still gets the flow's
+usual "invalid" answer and never reaches the policy.
+
+| `flow` | `auth_method` | Refusal |
+|--------|---------------|---------|
+| `:web_password` (`/login`) | `:password` | redirect to `/login`, message as flash alert |
+| `:web_signup` (`/signup`) | `:password` | same; the just-created account is removed |
+| `:web_passwordless` (`/login_verify`) | `:passwordless` | same; a just-registered account is removed |
+| `:web_social` (`/auth/callback/:provider`) | `:social` + `provider` | same; a just-created account is removed |
+| `:web_remember_me` (remember-me cookie) | `:remember_me` | signed out silently, remember cookie cleared |
+| `:web_session` (`session_manager.sign_in_account` from host code) | what you pass, else `:unspecified` | raises `LoginMethodDenied` (an `AuthenticationDenied`) |
+| `:oauth_password_grant` | `:password` | `403 {"error":"access_denied"}` |
+| `:oauth_passwordless_otp_grant` | `:passwordless` | `403 access_denied`; a just-registered account is removed |
+| `:oauth_social_callback` (`/api/oauth/callback/:provider`) | `:social` + `provider` | `403 access_denied`; a just-created account is removed |
+| `:api_device_session` / `:api_service_session` (`Api::TokenManager#create_*_session` from host code) | what you pass, else `:unspecified` | raises `LoginMethodDenied` |
+
+Not gated, because they only derive a credential from an authentication that
+already passed the policy (or have no account): the `authorization_code` and
+`refresh_token` grants, the implicit flow and `client_credentials`. Changing
+the policy does not end existing sessions; revoke them if it must.
+
+Every refusal publishes `authentication.method.denied`.
+
+**Host code that signs accounts in itself** (`session_manager.sign_in_account`,
+`Api::TokenManager#create_device_session`) should pass the method, e.g.
+`session_manager.sign_in_account(account, auth_method: :password)`, and rescue
+`StandardId::AuthenticationDenied` (which `LoginMethodDenied` subclasses) as the
+engine's controllers do. Without `auth_method:` the policy sees
+`:unspecified`, which a restrictive policy will refuse.
 
 ### Passwordless Authentication
 
@@ -1406,6 +1495,7 @@ end
 | `flow_for(params)` | `:web` only for `flow=web` on providers that `supports_mobile_callback?`, else `:mobile` | Flow for the API callback |
 | `skip_csrf?` | `false` | `true` for POST (form_post) callbacks |
 | `supports_mobile_callback?` | `false` | Enables the server-side redirect back to a native app |
+| `trusted_for_linking?` | `false` | `true` lets `:strict` link to an account created via another provider (verified emails only). Org-owned IdPs only; see "Trusted linking" (0.45+) |
 
 **Protected helpers** for use inside those methods — signatures are stable:
 

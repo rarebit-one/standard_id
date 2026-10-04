@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Planned as **0.45.0**. Two opt-in hooks that the org-IdP provider plugin (`standard_id-void_which_binds`) needs. With neither configured, behaviour is unchanged.
+
+### Added
+
+- **`Providers::Base.trusted_for_linking?`** (default `false` for every provider, including Google and Apple). When a provider returns exactly `true`, the `:strict` link_strategy may link its login to an existing account that was created through **another** provider, when the emails match. Every 0.44 (L1-01) guard still applies, and one more is added for this path:
+  - the provider must report `email_verified` as `true` / `"true"` (`:email_unverified` otherwise);
+  - the existing email identifier must itself be verified, closing pre-account hijacking (`:link_required` otherwise);
+  - the identifier must not be linked to a different `sub` from that provider (`:subject_mismatch`);
+  - a stored `(provider, sub)` match still wins over any email match.
+
+  Only an organisation's own IdP, whose email claims the organisation provisions and verifies (e.g. moneta's broker-local directory), should return `true`. A public IdP must not: anyone who controls an address there could take over the matching account here. See the README, "Trusted linking for the organisation's own IdP".
+- **`c.login_method_policy`**: a callable consulted in every flow that establishes a new authentication, after the credential is proven and before any session, token or cookie is created. It receives any subset of `account:`, `auth_method:` (`:password`, `:passwordless`, `:social`, `:remember_me`, `:unspecified`), `provider:`, `request:` and `flow:`. Return truthy to allow, `false`/`nil` to refuse, or raise `StandardId::LoginMethodDenied` with a message. Default `nil` (allow all). Covered flows:
+  - web: `/login` password, `/signup`, `/login_verify` passwordless, the social callback, remember-me re-authentication, and host calls to `session_manager.sign_in_account`;
+  - API: the `password` and `passwordless_otp` token grants, the `/api/oauth/callback/:provider` social callback, and host calls to `Api::TokenManager#create_device_session` / `#create_service_session`.
+
+  `authorization_code`, `refresh_token`, the implicit flow and `client_credentials` derive from an earlier authentication (or have no account) and are not gated. A refusal redirects to `/login` with the message as the alert on the web, returns `403 access_denied` on the API, signs out silently for remember-me, and removes an account that the same request had just created. The table and the full contract are in the README under "Restricting sign-in methods".
+- **`StandardId::LoginMethodDenied`** (subclass of `AuthenticationDenied`, so existing web handling covers it; `oauth_error_code` `:access_denied`, `http_status` `:forbidden`) and the event **`authentication.method.denied`** (`AUTHENTICATION_METHOD_DENIED`; payload `account`, `auth_method`, `provider`, `flow`, `error_message`). The event is in `SECURITY_EVENTS`, so audit trails that record `standard_id.authentication.*` pick it up.
+- `Web::SessionManager#sign_in_account` takes optional `auth_method:`, `provider:` and `flow:`. `Api::TokenManager#create_device_session` and `#create_service_session` take optional `auth_method:` and `provider:`. Host code that signs accounts in itself should pass `auth_method:`; without it a configured policy sees `:unspecified`.
+- `StandardId::AccountCleanup.destroy_newly_created!`, extracted from `LifecycleHooks#destroy_newly_created_account` so the API grants can share it.
+
 ### Fixed
 
 - **The OAuth `password` grant failed for every existing user.** `PasswordFlow` preloaded `credential: :account`, but `Credential` reaches the account through its identifier and has no such association. Any request that found a credential raised `ActiveRecord::AssociationNotFoundError` (500). A wrong password for an existing login also returned 500 (`false.account`) instead of `400 invalid_grant`. Both have existed since the grant was added. The grant had no request-level coverage; `spec/requests/standard_id/api/oauth/password_grant_spec.rb` now covers it.

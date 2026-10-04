@@ -118,6 +118,20 @@ StandardId::ConfigSchema.define do
     #   Return: nil (default redirect) or a path string (override redirect)
     #   Raise StandardId::AuthenticationDenied.new("message") to reject sign-in.
     field :after_sign_in, type: :any, default: nil
+
+    # login_method_policy: decides whether an account may authenticate with a
+    # given method. Consulted in EVERY flow that establishes a new
+    # authentication (web and API), after the credential is proven and BEFORE
+    # any session or token is created. See StandardId::LoginMethodPolicy for
+    # the list of flows.
+    #   Receives (keywords, take any subset):
+    #     account:, auth_method: (:password / :passwordless / :social /
+    #     :remember_me / :unspecified), provider: ("google", ... or nil),
+    #     request:, flow: (e.g. :web_password, :oauth_social_callback)
+    #   Return: truthy to allow; false/nil to refuse with a generic message.
+    #   Raise StandardId::LoginMethodDenied.new("message") to refuse with your own.
+    # nil (the default) allows every method, i.e. no behaviour change.
+    field :login_method_policy, type: :any, default: nil
   end
 
   scope :events do
