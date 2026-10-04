@@ -709,7 +709,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `social.auth.callback_received` | `provider`, `code`, `state` | After the provider redirects back |
 |  | `social.user_info.fetched` | `provider`, `social_info`, `email` | After fetching user info from the provider |
 |  | `social.account.created` | `account`, `provider`, `social_info` | When a social login creates a new account |
-|  | `social.account.linked` | `account`, `provider`, `identifier` | When a social identity links to an existing account |
+|  | `social.account.linked` | `account`, `provider`, `identifier` | When a social login links to an existing account by email (published once the link is written, never for a refused login), or matches an existing link by `sub` |
 |  | `social.auth.completed` | `account`, `provider`, `tokens` | After social login completes |
 |  | `social.auth.failed` | `provider`, `error`, `error_class`, `account` | When social login fails due to an infrastructure error (HTTP/DNS/SSL/timeout) |
 | Credential | `credential.password.created` | `credential`, `account` | After a password credential is created |
@@ -1285,8 +1285,16 @@ minutes from a browser session that passed the policy when it was created) and
 re-checked when the policy changes; revoke them if they must end.
 
 A refused social login also leaves no trace of the link: the `(provider, sub)`
-row and any provider backfilled onto the email identifier in that request are
-rolled back (this also applies when `before_sign_in` or a scope check refuses).
+row and any provider backfilled onto the email identifier are written only once
+the login is accepted (on the web, together with the final redirect), so a
+refusal by the policy, `before_sign_in`, a scope check or a failing redirect
+writes nothing and publishes no `social.account.linked`.
+
+A just-created account is removed only if no other sign-in is using it. When a
+concurrent login for the same email has already signed in to it, it is kept;
+when the removal goes first, that login fails with a retryable error (web:
+redirect to `/login`; API: `400 invalid_grant`), never signs in to the removed
+account, and a retry creates a fresh one.
 
 Every refusal publishes `authentication.method.denied`.
 

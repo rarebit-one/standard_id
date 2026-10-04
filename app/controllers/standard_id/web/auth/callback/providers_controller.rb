@@ -66,9 +66,6 @@ module StandardId
               }
               redirect_override = invoke_after_sign_in(account, context)
 
-              # Accepted: only now write the (provider, sub) link.
-              commit_social_link!
-
               # When the hook defers (returns nil), the originator-supplied URL becomes the
               # destination. Validate it before redirect_to — without this, an attacker who
               # tricks a victim into clicking /login?connection=google&redirect_uri=<evil>
@@ -77,7 +74,12 @@ module StandardId
               destination = redirect_override || (safe_destination?(caller_redirect_uri) ? caller_redirect_uri : safe_post_signin_default)
               redirect_options = { notice: "Successfully signed in with #{provider_name.humanize}" }
               redirect_options[:allow_other_host] = true if allow_other_host_redirect?(destination)
-              redirect_to destination, redirect_options
+
+              # Accepted: only now write the (provider, sub) link, in the same
+              # transaction as the redirect, which can still raise (e.g. an
+              # after_sign_in URL on a host that is not allowed). If it does,
+              # the link is rolled back with it.
+              commit_social_link! { redirect_to destination, redirect_options }
             rescue StandardId::AuthenticationDenied => e
               rollback_social_link!
               handle_authentication_denied(e, account: account, newly_created: newly_created)
@@ -90,11 +92,17 @@ module StandardId
               discard_rejected_social_sign_in!(account, newly_created:)
               emit_social_auth_failed(e, account: account)
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
-            rescue StandardError
+            rescue StandardError => e
               # Unexpected failure after the link/account may have been
-              # written: undo them, then let the error surface as before.
+              # written: undo them, then let the error surface as before —
+              # unless the matched account was removed under this login by a
+              # concurrent, refused request, which is retryable.
+              removed = social_account_removed_concurrently?(account, newly_created:)
               discard_rejected_social_sign_in!(account, newly_created:)
-              raise
+              raise unless removed
+
+              emit_social_auth_failed(e, account: account)
+              redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{SOCIAL_RETRY_MESSAGE}"
             end
           end
 

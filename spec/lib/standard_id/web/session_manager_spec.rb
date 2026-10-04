@@ -176,7 +176,7 @@ RSpec.describe StandardId::Web::SessionManager do
         plain_cookies[:remember_token] = "remember_token"
         allow(StandardId::PasswordCredential).to receive(:find_by_token_for)
           .with(:remember_me, "remember_token").and_return(password_credential)
-        allow(token_manager).to receive(:create_browser_session).with(account, remember_me: true).and_return(browser_session)
+        allow(token_manager).to receive(:create_browser_session).with(account, auth_lineage: { auth_method: "remember_me", auth_provider: nil }).and_return(browser_session)
         allow(browser_session).to receive(:token).and_return("token_value")
         allow(token_manager).to receive(:create_remember_token).with(password_credential).and_return({ value: "new_remember_token" })
         # Mock Current.session= to actually store the value for subsequent calls
@@ -188,7 +188,7 @@ RSpec.describe StandardId::Web::SessionManager do
       it "creates new browser session from remember token" do
         result = session_manager.current_session
         expect(result).to eq(browser_session)
-        expect(token_manager).to have_received(:create_browser_session).with(account, remember_me: true)
+        expect(token_manager).to have_received(:create_browser_session).with(account, auth_lineage: { auth_method: "remember_me", auth_provider: nil })
       end
 
       it "sets session token in encrypted cookie" do
@@ -486,7 +486,7 @@ RSpec.describe StandardId::Web::SessionManager do
       plain_cookies[:remember_token] = "remember_token"
       allow(StandardId::PasswordCredential).to receive(:find_by_token_for)
         .with(:remember_me, "remember_token").and_return(password_credential)
-      allow(token_manager).to receive(:create_browser_session).with(account, remember_me: true).and_return(browser_session)
+      allow(token_manager).to receive(:create_browser_session).with(account, auth_lineage: { auth_method: "remember_me", auth_provider: nil }).and_return(browser_session)
       allow(browser_session).to receive(:token).and_return("token_value")
       allow(token_manager).to receive(:create_remember_token).with(password_credential).and_return({ value: "new_remember_token" })
       allow(Current).to receive(:session=) do |value|

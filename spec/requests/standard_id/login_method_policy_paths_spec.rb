@@ -123,9 +123,15 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
         cookies[:remember_token] = StandardId::PasswordCredential.find_by(login: email).generate_token_for(:remember_me)
       },
       perform: -> { http_get "/login" },
-      # Not exercised with an allowing policy here: see the note in the
-      # "allowed" example below.
-      allowed: nil,
+      # Restoring used to raise ArgumentError (500): it passed `remember_me:
+      # true` to Web::TokenManager#create_browser_session, which has no such
+      # keyword. The restored session records its lineage like any sign-in.
+      allowed: -> {
+        expect(response).not_to have_http_status(:internal_server_error)
+        restored = StandardId::BrowserSession.where(account_id: StandardId::PasswordCredential.find_by(login: email).account.id).sole
+        expect(restored.metadata).to include("auth_method" => "remember_me")
+        expect(cookies[:remember_token]).to be_present
+      },
       refused: -> {
         expect(response).to have_http_status(:ok) # rendered the login page: signed out, not an error
         expect(cookies[:remember_token]).to be_blank
@@ -247,18 +253,6 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
           expect(calls.size).to eq(1)
           expect(calls.first).to include(auth_method: path[:auth_method], provider: path[:provider], flow: path[:flow])
           expect(calls.first[:account_id]).to be_present
-        end
-      else
-        # web_remember_me: remember-me re-auth calls
-        # `token_manager.create_browser_session(account, remember_me: true)`,
-        # but Web::TokenManager#create_browser_session takes no `remember_me:`, so
-        # with the real token manager the allowed path raises ArgumentError
-        # (pre-existing; the unit spec stubs the token manager). Tracked
-        # separately; the policy is still checked first, which is what the
-        # refusal example proves.
-        it "is documented as not exercisable when allowed (pre-existing remember-me bug)" do
-          parameters = StandardId::Web::TokenManager.instance_method(:create_browser_session).parameters
-          expect(parameters.map(&:last)).not_to include(:remember_me)
         end
       end
 

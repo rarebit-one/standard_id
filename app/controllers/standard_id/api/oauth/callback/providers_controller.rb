@@ -32,14 +32,16 @@ module StandardId
           # Any of them leaves no link (it is only written on acceptance), no
           # new account, and no usable token or session from this request.
           token_response = nil
+          flow = nil
           begin
-            token_response = StandardId::Oauth::SocialFlow.new(
+            flow = StandardId::Oauth::SocialFlow.new(
               params,
               request,
               account:,
               connection: provider.provider_name,
               scopes: params[:scope]
-            ).execute
+            )
+            token_response = flow.execute
             run_social_callback(
               provider: provider.provider_name,
               social_info:,
@@ -49,9 +51,14 @@ module StandardId
             )
             commit_social_link!
           rescue StandardError
-            revoke_issued_tokens!(token_response)
+            removed = social_account_removed_concurrently?(account, newly_created:)
+            revoke_issued_tokens!(flow)
             discard_social_attempt!(account, newly_created: newly_created)
-            raise
+            raise unless removed
+
+            # The matched account was removed under this login by a
+            # concurrent, refused request: retryable, not a 500.
+            raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
           end
 
           render json: token_response, status: :ok
@@ -64,19 +71,20 @@ module StandardId
           true
         end
 
-        # The response was never sent, but the grant already persisted a
-        # refresh token (and possibly a session). Revoke them so nothing from
-        # the rejected request stays usable. (For a new account they are
-        # deleted with it by AccountCleanup.)
-        def revoke_issued_tokens!(token_response)
-          refresh_token = token_response.is_a?(Hash) ? token_response[:refresh_token] : nil
-          return if refresh_token.blank?
+        # The response was never sent, but the grant may already have
+        # persisted a refresh token and a session — also when the grant itself
+        # raised after writing them (e.g. an OAUTH_TOKEN_ISSUED subscriber), so
+        # they are read from the flow, not from a token response. Revoke them
+        # so nothing from the rejected request stays usable, and so that
+        # AccountCleanup does not mistake them for a concurrent login using a
+        # new account. A token whose transaction rolled back is not persisted
+        # and is skipped (its session write was rolled back with it).
+        def revoke_issued_tokens!(flow)
+          record = flow&.issued_refresh_token
+          return unless record&.persisted?
 
-          jti = StandardId::JwtService.decode(refresh_token)&.dig(:jti)
-          record = jti && StandardId::RefreshToken.find_by_jti(jti)
-          return unless record
-
-          record.session&.revoke!(reason: "social_sign_in_rejected") unless record.session.nil? || record.session.revoked?
+          session = record.session
+          session.revoke!(reason: "social_sign_in_rejected") unless session.nil? || session.revoked?
           record.revoke!
         end
 

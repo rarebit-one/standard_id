@@ -252,7 +252,10 @@ module StandardId
         # must be re-acquired through explicit scoped sign-in.
         @reset_session&.call
 
-        token_manager.create_browser_session(password_credential.account, remember_me: true).tap do |browser_session|
+        # Recorded as :remember_me, the method the policy approved above, so
+        # tokens later derived from this session are re-checked as such.
+        lineage = StandardId::AuthLineage.build(:remember_me)
+        token_manager.create_browser_session(password_credential.account, auth_lineage: lineage).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility
           session[:session_token] = browser_session.token
           write_session_cookie(browser_session)
