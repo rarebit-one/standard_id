@@ -171,6 +171,23 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
       refused: -> { expect_api_refusal }
     },
     {
+      # Re-checked with the ORIGINAL sign-in's method (here the password
+      # grant's), recorded on the refresh token. Refused as a dead token.
+      flow: :oauth_refresh_token, auth_method: :password, provider: nil,
+      setup: -> {
+        create_account_with_password(email: email, password: password)
+        post token_path, params: { grant_type: "password", username: email, password: password, client_id: "test-client" }, as: :json
+        @refresh_token = json.fetch("refresh_token")
+      },
+      perform: -> { post token_path, params: { grant_type: "refresh_token", refresh_token: @refresh_token, client_id: "test-client" }, as: :json },
+      allowed: -> { expect_token_response },
+      refused: -> {
+        expect(response).to have_http_status(:bad_request)
+        expect(json).to eq("error" => "invalid_grant", "error_description" => "Refresh token is no longer valid")
+        expect(StandardId::RefreshToken.active).to be_empty # the family is revoked
+      }
+    },
+    {
       flow: :api_device_session, auth_method: :unspecified, provider: nil,
       setup: -> { existing_account },
       perform: -> { capture_outcome { api_token_manager.create_device_session(existing_account) } },
@@ -234,13 +251,14 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
       else
         # web_remember_me: remember-me re-auth calls
         # `token_manager.create_browser_session(account, remember_me: true)`,
-        # but Web::TokenManager#create_browser_session takes no keywords, so
+        # but Web::TokenManager#create_browser_session takes no `remember_me:`, so
         # with the real token manager the allowed path raises ArgumentError
         # (pre-existing; the unit spec stubs the token manager). Tracked
         # separately; the policy is still checked first, which is what the
         # refusal example proves.
         it "is documented as not exercisable when allowed (pre-existing remember-me bug)" do
-          expect(StandardId::Web::TokenManager.instance_method(:create_browser_session).parameters).to eq([[:req, :account]])
+          parameters = StandardId::Web::TokenManager.instance_method(:create_browser_session).parameters
+          expect(parameters.map(&:last)).not_to include(:remember_me)
         end
       end
 
@@ -258,6 +276,203 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
         expect(events.first[:auth_method]).to eq(path[:auth_method].to_s)
         expect(events.first[:provider]).to eq(path[:provider])
       end
+    end
+  end
+
+  # Not only the policy: any rejection after the link was written must undo
+  # it (and a just-created account). Codex P2 on #363.
+  describe "a social login rejected for other reasons leaves nothing behind" do
+    let!(:legacy_account) do
+      Account.create!(name: "Legacy", email: email).tap do |account|
+        StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
+      end
+    end
+
+    def expect_nothing_left(&block)
+      expect(&block).not_to change { [Account.count, StandardId::Identifier.count, StandardId::SocialIdentity.count, StandardId::Session.count] }
+      expect(StandardId::EmailIdentifier.find_by(value: email).provider).to be_nil
+    end
+
+    it "API callback, invalid scope (SocialFlow.new raises InvalidScopeError)" do
+      allow(StandardId.config.social).to receive(:available_scopes).and_return(["openid"])
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-bad-scope")
+
+      expect_nothing_left { post "/api/oauth/callback/google", params: { code: "c", scope: "admin" } }
+      expect(response).to have_http_status(:bad_request)
+      expect(json["error"]).to eq("invalid_scope")
+    end
+
+    it "API callback, audience/profile binding mismatch (InvalidGrantError from the grant)" do
+      allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return({ "admin_api" => ["AdminProfile"] })
+      allow(StandardId.config.oauth).to receive(:audience_profile_resolver).and_return(->(**) { nil })
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-bad-aud")
+
+      expect_nothing_left { post "/api/oauth/callback/google", params: { code: "c", audience: "admin_api" } }
+      expect(response).to have_http_status(:bad_request)
+      expect(json["error"]).to eq("invalid_grant")
+    end
+
+    it "API callback, invalid scope for a NEW account removes the account too" do
+      allow(StandardId.config.social).to receive(:available_scopes).and_return(["openid"])
+      stub_google("email" => "new-#{email}", "email_verified" => true, "sub" => "g-new-bad-scope")
+
+      expect {
+        post "/api/oauth/callback/google", params: { code: "c", scope: "admin" }
+      }.not_to change { [Account.count, StandardId::Identifier.count, StandardId::SocialIdentity.count] }
+      expect(response).to have_http_status(:bad_request)
+    end
+
+    it "web callback, unexpected error after sign-in (no link, no new account, no session)" do
+      stub_google("email" => "new-#{email}", "email_verified" => true, "sub" => "g-web-boom")
+      allow(StandardId.config).to receive(:after_account_created).and_return(->(_a, _r, _c) { raise "hook bug" })
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request).and_return({ "params" => {}, "nonce" => nil })
+
+      expect {
+        expect { http_get "/auth/callback/google", params: { state: "s", code: "c" } }.to raise_error(RuntimeError, "hook bug")
+      }.not_to change { [Account.count, StandardId::Identifier.count, StandardId::SocialIdentity.count, StandardId::Session.active.count] }
+    end
+  end
+
+  # Codex round 2 on #363.
+  describe "rejections at the edges of the social callbacks" do
+    let!(:existing) do
+      Account.create!(name: "Existing", email: email).tap do |account|
+        StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
+      end
+    end
+
+    def raise_on(event_name, message)
+      subscription = StandardId::Events.subscribe(event_name) { |_event| raise message }
+      yield
+    ensure
+      StandardId::Events.unsubscribe(subscription)
+    end
+
+    it "API: a failing SOCIAL_AUTH_COMPLETED subscriber leaves no link and no usable token" do
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-completed-boom")
+
+      raise_on(StandardId::Events::SOCIAL_AUTH_COMPLETED, "subscriber bug") do
+        expect { post "/api/oauth/callback/google", params: { code: "c" } }.to raise_error(RuntimeError, "subscriber bug")
+      end
+
+      expect(StandardId::SocialIdentity.where(subject: "g-completed-boom")).to be_empty
+      expect(StandardId::EmailIdentifier.find_by(value: email).provider).to be_nil
+      expect(StandardId::RefreshToken.where(account_id: existing.id).active).to be_empty
+    end
+
+    it "API: a failing SOCIAL_AUTH_COMPLETED subscriber for a NEW account removes it and its tokens" do
+      stub_google("email" => "new-#{email}", "email_verified" => true, "sub" => "g-completed-new")
+
+      raise_on(StandardId::Events::SOCIAL_AUTH_COMPLETED, "subscriber bug") do
+        expect {
+          expect { post "/api/oauth/callback/google", params: { code: "c" } }.to raise_error(RuntimeError)
+        }.not_to change { [Account.count, StandardId::RefreshToken.count, StandardId::SocialIdentity.count] }
+      end
+    end
+
+    it "web: a session created before sign_in_account raises is revoked" do
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-session-boom")
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request).and_return({ "params" => {}, "nonce" => nil })
+
+      raise_on(StandardId::Events::SESSION_CREATED, "session subscriber bug") do
+        expect { http_get "/auth/callback/google", params: { state: "s", code: "c" } }.to raise_error(RuntimeError, "session subscriber bug")
+      end
+
+      expect(StandardId::BrowserSession.where(account_id: existing.id)).to exist
+      expect(StandardId::BrowserSession.where(account_id: existing.id).active).to be_empty
+      expect(StandardId::SocialIdentity.where(subject: "g-session-boom")).to be_empty
+    end
+
+    # Request A is rejected while a concurrent request B, for the same
+    # (provider, sub), links/adopts the row and succeeds. A must not delete it.
+    # Simulated by doing B's write from inside A's policy check — the point at
+    # which A is about to be rejected.
+    [
+      ["web", -> { http_get "/auth/callback/google", params: { state: "s", code: "c" } }],
+      ["API", -> { post "/api/oauth/callback/google", params: { code: "c" } }]
+    ].each do |label, perform|
+      it "#{label}: a rejected login does not undo a concurrent successful link" do
+        stub_google("email" => email, "email_verified" => true, "sub" => "g-race")
+        allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+          .to receive(:consume_oauth_request).and_return({ "params" => {}, "nonce" => nil })
+        visible_to_b = nil
+        with_policy(->(account:) {
+          visible_to_b = StandardId::SocialIdentity.exists?(provider: "google", subject: "g-race")
+          identifier = StandardId::EmailIdentifier.find_by(value: email)
+          identifier.update!(provider: "google") # B's backfill
+          StandardId::SocialIdentity.find_or_create_by!(provider: "google", subject: "g-race") do |si|
+            si.account = account
+            si.identifier = identifier
+          end
+          false
+        })
+
+        instance_exec(&perform)
+
+        expect(visible_to_b).to be(false) # A never exposed an uncommitted-to link
+        expect(StandardId::SocialIdentity.where(provider: "google", subject: "g-race")).to exist
+        expect(StandardId::EmailIdentifier.find_by(value: email).provider).to eq("google")
+      end
+    end
+  end
+
+  describe "a refused social login leaves no provider link behind" do
+    before { with_policy(->(**) { false }) }
+
+    # A pre-provider-tracking identifier (provider NULL) on an existing
+    # account: a successful login would link the sub AND backfill the provider.
+    let!(:legacy_account) do
+      Account.create!(name: "Legacy", email: email).tap do |account|
+        StandardId::EmailIdentifier.create!(account: account, value: email, verified_at: Time.current)
+      end
+    end
+
+    it "web callback: no SocialIdentity, provider not backfilled" do
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-web-refused")
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request).and_return({ "params" => {}, "nonce" => nil })
+
+      expect { http_get "/auth/callback/google", params: { state: "s", code: "c" } }
+        .not_to change(StandardId::SocialIdentity, :count)
+      expect(response).to redirect_to("/login")
+      expect(StandardId::EmailIdentifier.find_by(value: email).provider).to be_nil
+      expect(Account.exists?(legacy_account.id)).to be(true)
+    end
+
+    it "web callback: also when before_sign_in refuses" do
+      allow(StandardId.config).to receive(:login_method_policy).and_return(nil)
+      allow(StandardId.config).to receive(:before_sign_in).and_return(->(_a, _r, _c) { { error: "Nope" } })
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-web-hook")
+      allow_any_instance_of(StandardId::Web::Auth::Callback::ProvidersController)
+        .to receive(:consume_oauth_request).and_return({ "params" => {}, "nonce" => nil })
+
+      expect { http_get "/auth/callback/google", params: { state: "s", code: "c" } }
+        .not_to change(StandardId::SocialIdentity, :count)
+      expect(StandardId::EmailIdentifier.find_by(value: email).provider).to be_nil
+    end
+
+    it "API callback: no SocialIdentity, provider not backfilled" do
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-api-refused")
+
+      expect { post "/api/oauth/callback/google", params: { code: "c" } }
+        .not_to change(StandardId::SocialIdentity, :count)
+      expect(response).to have_http_status(:forbidden)
+      expect(StandardId::EmailIdentifier.find_by(value: email).provider).to be_nil
+      expect(Account.exists?(legacy_account.id)).to be(true)
+    end
+
+    it "keeps a link that existed before the refused login" do
+      identifier = StandardId::EmailIdentifier.find_by(value: email)
+      identifier.update!(provider: "google")
+      StandardId::SocialIdentity.create!(account: legacy_account, identifier: identifier, provider: "google", subject: "g-existing")
+      stub_google("email" => email, "email_verified" => true, "sub" => "g-existing")
+
+      expect { post "/api/oauth/callback/google", params: { code: "c" } }
+        .not_to change(StandardId::SocialIdentity, :count)
+      expect(response).to have_http_status(:forbidden)
+      expect(identifier.reload.provider).to eq("google")
     end
   end
 
@@ -328,9 +543,10 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
     # account (not gated). A new grant must be put in one of the two lists.
     GATED_GRANTS = {
       "password" => :oauth_password_grant,
-      "passwordless_otp" => :oauth_passwordless_otp_grant
+      "passwordless_otp" => :oauth_passwordless_otp_grant,
+      "refresh_token" => :oauth_refresh_token # with the recorded original method
     }.freeze
-    DERIVED_GRANTS = %w[authorization_code refresh_token client_credentials].freeze
+    DERIVED_GRANTS = %w[authorization_code client_credentials].freeze
 
     it "classifies every token grant" do
       expect(StandardId::Api::Oauth::TokensController::FLOW_STRATEGIES.keys).to match_array(GATED_GRANTS.keys + DERIVED_GRANTS)

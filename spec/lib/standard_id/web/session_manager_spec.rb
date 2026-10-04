@@ -327,7 +327,7 @@ RSpec.describe StandardId::Web::SessionManager do
         allow(Current).to receive(:session=).and_call_original
         allow(Current).to receive(:account).and_call_original
         allow(Current).to receive(:account=).and_call_original
-        allow(token_manager).to receive(:create_browser_session).with(account).and_return(browser_session)
+        allow(token_manager).to receive(:create_browser_session).with(account, auth_lineage: anything).and_return(browser_session)
         allow(StandardId::Events).to receive(:publish)
         allow(StandardId).to receive(:account_class).and_return(Account)
       end
@@ -356,7 +356,7 @@ RSpec.describe StandardId::Web::SessionManager do
 
     before do
       allow(browser_session).to receive(:token).and_return("new_token")
-      allow(token_manager).to receive(:create_browser_session).with(account).and_return(browser_session)
+      allow(token_manager).to receive(:create_browser_session).with(account, auth_lineage: anything).and_return(browser_session)
       allow(StandardId::Events).to receive(:publish)
     end
 

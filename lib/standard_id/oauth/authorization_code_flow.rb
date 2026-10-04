@@ -107,6 +107,12 @@ module StandardId
         true
       end
 
+      # The browser session the code was minted from recorded its sign-in
+      # method; carry it onto the refresh token.
+      def refresh_token_auth_lineage
+        StandardId::AuthLineage.from_metadata(@authorization_code&.metadata)
+      end
+
       def find_authorization_code(code)
         StandardId::AuthorizationCode.lookup(code)
       end

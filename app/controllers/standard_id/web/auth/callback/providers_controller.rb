@@ -66,6 +66,9 @@ module StandardId
               }
               redirect_override = invoke_after_sign_in(account, context)
 
+              # Accepted: only now write the (provider, sub) link.
+              commit_social_link!
+
               # When the hook defers (returns nil), the originator-supplied URL becomes the
               # destination. Validate it before redirect_to — without this, an attacker who
               # tricks a victim into clicking /login?connection=google&redirect_uri=<evil>
@@ -76,6 +79,7 @@ module StandardId
               redirect_options[:allow_other_host] = true if allow_other_host_redirect?(destination)
               redirect_to destination, redirect_options
             rescue StandardId::AuthenticationDenied => e
+              rollback_social_link!
               handle_authentication_denied(e, account: account, newly_created: newly_created)
             rescue StandardId::SocialLinkError => e
               # Policy/link error — SOCIAL_LINK_BLOCKED has already been emitted
@@ -83,8 +87,14 @@ module StandardId
               # (which is reserved for infrastructure-level failures).
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             rescue StandardId::OAuthError => e
+              discard_rejected_social_sign_in!(account, newly_created:)
               emit_social_auth_failed(e, account: account)
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
+            rescue StandardError
+              # Unexpected failure after the link/account may have been
+              # written: undo them, then let the error surface as before.
+              discard_rejected_social_sign_in!(account, newly_created:)
+              raise
             end
           end
 
@@ -108,6 +118,27 @@ module StandardId
           end
 
           private
+
+          # A rejection after find_or_create_account_from_social leaves no
+          # link, no new account and no session — including one that
+          # sign_in_account created before raising (a failing SESSION_CREATED
+          # subscriber), which is why this reads session_manager.created_session
+          # rather than relying on sign_in_account having returned.
+          # AuthenticationDenied has its own path (handle_authentication_denied);
+          # SocialLinkError is raised before anything is written.
+          def discard_rejected_social_sign_in!(account, newly_created:)
+            created = session_manager.created_session
+            if created
+              created.revoke!(reason: "social_sign_in_rejected") unless created.revoked?
+              session_manager.clear_session!
+            end
+            discard_social_attempt!(account, newly_created: newly_created)
+          end
+
+          # Write the (provider, sub) link only once the login is accepted.
+          def defer_social_link?
+            true
+          end
 
           def callback_url_for
             "#{request.base_url}#{provider.callback_path}"

@@ -72,8 +72,7 @@ module StandardId
         validate_social_link!(identifier, provider)
         validate_social_subject!(identifier, provider, subject)
         validate_social_email_verified!(identifier, provider, social_info)
-        identifier.update!(provider: provider.provider_name) if identifier.provider.nil?
-        record_social_identity!(identifier, subject)
+        stage_social_link!(identifier, subject, backfill_provider: identifier.provider.nil?)
         emit_social_account_linked(identifier.account, provider, identifier)
         identifier.account
       else
@@ -84,7 +83,7 @@ module StandardId
           provider: provider.provider_name
         )
         identifier.verify! if identifier.respond_to?(:verify!) && social_email_verified?(social_info)
-        record_social_identity!(identifier, subject)
+        stage_social_link!(identifier, subject, backfill_provider: false)
         emit_social_account_created(account, provider, social_info)
         account
       end
@@ -187,10 +186,64 @@ module StandardId
       StandardId::SocialIdentity.find_or_create_by!(
         provider: provider.provider_name,
         subject: subject
-      ) do |social_identity|
-        social_identity.account = identifier.account
-        social_identity.identifier = identifier
+      ) do |new_identity|
+        new_identity.account = identifier.account
+        new_identity.identifier = identifier
       end
+    rescue ActiveRecord::RecordNotUnique
+      # A concurrent login for the same (provider, sub) committed it first.
+      StandardId::SocialIdentity.find_by!(provider: provider.provider_name, subject: subject)
+    end
+
+    # The (provider, sub) link and the provider backfill are STAGED, not
+    # written, by find_or_create_account_from_social when the caller defers
+    # them (the web and API callbacks do), and written by commit_social_link!
+    # only once the login has been accepted. A rejected login therefore never
+    # writes a link, so rejecting it never has to delete one — and cannot
+    # delete a row a concurrent, successful callback for the same
+    # (provider, sub) has created or adopted in the meantime.
+    #
+    # Callers that do not defer (the default, e.g. host code calling
+    # find_or_create_account_from_social directly) get the link written
+    # immediately, as before.
+    def stage_social_link!(identifier, subject, backfill_provider:)
+      @pending_social_link = { identifier: identifier, subject: subject, backfill_provider: backfill_provider }
+      commit_social_link! unless defer_social_link?
+    end
+
+    def defer_social_link?
+      false
+    end
+
+    def commit_social_link!
+      pending = @pending_social_link
+      return if pending.nil?
+
+      @pending_social_link = nil
+      identifier = pending[:identifier]
+      if pending[:backfill_provider]
+        # Conditional, so a provider set concurrently is never overwritten.
+        StandardId::Identifier.where(id: identifier.id, provider: nil).update_all(provider: provider.provider_name)
+        identifier.provider = provider.provider_name
+        identifier.clear_attribute_changes([:provider]) if identifier.respond_to?(:clear_attribute_changes)
+      end
+      record_social_identity!(identifier, pending[:subject])
+    end
+
+    # A social login that recorded a link (and maybe created an account) and
+    # was then rejected for ANY reason — policy, hook, invalid scope, audience
+    # binding, an unexpected error — must leave nothing behind: drop the link
+    # and remove an account this request created. Safe to call when nothing
+    # was recorded, and when the account is already gone.
+    def discard_social_attempt!(account, newly_created:)
+      rollback_social_link!
+      StandardId::AccountCleanup.destroy_newly_created!(account) if newly_created
+    end
+
+    # Nothing was written for a deferred link, so dropping the staged one is
+    # the whole rollback. (A non-deferring caller has already committed it.)
+    def rollback_social_link!
+      @pending_social_link = nil
     end
 
     def social_identities_available?

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_04_000000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -161,6 +161,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_000000) do
 
   create_table "standard_id_refresh_tokens", force: :cascade do |t|
     t.integer "account_id", null: false
+    t.string "auth_method"
+    t.string "auth_provider"
     t.datetime "created_at", null: false
     t.datetime "expires_at", null: false
     t.integer "previous_token_id"

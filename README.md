@@ -1262,12 +1262,31 @@ usual "invalid" answer and never reaches the policy.
 | `:oauth_password_grant` | `:password` | `403 {"error":"access_denied"}` |
 | `:oauth_passwordless_otp_grant` | `:passwordless` | `403 access_denied`; a just-registered account is removed |
 | `:oauth_social_callback` (`/api/oauth/callback/:provider`) | `:social` + `provider` | `403 access_denied`; a just-created account is removed |
+| `:oauth_refresh_token` | the **original** sign-in's method (and provider), else `:unspecified` | `400 invalid_grant` ("Refresh token is no longer valid"), and the token family is revoked |
 | `:api_device_session` / `:api_service_session` (`Api::TokenManager#create_*_session` from host code) | what you pass, else `:unspecified` | raises `LoginMethodDenied` |
 
-Not gated, because they only derive a credential from an authentication that
-already passed the policy (or have no account): the `authorization_code` and
-`refresh_token` grants, the implicit flow and `client_credentials`. Changing
-the policy does not end existing sessions; revoke them if it must.
+**Refresh tokens remember how their authentication was made.** The method
+(and provider) is recorded at sign-in and carried along: web sign-in → the
+browser session's `metadata` → the authorization code minted from it at
+`/api/authorize` → the refresh token (`auth_method` / `auth_provider` columns,
+migration `20261004000000`) → every rotated successor. The `refresh_token`
+grant re-checks the policy with that original method, so tightening the policy
+takes effect at each OAuth client's next refresh. A refused refresh is answered
+like any dead refresh token (`invalid_grant`, nothing about why, since whoever
+presents a refresh token may not be its holder) and revokes the family; the
+reason is in the `authentication.method.denied` event. Refresh tokens minted
+before 0.45 (or before the migration ran) have no recorded method and are
+checked as **`:unspecified`**: a policy that requires a particular method will
+refuse them, failing closed, and those clients must sign in again.
+
+Not gated: the `authorization_code` grant and the implicit flow (minted within
+minutes from a browser session that passed the policy when it was created) and
+`client_credentials` (no account). Browser sessions that already exist are not
+re-checked when the policy changes; revoke them if they must end.
+
+A refused social login also leaves no trace of the link: the `(provider, sub)`
+row and any provider backfilled onto the email identifier in that request are
+rolled back (this also applies when `before_sign_in` or a scope check refuses).
 
 Every refusal publishes `authentication.method.denied`.
 

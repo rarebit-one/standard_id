@@ -16,15 +16,21 @@ module StandardId
   # | :oauth_password_grant           | :password      | POST /oauth/token grant_type=password                    |
   # | :oauth_passwordless_otp_grant   | :passwordless  | POST /oauth/token grant_type=passwordless_otp            |
   # | :oauth_social_callback          | :social        | /oauth/callback/:provider (Oauth::SocialFlow)            |
+  # | :oauth_refresh_token            | the ORIGINAL sign-in's, else :unspecified | POST /oauth/token grant_type=refresh_token |
   # | :api_device_session             | caller's, else :unspecified | Api::TokenManager#create_device_session (host code) |
   # | :api_service_session            | caller's, else :unspecified | Api::TokenManager#create_service_session (host code) |
   #
-  # Grants that only DERIVE a credential from an authentication that was
-  # already established are not gated: `authorization_code` and the implicit
-  # flow (the code/token is minted from a browser session that passed the
-  # policy when it was created), `refresh_token` (continues an earlier grant)
-  # and `client_credentials` (no account). Ending sessions that predate a
-  # policy change is the job of session revocation, not of this hook.
+  # `refresh_token` is re-checked with the method of the authentication it
+  # descends from (see StandardId::AuthLineage): a policy tightened after a
+  # client signed in takes effect at that client's next refresh, and a refused
+  # refresh revokes the token family (answered as `invalid_grant`). Tokens with
+  # no recorded method (minted before 0.45) are checked as `:unspecified`.
+  #
+  # Not gated: `authorization_code` and the implicit flow (minted within
+  # minutes from a browser session that passed the policy when it was created;
+  # the code records that session's method for the refresh tokens it yields)
+  # and `client_credentials` (no account). Live browser sessions that predate a
+  # policy change are not re-checked; revoke them if they must end.
   #
   # ## Contract
   #
@@ -46,7 +52,7 @@ module StandardId
 
     FLOWS = %i[
       web_password web_signup web_passwordless web_social web_remember_me web_session
-      oauth_password_grant oauth_passwordless_otp_grant oauth_social_callback
+      oauth_password_grant oauth_passwordless_otp_grant oauth_social_callback oauth_refresh_token
       api_device_session api_service_session
     ].freeze
 

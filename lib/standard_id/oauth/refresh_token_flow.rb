@@ -15,6 +15,7 @@ module StandardId
       # in a transaction for atomicity.
       def execute
         instrumented_authenticate!
+        enforce_refresh_login_method_policy!
         response = nil
         StandardId::RefreshToken.transaction do
           rotate_current_refresh_token!
@@ -44,6 +45,37 @@ module StandardId
       end
 
       private
+
+      # The refresh_token grant re-checks config.login_method_policy with the
+      # method the ORIGINAL authentication used (recorded on the token, copied
+      # down each rotation). A token minted before 0.45 / before migration
+      # 20261004000000 has none and is checked as :unspecified, so a
+      # restrictive policy refuses it and the client must sign in again.
+      def login_method_policy_context
+        StandardId::AuthLineage.policy_arguments(refresh_token_auth_lineage).merge(flow: :oauth_refresh_token)
+      end
+
+      # Successor tokens inherit the presented token's lineage.
+      def refresh_token_auth_lineage
+        StandardId::AuthLineage.from_refresh_token(@current_refresh_token_record)
+      end
+
+      # Runs after authenticate! proved the token, before rotation. Outside the
+      # rotation transaction so the family revocation persists. The answer is
+      # the same `invalid_grant` as any other dead refresh token: whoever
+      # presents a refresh token may not be its legitimate holder, so the
+      # response must not reveal why (RFC 6749 §5.2; see
+      # Api::Oauth::BaseController#handle_account_unusable). The reason is in
+      # the AUTHENTICATION_METHOD_DENIED event, server-side.
+      def enforce_refresh_login_method_policy!
+        account = token_account
+        return if account.nil?
+
+        StandardId::LoginMethodPolicy.enforce!(account: account, request: request, **login_method_policy_context)
+      rescue StandardId::LoginMethodDenied
+        @current_refresh_token_record&.revoke_family!
+        raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
+      end
 
       def validate_refresh_token_record!
         jti = @refresh_payload[:jti]
