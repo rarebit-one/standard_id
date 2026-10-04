@@ -120,7 +120,7 @@ RSpec.describe "Social link commit", type: :request do
     # "Keep rollback state until the link fully commits".)
     it "is not published, and the provider backfill is rolled back, when writing the link fails" do
       stub_google("g-insert-fails")
-      allow(StandardId::SocialIdentity).to receive(:find_or_create_by!).and_raise(ActiveRecord::StatementInvalid, "insert failed")
+      allow(StandardId::SocialIdentity).to receive(:create!).and_raise(ActiveRecord::StatementInvalid, "insert failed")
 
       events = capture_linked_events("g-insert-fails") do
         expect { api_callback.call }.to raise_error(ActiveRecord::StatementInvalid)
@@ -132,7 +132,7 @@ RSpec.describe "Social link commit", type: :request do
   end
 
   # A concurrent callback for the same (provider, sub) commits its link to a
-  # DIFFERENT account before this request's find_or_create_by! SELECT, so the
+  # DIFFERENT account before this request's SELECT, so the
   # existing row comes back without a unique violation. It must be refused
   # like the RecordNotUnique path, not adopted.
   describe "a (provider, sub) row committed concurrently for another account" do
@@ -152,11 +152,39 @@ RSpec.describe "Social link commit", type: :request do
       }
     end
 
+    # SOCIAL_LINK_BLOCKED (reason :subject_conflict) once, and never the
+    # infrastructure-only SOCIAL_AUTH_FAILED.
+    def capture_conflict_events
+      blocked = []
+      failed = []
+      subscriptions = [
+        StandardId::Events.subscribe(StandardId::Events::SOCIAL_LINK_BLOCKED) { |event| blocked << event },
+        StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) { |event| failed << event }
+      ]
+      yield
+      [blocked, failed]
+    ensure
+      subscriptions&.each { |subscription| StandardId::Events.unsubscribe(subscription) }
+    end
+
+    def expect_conflict_reported(blocked, failed, reason: :subject_conflict)
+      expect(failed).to be_empty
+      expect(blocked.size).to eq(1)
+      expect(blocked.first[:reason]).to eq(reason)
+      expect(blocked.first[:email]).to eq(email)
+      expect(blocked.first[:account]).to eq(legacy_account)
+      expect(blocked.first[:identifier]).to eq(StandardId::Identifier.find_by!(account_id: legacy_account.id))
+      expect(blocked.first[:provider].provider_name).to eq("google")
+    end
+
     it "web: fails with a retryable error and leaves the rival link and no session on the matched account" do
       stub_google("g-rival-web")
       allow(StandardId.config).to receive(:before_sign_in).and_return(commit_rival_link("g-rival-web"))
 
-      web_callback.call
+      blocked, failed = capture_conflict_events { web_callback.call }
+
+      expect_conflict_reported(blocked, failed)
+      expect(flash[:alert]).to include(StandardId::SocialAuthentication::SOCIAL_RETRY_MESSAGE)
 
       expect(response).to redirect_to("/login")
       expect(StandardId::SocialIdentity.find_by(subject: "g-rival-web").account_id).to eq(other_account.id)
@@ -171,12 +199,160 @@ RSpec.describe "Social link commit", type: :request do
         true
       })
 
-      api_callback.call
+      blocked, failed = capture_conflict_events { api_callback.call }
 
+      expect_conflict_reported(blocked, failed)
       expect(response).to have_http_status(:bad_request)
       expect(json).to include("error" => "invalid_grant")
       expect(StandardId::SocialIdentity.find_by(subject: "g-rival-api").account_id).to eq(other_account.id)
       expect(StandardId::RefreshToken.active.where(account_id: legacy_account.id)).to be_empty
+    end
+  end
+
+  # The rival row is committed by a concurrent login AFTER this login's
+  # SELECT found nothing. Driven through the real record_social_identity!:
+  #   - :before_validation — the rival appears right after the SELECT, so the
+  #     model's uniqueness validations raise RecordInvalid;
+  #   - :before_insert — the rival appears after validation, so the unique
+  #     index raises RecordNotUnique.
+  # Rivals: the same sub for ANOTHER account (:subject_conflict), this
+  # identifier under ANOTHER sub (:subject_mismatch), or the same sub for
+  # THIS account (adopted, the login succeeds).
+  #
+  # The rival is written on the request's own connection inside the link
+  # transaction (outside the INSERT's savepoint), so it is rolled back with
+  # the refused link; assertions are about what the login did.
+  describe "a rival link committed between this login's SELECT and INSERT" do
+    before { legacy_account }
+
+    def other_account
+      @other_account ||= Account.create!(name: "Other", email: "other-#{SecureRandom.hex(4)}@example.com").tap do |account|
+        StandardId::EmailIdentifier.create!(account: account, value: account.email, verified_at: Time.current)
+      end
+    end
+
+    def rival_attributes(kind, sub)
+      legacy_identifier = StandardId::Identifier.find_by!(account_id: legacy_account.id)
+      base = { provider: "google", created_at: Time.current, updated_at: Time.current }
+      case kind
+      when :other_account
+        base.merge(subject: sub, account_id: other_account.id, identifier_id: StandardId::Identifier.find_by!(account_id: other_account.id).id)
+      when :other_sub
+        base.merge(subject: "#{sub}-theirs", account_id: legacy_account.id, identifier_id: legacy_identifier.id)
+      when :same_account
+        base.merge(subject: sub, account_id: legacy_account.id, identifier_id: legacy_identifier.id)
+      end
+    end
+
+    def arrange_race(at:, rival:)
+      rival = rival.merge(id: SecureRandom.uuid) if StandardId::SocialIdentity.columns_hash["id"]&.type == :string
+      insert_rival = -> { StandardId::SocialIdentity.insert_all!([rival]) }
+      case at
+      when :before_validation
+        # The SELECT (the class-level find_by on provider + subject) misses;
+        # the rival commits straight after it, so the uniqueness
+        # validations see it.
+        select_then { insert_rival.call }
+      when :before_insert
+        # The rival commits after this login's validations have passed: the
+        # uniqueness validators see no rival (they are skipped here), so the
+        # unique index is what refuses the INSERT. The rival is written
+        # before the savepoint opens, so rolling the savepoint back keeps it.
+        select_then { insert_rival.call }
+        allow_any_instance_of(ActiveRecord::Validations::UniquenessValidator).to receive(:validate_each)
+      end
+    end
+
+    def select_then(&after_select)
+      selected = false
+      allow(StandardId::SocialIdentity).to receive(:find_by).and_wrap_original do |original, *args, **kwargs|
+        result = original.call(*args, **kwargs)
+        if !selected && args.first.is_a?(Hash) && args.first.keys.map(&:to_sym).sort == %i[provider subject]
+          selected = true
+          after_select.call
+        end
+        result
+      end
+    end
+
+    def capture_link_events
+      blocked = []
+      failed = []
+      linked = []
+      subscriptions = [
+        StandardId::Events.subscribe(StandardId::Events::SOCIAL_LINK_BLOCKED) { |event| blocked << event },
+        StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) { |event| failed << event },
+        StandardId::Events.subscribe(StandardId::Events::SOCIAL_ACCOUNT_LINKED) { |event| linked << event }
+      ]
+      yield
+      [blocked, failed, linked]
+    ensure
+      subscriptions&.each { |subscription| StandardId::Events.unsubscribe(subscription) }
+    end
+
+    %i[before_validation before_insert].each do |at|
+      { "web" => :web_callback, "API" => :api_callback }.each do |label, callback|
+        { other_account: :subject_conflict, other_sub: :subject_mismatch }.each do |kind, reason|
+          it "#{label}, rival #{kind} #{at}: SOCIAL_LINK_BLOCKED #{reason.inspect}, no SOCIAL_AUTH_FAILED, retryable" do
+            sub = "g-#{at}-#{kind}-#{label}"
+            stub_google(sub)
+            arrange_race(at: at, rival: rival_attributes(kind, sub))
+
+            blocked, failed, linked = capture_link_events { instance_exec(&send(callback)) }
+
+            expect(failed).to be_empty
+            expect(linked).to be_empty
+            expect(blocked.size).to eq(1)
+            expect(blocked.first[:reason]).to eq(reason)
+            expect(blocked.first[:email]).to eq(email)
+            expect(blocked.first[:account]).to eq(legacy_account)
+            expect(StandardId::SocialIdentity.where(subject: sub, account_id: legacy_account.id)).to be_empty
+            expect(StandardId::Identifier.find_by!(account_id: legacy_account.id).provider).to be_nil
+            if label == "web"
+              expect(response).to redirect_to("/login")
+              expect(flash[:alert]).to include(StandardId::SocialAuthentication::SOCIAL_RETRY_MESSAGE)
+              expect(StandardId::Session.where(account_id: legacy_account.id).active).to be_empty
+            else
+              expect(response).to have_http_status(:bad_request)
+              expect(json).to include("error" => "invalid_grant")
+              expect(StandardId::RefreshToken.active.where(account_id: legacy_account.id)).to be_empty
+            end
+          end
+        end
+
+        it "#{label}, rival for the same account #{at}: adopts it and signs in" do
+          sub = "g-#{at}-same-#{label}"
+          stub_google(sub)
+          arrange_race(at: at, rival: rival_attributes(:same_account, sub))
+
+          blocked, failed, linked = capture_link_events { instance_exec(&send(callback)) }
+
+          expect(blocked).to be_empty
+          expect(failed).to be_empty
+          expect(linked.size).to eq(1)
+          expect(StandardId::SocialIdentity.where(subject: sub, account_id: legacy_account.id).count).to eq(1)
+          if label == "web"
+            expect(response.location).not_to end_with("/login")
+          else
+            expect(response).to have_http_status(:ok)
+          end
+        end
+      end
+    end
+
+    it "re-raises a RecordInvalid that is not a lost race" do
+      stub_google("g-invalid")
+      # A validation failure that is not a uniqueness race (provider blank).
+      allow_any_instance_of(StandardId::SocialIdentity).to receive(:provider).and_return(nil)
+
+      blocked, failed, = capture_link_events { api_callback.call }
+
+      # Propagated, not classified: the test env's show_exceptions renders
+      # RecordInvalid as Rails' 422 (rescue_responses) instead of raising it.
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(blocked).to be_empty
+      expect(failed).to be_empty
+      expect(StandardId::SocialIdentity.where(subject: "g-invalid")).to be_empty
     end
   end
 

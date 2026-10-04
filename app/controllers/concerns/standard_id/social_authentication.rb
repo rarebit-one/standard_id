@@ -180,36 +180,67 @@ module StandardId
       StandardId::SocialIdentity.includes(:account, :identifier).find_by(provider: provider.provider_name, subject: subject)
     end
 
-    # Runs inside commit_social_link!'s transaction, so the insert gets its own
-    # savepoint: on PostgreSQL a unique violation would otherwise abort the
-    # enclosing transaction and the lookup below could not run.
+    # Writes the (provider, sub) row inside its own savepoint (it runs inside
+    # commit_social_link!'s transaction; on PostgreSQL a failed INSERT would
+    # otherwise abort it).
+    #
+    # Find-then-insert is spelled out rather than left to find_or_create_by!,
+    # because a concurrent login can commit a rival row at any point in it and
+    # each point surfaces differently: before the SELECT (the row is found),
+    # between the SELECT and validation (the uniqueness validations raise
+    # RecordInvalid), or between validation and the INSERT (the unique index
+    # raises RecordNotUnique; find_or_create_by! would turn an
+    # (identifier, provider) collision into RecordNotFound, and return a
+    # (provider, sub) winner for ANY account). Every one of them is classified
+    # by classify_social_link_race!.
     def record_social_identity!(identifier, subject)
       return if subject.nil?
       return unless social_identities_available?
 
-      identity = StandardId::SocialIdentity.transaction(requires_new: true) do
-        StandardId::SocialIdentity.find_or_create_by!(
-          provider: provider.provider_name,
-          subject: subject
-        ) do |new_identity|
-          new_identity.account = identifier.account
-          new_identity.identifier = identifier
-        end
+      attributes = { provider: provider.provider_name, subject: subject }
+      existing = StandardId::SocialIdentity.find_by(attributes)
+      return classify_social_link_race!(identifier, subject) if existing
+
+      StandardId::SocialIdentity.transaction(requires_new: true) do
+        StandardId::SocialIdentity.create!(attributes.merge(account: identifier.account, identifier: identifier))
       end
-      # find_or_create_by! returns, without raising, a row a concurrent login
-      # committed before its SELECT: the same account check applies to it.
-      return identity if identity.account_id == identifier.account_id
-
-      raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
     rescue ActiveRecord::RecordNotUnique
-      # A concurrent login for the same (provider, sub) committed it first.
-      # Adopt it only when it points at the same account; otherwise this
-      # login would sign in to one account while the subject belongs to
-      # another.
-      winner = StandardId::SocialIdentity.find_by(provider: provider.provider_name, subject: subject)
-      return winner if winner && winner.account_id == identifier.account_id
+      classify_social_link_race!(identifier, subject) || raise
+    rescue ActiveRecord::RecordInvalid => e
+      raise unless social_link_race_invalid?(e.record)
 
-      raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
+      classify_social_link_race!(identifier, subject) || raise
+    end
+
+    # A RecordInvalid that is only the uniqueness validations losing a race.
+    # Anything else (a missing account, a host validation) is a real error.
+    def social_link_race_invalid?(record)
+      details = record&.errors&.details
+      return false if details.blank?
+
+      details.all? do |attribute, errors|
+        %i[subject identifier_id].include?(attribute) && errors.all? { |error| error[:error] == :taken }
+      end
+    end
+
+    # Another login has linked first. Returns the winning row when it links
+    # this (provider, sub) to the same account (adopt it); raises
+    # SocialLinkConflictError when it links this sub to ANOTHER account
+    # (:subject_conflict) or this identifier to this provider under ANOTHER
+    # sub (:subject_mismatch); returns nil when no rival is found (it was
+    # removed again), so the caller re-raises the original error.
+    def classify_social_link_race!(identifier, subject)
+      winner = StandardId::SocialIdentity.find_by(provider: provider.provider_name, subject: subject)
+      if winner
+        return winner if winner.account_id == identifier.account_id
+
+        raise StandardId::SocialLinkConflictError.new(SOCIAL_RETRY_MESSAGE, identifier: identifier, reason: :subject_conflict)
+      end
+
+      other_sub = StandardId::SocialIdentity.where(identifier_id: identifier.id, provider: provider.provider_name).where.not(subject: subject)
+      return nil unless other_sub.exists?
+
+      raise StandardId::SocialLinkConflictError.new(SOCIAL_RETRY_MESSAGE, identifier: identifier, reason: :subject_mismatch)
     end
 
     # The (provider, sub) link and the provider backfill are STAGED, not
@@ -260,6 +291,27 @@ module StandardId
       end
 
       identifier = pending[:identifier]
+      begin
+        write_social_link!(pending, identifier) { yield if block_given? }
+      rescue StandardId::SocialLinkConflictError => e
+        # A concurrent login won the link (see the error's reasons).
+        # Published here, once the transaction has rolled back, so a
+        # subscriber that writes an audit row is not rolled back with the
+        # link; and only on this path, so never for a link that commits.
+        emit_social_link_blocked(identifier, provider, e.reason)
+        raise
+      end
+
+      @pending_social_link = nil
+      if pending[:backfill_provider]
+        identifier.provider = provider.provider_name
+        identifier.clear_attribute_changes([:provider]) if identifier.respond_to?(:clear_attribute_changes)
+      end
+      emit_committed_social_link(identifier, provider) if pending[:emit_linked]
+    end
+
+    # The transaction behind commit_social_link!.
+    def write_social_link!(pending, identifier)
       ActiveRecord::Base.transaction do
         if StandardId.account_class.lock.where(id: identifier.account_id).pick(:id).nil?
           raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
@@ -272,13 +324,6 @@ module StandardId
         record_social_identity!(identifier, pending[:subject])
         yield if block_given?
       end
-
-      @pending_social_link = nil
-      if pending[:backfill_provider]
-        identifier.provider = provider.provider_name
-        identifier.clear_attribute_changes([:provider]) if identifier.respond_to?(:clear_attribute_changes)
-      end
-      emit_committed_social_link(identifier, provider) if pending[:emit_linked]
     end
 
     # SOCIAL_ACCOUNT_LINKED reports a link that has already committed, so it
