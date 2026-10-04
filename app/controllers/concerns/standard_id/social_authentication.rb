@@ -200,7 +200,7 @@ module StandardId
       # committed before its SELECT: the same account check applies to it.
       return identity if identity.account_id == identifier.account_id
 
-      raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
+      raise StandardId::SocialLinkConflictError.new(SOCIAL_RETRY_MESSAGE, identifier: identifier)
     rescue ActiveRecord::RecordNotUnique
       # A concurrent login for the same (provider, sub) committed it first.
       # Adopt it only when it points at the same account; otherwise this
@@ -209,7 +209,7 @@ module StandardId
       winner = StandardId::SocialIdentity.find_by(provider: provider.provider_name, subject: subject)
       return winner if winner && winner.account_id == identifier.account_id
 
-      raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
+      raise StandardId::SocialLinkConflictError.new(SOCIAL_RETRY_MESSAGE, identifier: identifier)
     end
 
     # The (provider, sub) link and the provider backfill are STAGED, not
@@ -260,6 +260,27 @@ module StandardId
       end
 
       identifier = pending[:identifier]
+      begin
+        write_social_link!(pending, identifier) { yield if block_given? }
+      rescue StandardId::SocialLinkConflictError
+        # A concurrent login committed this (provider, sub) for another
+        # account. Published here, once the transaction has rolled back, so a
+        # subscriber that writes an audit row is not rolled back with the
+        # link; and only on this path, so never for a link that commits.
+        emit_social_link_blocked(identifier, provider, :subject_conflict)
+        raise
+      end
+
+      @pending_social_link = nil
+      if pending[:backfill_provider]
+        identifier.provider = provider.provider_name
+        identifier.clear_attribute_changes([:provider]) if identifier.respond_to?(:clear_attribute_changes)
+      end
+      emit_committed_social_link(identifier, provider) if pending[:emit_linked]
+    end
+
+    # The transaction behind commit_social_link!.
+    def write_social_link!(pending, identifier)
       ActiveRecord::Base.transaction do
         if StandardId.account_class.lock.where(id: identifier.account_id).pick(:id).nil?
           raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
@@ -272,13 +293,6 @@ module StandardId
         record_social_identity!(identifier, pending[:subject])
         yield if block_given?
       end
-
-      @pending_social_link = nil
-      if pending[:backfill_provider]
-        identifier.provider = provider.provider_name
-        identifier.clear_attribute_changes([:provider]) if identifier.respond_to?(:clear_attribute_changes)
-      end
-      emit_committed_social_link(identifier, provider) if pending[:emit_linked]
     end
 
     # SOCIAL_ACCOUNT_LINKED reports a link that has already committed, so it

@@ -152,11 +152,39 @@ RSpec.describe "Social link commit", type: :request do
       }
     end
 
+    # SOCIAL_LINK_BLOCKED (reason :subject_conflict) once, and never the
+    # infrastructure-only SOCIAL_AUTH_FAILED.
+    def capture_conflict_events
+      blocked = []
+      failed = []
+      subscriptions = [
+        StandardId::Events.subscribe(StandardId::Events::SOCIAL_LINK_BLOCKED) { |event| blocked << event },
+        StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) { |event| failed << event }
+      ]
+      yield
+      [blocked, failed]
+    ensure
+      subscriptions&.each { |subscription| StandardId::Events.unsubscribe(subscription) }
+    end
+
+    def expect_conflict_reported(blocked, failed)
+      expect(failed).to be_empty
+      expect(blocked.size).to eq(1)
+      expect(blocked.first[:reason]).to eq(:subject_conflict)
+      expect(blocked.first[:email]).to eq(email)
+      expect(blocked.first[:account]).to eq(legacy_account)
+      expect(blocked.first[:identifier]).to eq(StandardId::Identifier.find_by!(account_id: legacy_account.id))
+      expect(blocked.first[:provider].provider_name).to eq("google")
+    end
+
     it "web: fails with a retryable error and leaves the rival link and no session on the matched account" do
       stub_google("g-rival-web")
       allow(StandardId.config).to receive(:before_sign_in).and_return(commit_rival_link("g-rival-web"))
 
-      web_callback.call
+      blocked, failed = capture_conflict_events { web_callback.call }
+
+      expect_conflict_reported(blocked, failed)
+      expect(flash[:alert]).to include(StandardId::SocialAuthentication::SOCIAL_RETRY_MESSAGE)
 
       expect(response).to redirect_to("/login")
       expect(StandardId::SocialIdentity.find_by(subject: "g-rival-web").account_id).to eq(other_account.id)
@@ -171,12 +199,41 @@ RSpec.describe "Social link commit", type: :request do
         true
       })
 
-      api_callback.call
+      blocked, failed = capture_conflict_events { api_callback.call }
 
+      expect_conflict_reported(blocked, failed)
       expect(response).to have_http_status(:bad_request)
       expect(json).to include("error" => "invalid_grant")
       expect(StandardId::SocialIdentity.find_by(subject: "g-rival-api").account_id).to eq(other_account.id)
       expect(StandardId::RefreshToken.active.where(account_id: legacy_account.id)).to be_empty
+    end
+
+    # The other race: this login's SELECT missed the rival row and its INSERT
+    # hit the unique index (RecordNotUnique), so the rival is found in the
+    # rescue. The rival is committed from before_sign_in / the policy, and
+    # the insert is made to conflict.
+    [
+      ["web", :web_callback, ->(spec, sub) { allow(StandardId.config).to receive(:before_sign_in).and_return(spec.commit_rival_link(sub)) }],
+      ["API", :api_callback, ->(spec, sub) { spec.with_policy(->(account:) { spec.commit_rival_link(sub).call if account.id == spec.legacy_account.id; true }) }]
+    ].each do |label, callback, arrange|
+      it "#{label}: reports the conflict found through RecordNotUnique the same way" do
+        sub = "g-rival-unique-#{label}"
+        stub_google(sub)
+        instance_exec(self, sub, &arrange)
+        allow(StandardId::SocialIdentity).to receive(:find_or_create_by!).and_raise(ActiveRecord::RecordNotUnique, "duplicate key")
+
+        blocked, failed = capture_conflict_events { instance_exec(&send(callback)) }
+
+        expect_conflict_reported(blocked, failed)
+        expect(StandardId::SocialIdentity.find_by(subject: sub).account_id).to eq(other_account.id)
+        expect(StandardId::Identifier.find_by!(account_id: legacy_account.id).provider).to be_nil
+        if label == "web"
+          expect(response).to redirect_to("/login")
+        else
+          expect(response).to have_http_status(:bad_request)
+          expect(json).to include("error" => "invalid_grant")
+        end
+      end
     end
   end
 

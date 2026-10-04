@@ -90,7 +90,10 @@ module StandardId
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             rescue StandardId::OAuthError => e
               discard_rejected_social_sign_in!(account, newly_created:)
-              emit_social_auth_failed(e, account: account)
+              # A (provider, sub) conflict with a concurrent login is a link
+              # refusal (SOCIAL_LINK_BLOCKED, already published), not an
+              # infrastructure failure.
+              emit_social_auth_failed(e, account: account) unless e.is_a?(StandardId::SocialLinkConflictError)
               redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: state_data&.dig("redirect_uri")), alert: "Authentication failed: #{e.message}"
             rescue StandardError => e
               # Unexpected failure after the link/account may have been

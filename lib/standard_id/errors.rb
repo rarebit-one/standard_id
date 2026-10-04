@@ -197,6 +197,8 @@ module StandardId
   #                       so it cannot prove ownership of the existing account
   #   :subject_mismatch — the account's email identifier is already linked to a
   #                       different subject (`sub`) from this provider
+  # (SOCIAL_LINK_BLOCKED also uses :subject_conflict, for the race raised as
+  # SocialLinkConflictError rather than this error.)
   class SocialLinkError < OAuthError
     REASONS = %i[link_required email_unverified subject_mismatch].freeze
 
@@ -212,6 +214,20 @@ module StandardId
     # Uses standard OAuth :access_denied code since account_link_required is non-standard
     def oauth_error_code = :access_denied
     def http_status = :forbidden
+  end
+
+  # Raised while a social login writes its (provider, sub) link, when a
+  # concurrent login has committed the same (provider, sub) for a DIFFERENT
+  # account. The client sees a retryable `invalid_grant`; SOCIAL_LINK_BLOCKED
+  # is published with reason `:subject_conflict` (not SOCIAL_AUTH_FAILED,
+  # which is for infrastructure failures).
+  class SocialLinkConflictError < InvalidGrantError
+    attr_reader :identifier
+
+    def initialize(message = nil, identifier: nil)
+      @identifier = identifier
+      super(message)
+    end
   end
 
   # Audience verification errors

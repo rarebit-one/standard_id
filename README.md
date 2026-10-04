@@ -1186,6 +1186,10 @@ redirect_to "/api/authorize?" + {
      `:trust_provider` too.
 
    A successful link stores the `sub`, so the next login matches on step 1.
+   If a concurrent login commits the same `sub` for a **different** account
+   while this one writes its link, the login fails with a retryable
+   `invalid_grant` (`StandardId::SocialLinkConflictError`) and
+   `SOCIAL_LINK_BLOCKED` is published with reason `:subject_conflict`.
 3. **New account.** Otherwise a new account is created, as before, and the
    `sub` is stored.
 
