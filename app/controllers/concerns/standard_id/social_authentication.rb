@@ -72,8 +72,9 @@ module StandardId
         validate_social_link!(identifier, provider)
         validate_social_subject!(identifier, provider, subject)
         validate_social_email_verified!(identifier, provider, social_info)
-        stage_social_link!(identifier, subject, backfill_provider: identifier.provider.nil?)
-        emit_social_account_linked(identifier.account, provider, identifier)
+        # SOCIAL_ACCOUNT_LINKED is published by commit_social_link!, once the
+        # link has been written — never for a staged link that is dropped.
+        stage_social_link!(identifier, subject, backfill_provider: identifier.provider.nil?, emit_linked: true)
         identifier.account
       else
         account = build_account_from_social(social_info)
@@ -179,20 +180,36 @@ module StandardId
       StandardId::SocialIdentity.includes(:account, :identifier).find_by(provider: provider.provider_name, subject: subject)
     end
 
+    # Runs inside commit_social_link!'s transaction, so the insert gets its own
+    # savepoint: on PostgreSQL a unique violation would otherwise abort the
+    # enclosing transaction and the lookup below could not run.
     def record_social_identity!(identifier, subject)
       return if subject.nil?
       return unless social_identities_available?
 
-      StandardId::SocialIdentity.find_or_create_by!(
-        provider: provider.provider_name,
-        subject: subject
-      ) do |new_identity|
-        new_identity.account = identifier.account
-        new_identity.identifier = identifier
+      identity = StandardId::SocialIdentity.transaction(requires_new: true) do
+        StandardId::SocialIdentity.find_or_create_by!(
+          provider: provider.provider_name,
+          subject: subject
+        ) do |new_identity|
+          new_identity.account = identifier.account
+          new_identity.identifier = identifier
+        end
       end
+      # find_or_create_by! returns, without raising, a row a concurrent login
+      # committed before its SELECT: the same account check applies to it.
+      return identity if identity.account_id == identifier.account_id
+
+      raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
     rescue ActiveRecord::RecordNotUnique
       # A concurrent login for the same (provider, sub) committed it first.
-      StandardId::SocialIdentity.find_by!(provider: provider.provider_name, subject: subject)
+      # Adopt it only when it points at the same account; otherwise this
+      # login would sign in to one account while the subject belongs to
+      # another.
+      winner = StandardId::SocialIdentity.find_by(provider: provider.provider_name, subject: subject)
+      return winner if winner && winner.account_id == identifier.account_id
+
+      raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
     end
 
     # The (provider, sub) link and the provider backfill are STAGED, not
@@ -206,8 +223,13 @@ module StandardId
     # Callers that do not defer (the default, e.g. host code calling
     # find_or_create_account_from_social directly) get the link written
     # immediately, as before.
-    def stage_social_link!(identifier, subject, backfill_provider:)
-      @pending_social_link = { identifier: identifier, subject: subject, backfill_provider: backfill_provider }
+    def stage_social_link!(identifier, subject, backfill_provider:, emit_linked: false)
+      @pending_social_link = {
+        identifier: identifier,
+        subject: subject,
+        backfill_provider: backfill_provider,
+        emit_linked: emit_linked
+      }
       commit_social_link! unless defer_social_link?
     end
 
@@ -215,19 +237,60 @@ module StandardId
       false
     end
 
+    # Writes the staged link in one transaction: the provider backfill and
+    # the (provider, sub) row land together or not at all, and the staged
+    # state is kept until they have, so a failure part-way leaves nothing to
+    # reverse. A block, when given, runs inside that transaction after the
+    # writes: work the login still has to get through for the link to stand
+    # (the web callback's redirect_to, which can raise). It runs even when
+    # nothing is staged. SOCIAL_ACCOUNT_LINKED is published only after the
+    # transaction has committed.
+    #
+    # The account row is locked first and must still exist. That serialises
+    # this commit with AccountCleanup.destroy_newly_created!, which takes the
+    # same lock: an account another, rejected request created and is now
+    # removing is never linked to (this login fails and can simply be
+    # retried, creating a fresh account), and an account this login has
+    # already signed in to is never removed under it (see AccountCleanup).
     def commit_social_link!
       pending = @pending_social_link
-      return if pending.nil?
+      if pending.nil?
+        yield if block_given?
+        return
+      end
+
+      identifier = pending[:identifier]
+      ActiveRecord::Base.transaction do
+        if StandardId.account_class.lock.where(id: identifier.account_id).pick(:id).nil?
+          raise StandardId::InvalidGrantError, SOCIAL_RETRY_MESSAGE
+        end
+
+        if pending[:backfill_provider]
+          # Conditional, so a provider set concurrently is never overwritten.
+          StandardId::Identifier.where(id: identifier.id, provider: nil).update_all(provider: provider.provider_name)
+        end
+        record_social_identity!(identifier, pending[:subject])
+        yield if block_given?
+      end
 
       @pending_social_link = nil
-      identifier = pending[:identifier]
       if pending[:backfill_provider]
-        # Conditional, so a provider set concurrently is never overwritten.
-        StandardId::Identifier.where(id: identifier.id, provider: nil).update_all(provider: provider.provider_name)
         identifier.provider = provider.provider_name
         identifier.clear_attribute_changes([:provider]) if identifier.respond_to?(:clear_attribute_changes)
       end
-      record_social_identity!(identifier, pending[:subject])
+      emit_committed_social_link(identifier, provider) if pending[:emit_linked]
+    end
+
+    # SOCIAL_ACCOUNT_LINKED reports a link that has already committed, so it
+    # cannot refuse the login: a subscriber that raises here would fail the
+    # callback while the link stays. Its error is logged and reported to
+    # Rails.error instead of propagating. (Guards belong on the events that
+    # run before anything is written.)
+    def emit_committed_social_link(identifier, provider)
+      emit_social_account_linked(identifier.account, provider, identifier)
+    rescue StandardError => e
+      Rails.logger&.error("[StandardId] SOCIAL_ACCOUNT_LINKED subscriber raised after the link committed: #{e.class}: #{e.message}")
+      Rails.error.report(e, handled: true, source: "standard_id")
     end
 
     # A social login that recorded a link (and maybe created an account) and
@@ -239,6 +302,21 @@ module StandardId
       rollback_social_link!
       StandardId::AccountCleanup.destroy_newly_created!(account) if newly_created
     end
+
+    # The login matched an account by email that a concurrent, refused
+    # request had created and has since removed (AccountCleanup). The login
+    # then fails part-way (its session insert hits the foreign key, or
+    # commit_social_link! finds the account gone); the callbacks report that
+    # as a retryable invalid_grant rather than a 500. A retry finds no
+    # account and creates a fresh one. Check before discard_social_attempt!,
+    # which removes an account THIS request created.
+    def social_account_removed_concurrently?(account, newly_created:)
+      return false if newly_created || account.nil? || account.id.nil?
+
+      !StandardId.account_class.where(id: account.id).exists?
+    end
+
+    SOCIAL_RETRY_MESSAGE = "The sign-in could not be completed. Please try again.".freeze
 
     # Nothing was written for a deferred link, so dropping the staged one is
     # the whole rollback. (A non-deferring caller has already committed it.)

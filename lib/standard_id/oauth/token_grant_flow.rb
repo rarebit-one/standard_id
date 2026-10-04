@@ -3,6 +3,13 @@ module StandardId
     class TokenGrantFlow < BaseRequestFlow
       attr_reader :params, :request
 
+      # The refresh token row this grant persisted, once it got that far (nil
+      # before). A caller that rejects the grant after it ran (the API social
+      # callback) revokes it, and its session, from here: when the grant
+      # itself raised after the write, no token response came back to read
+      # it from.
+      attr_reader :issued_refresh_token
+
       def initialize(params, request, current_account: nil)
         @params = params
         @request = request
@@ -217,7 +224,7 @@ module StandardId
       end
 
       def persist_refresh_token!(jti:, expires_at:)
-        StandardId::RefreshToken.create!(
+        @issued_refresh_token = StandardId::RefreshToken.create!(
           account_id: subject_id,
           session_id: refresh_token_session_id,
           token_digest: StandardId::RefreshToken.digest_for(jti),
