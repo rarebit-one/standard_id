@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Planned as **0.45.0**. Two opt-in hooks that the org-IdP provider plugin (`standard_id-void_which_binds`) needs. With neither configured, behaviour is unchanged.
+## [0.45.0] - 2026-10-04
+
+Two opt-in hooks that the org-IdP provider plugin (`standard_id-void_which_binds`) needs. With neither configured, behaviour is unchanged.
 
 ### Added
 
