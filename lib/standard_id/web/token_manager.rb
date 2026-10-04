@@ -7,14 +7,17 @@ module StandardId
         @request = request
       end
 
-      def create_browser_session(account)
+      # `auth_lineage` (StandardId::AuthLineage) records how the sign-in was
+      # made in the session's metadata, so codes and tokens derived from this
+      # session can be re-checked against config.login_method_policy.
+      def create_browser_session(account, auth_lineage: nil)
         session_class = StandardId::SessionTypeResolver.resolve!(
           request: request,
           account: account,
           flow: :web_sign_in
         )
 
-        create_session_for(session_class, account: account)
+        create_session_for(session_class, account: account, auth_lineage: auth_lineage)
       end
 
       def create_remember_token(password_credential)
@@ -29,10 +32,12 @@ module StandardId
 
       private
 
-      def create_session_for(session_class, account:)
+      def create_session_for(session_class, account:, auth_lineage: nil)
         attrs = base_attributes(account: account).merge(
           session_specific_attributes(session_class)
         )
+        lineage_metadata = auth_lineage ? StandardId::AuthLineage.to_metadata(auth_lineage) : {}
+        attrs[:metadata] = lineage_metadata if lineage_metadata.present?
         session_class.create!(**attrs)
       end
 

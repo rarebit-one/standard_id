@@ -3,6 +3,11 @@ module StandardId
     class SessionManager
       attr_reader :token_manager, :request, :session, :cookies
 
+      # The session sign_in_account created in this request, set as soon as the
+      # row exists — so a caller can revoke it even when sign_in_account then
+      # raises (e.g. a SESSION_CREATED subscriber fails).
+      attr_reader :created_session
+
       def initialize(token_manager, request:, session:, cookies:, reset_session: nil)
         @token_manager = token_manager
         @request = request
@@ -63,7 +68,9 @@ module StandardId
         session[:return_to_after_authenticating] = return_to if return_to
         session[:standard_id_scopes] = existing_scopes if existing_scopes
 
-        token_manager.create_browser_session(account).tap do |browser_session|
+        lineage = StandardId::AuthLineage.build(auth_method || :unspecified, provider)
+        token_manager.create_browser_session(account, auth_lineage: lineage).tap do |browser_session|
+          @created_session = browser_session
           # Store in both session and encrypted cookie for backward compatibility
           # Action Cable will use the encrypted cookie
           session[:session_token] = browser_session.token

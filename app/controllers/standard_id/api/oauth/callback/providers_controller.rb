@@ -23,27 +23,62 @@ module StandardId
           social_info = provider_response[:user_info]
           provider_tokens = provider_response[:tokens]
           account = find_or_create_account_from_social(social_info)
+          newly_created = account.previously_new_record?
 
-          flow = StandardId::Oauth::SocialFlow.new(
-            params,
-            request,
-            account:,
-            connection: provider.provider_name,
-            scopes: params[:scope]
-          )
+          # Everything after find_or_create_account_from_social can still
+          # reject the login: SocialFlow.new (InvalidScopeError), the grant's
+          # audience/profile binding (InvalidGrantError), the login-method
+          # policy, a SOCIAL_AUTH_COMPLETED subscriber, or anything unexpected.
+          # Any of them leaves no link (it is only written on acceptance), no
+          # new account, and no usable token or session from this request.
+          token_response = nil
+          begin
+            token_response = StandardId::Oauth::SocialFlow.new(
+              params,
+              request,
+              account:,
+              connection: provider.provider_name,
+              scopes: params[:scope]
+            ).execute
+            run_social_callback(
+              provider: provider.provider_name,
+              social_info:,
+              provider_tokens:,
+              account:,
+              original_request_params: forwarded_request_params
+            )
+            commit_social_link!
+          rescue StandardError
+            revoke_issued_tokens!(token_response)
+            discard_social_attempt!(account, newly_created: newly_created)
+            raise
+          end
 
-          token_response = flow.execute
-          run_social_callback(
-            provider: provider.provider_name,
-            social_info:,
-            provider_tokens:,
-            account:,
-            original_request_params: forwarded_request_params
-          )
           render json: token_response, status: :ok
         end
 
         private
+
+        # Write the (provider, sub) link only once the login is accepted.
+        def defer_social_link?
+          true
+        end
+
+        # The response was never sent, but the grant already persisted a
+        # refresh token (and possibly a session). Revoke them so nothing from
+        # the rejected request stays usable. (For a new account they are
+        # deleted with it by AccountCleanup.)
+        def revoke_issued_tokens!(token_response)
+          refresh_token = token_response.is_a?(Hash) ? token_response[:refresh_token] : nil
+          return if refresh_token.blank?
+
+          jti = StandardId::JwtService.decode(refresh_token)&.dig(:jti)
+          record = jti && StandardId::RefreshToken.find_by_jti(jti)
+          return unless record
+
+          record.session&.revoke!(reason: "social_sign_in_rejected") unless record.session.nil? || record.session.revoked?
+          record.revoke!
+        end
 
         # Mirror of the web callback's OAuthError handling: emit
         # SOCIAL_AUTH_FAILED for infrastructure-level provider failures

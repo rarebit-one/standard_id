@@ -37,7 +37,8 @@ module StandardId
           traditional: -> do
             Subflows::TraditionalCodeGrant.new(
               **common_subflow_params(flow_params),
-              current_account: current_account
+              current_account: current_account,
+              auth_lineage: auth_lineage
             )
           end
         }

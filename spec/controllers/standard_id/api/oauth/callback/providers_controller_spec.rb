@@ -6,7 +6,7 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
   let(:apple_web_id) { "com.example.web" }
   let(:apple_mobile_id) { "com.example.mobile" }
   let(:user_info) { { email: "user@example.com" } }
-  let(:account) { instance_double("Account") }
+  let(:account) { instance_double("Account", previously_new_record?: false) }
   let(:token_response) { { access_token: "token" } }
   let(:social_flow) { instance_double(StandardId::Oauth::SocialFlow, execute: token_response) }
 

@@ -222,8 +222,22 @@ module StandardId
           session_id: refresh_token_session_id,
           token_digest: StandardId::RefreshToken.digest_for(jti),
           expires_at: expires_at,
-          previous_token: previous_refresh_token_record
+          previous_token: previous_refresh_token_record,
+          **StandardId::AuthLineage.refresh_token_attributes(refresh_token_auth_lineage)
         )
+      end
+
+      # How the authentication behind this grant was established, recorded on
+      # the refresh token so the refresh_token grant can re-check the
+      # login-method policy against it. Grants that authenticate an account
+      # themselves derive it from their policy context; the authorization_code
+      # and refresh_token grants override it (from the code / the presented
+      # token). See StandardId::AuthLineage.
+      def refresh_token_auth_lineage
+        context = login_method_policy_context
+        return StandardId::AuthLineage.empty if context.nil?
+
+        StandardId::AuthLineage.build(context[:auth_method], context[:provider])
       end
 
       # The parent session for the refresh token issued by THIS grant, when the

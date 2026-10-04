@@ -81,7 +81,11 @@ module StandardId
         )
 
         result = StandardId::Oauth::AuthorizationCodeAuthorizationFlow
-          .new(@consent_request, request, current_account: current_account)
+          .new(
+            @consent_request, request,
+            current_account: current_account,
+            auth_lineage: StandardId::AuthLineage.from_session(current_session)
+          )
           .execute
 
         redirect_out(result[:redirect_to], status: result[:status] || :found)

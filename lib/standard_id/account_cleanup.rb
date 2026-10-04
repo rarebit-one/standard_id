@@ -17,6 +17,9 @@ module StandardId
       return unless account&.persisted?
 
       ActiveRecord::Base.transaction do
+        # Tokens first: refresh_tokens.account_id has no ON DELETE action, and
+        # a refused API grant may already have issued one for this account.
+        StandardId::RefreshToken.where(account_id: account.id).delete_all
         account.sessions.strict_loading(false).destroy_all
         identifiers = account.identifiers.strict_loading(false).to_a
         identifiers.each { |i| i.credentials.strict_loading(false).destroy_all }

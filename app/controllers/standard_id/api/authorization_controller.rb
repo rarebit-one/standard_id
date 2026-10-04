@@ -19,7 +19,11 @@ module StandardId
         reject_invalid_redirect_uri!
         return redirect_to_consent if consent_required?
 
-        response_data = flow_strategy_class.new(flow_strategy_params, request, current_account: current_account).execute
+        response_data = flow_strategy_class.new(
+          flow_strategy_params, request,
+          current_account: current_account,
+          auth_lineage: StandardId::AuthLineage.from_session(authorization_session_manager.current_session)
+        ).execute
 
         if response_data[:redirect_to]
           redirect_to response_data[:redirect_to], status: response_data[:status] || :found, allow_other_host: true
@@ -150,10 +154,13 @@ module StandardId
       end
 
       def current_account
-        @current_account ||= begin
+        @current_account ||= authorization_session_manager.current_account
+      end
+
+      def authorization_session_manager
+        @authorization_session_manager ||= begin
           token_manager = StandardId::Web::TokenManager.new(request)
-          session_manager = StandardId::Web::SessionManager.new(token_manager, request: request, session: session, cookies: cookies)
-          session_manager.current_account
+          StandardId::Web::SessionManager.new(token_manager, request: request, session: session, cookies: cookies)
         end
       end
     end

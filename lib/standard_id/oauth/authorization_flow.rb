@@ -1,12 +1,16 @@
 module StandardId
   module Oauth
     class AuthorizationFlow < BaseRequestFlow
-      attr_reader :params, :request, :current_account
+      attr_reader :params, :request, :current_account, :auth_lineage
 
-      def initialize(params, request, current_account: nil)
+      # `auth_lineage` (StandardId::AuthLineage) is how the browser session
+      # behind `current_account` was established; an authorization code carries
+      # it on to the tokens it is exchanged for.
+      def initialize(params, request, current_account: nil, auth_lineage: nil)
         @params = params
         @request = request
         @current_account = current_account
+        @auth_lineage = auth_lineage
       end
 
       class << self

@@ -21,6 +21,11 @@ module StandardId
           @authorization_code ||= SecureRandom.urlsafe_base64(32)
         end
 
+        def lineage_metadata
+          lineage = params[:auth_lineage]
+          lineage ? StandardId::AuthLineage.to_metadata(lineage) : {}
+        end
+
         def store_authorization_code
           StandardId::AuthorizationCode.issue!(
             plaintext_code: authorization_code,
@@ -32,7 +37,7 @@ module StandardId
             code_challenge: params[:code_challenge],
             code_challenge_method: params[:code_challenge_method],
             nonce: params[:nonce],
-            metadata: { state: params[:state] }.compact
+            metadata: { state: params[:state] }.compact.merge(lineage_metadata)
           )
         end
 
