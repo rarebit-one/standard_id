@@ -167,10 +167,10 @@ RSpec.describe "Social link commit", type: :request do
       subscriptions&.each { |subscription| StandardId::Events.unsubscribe(subscription) }
     end
 
-    def expect_conflict_reported(blocked, failed)
+    def expect_conflict_reported(blocked, failed, reason: :subject_conflict)
       expect(failed).to be_empty
       expect(blocked.size).to eq(1)
-      expect(blocked.first[:reason]).to eq(:subject_conflict)
+      expect(blocked.first[:reason]).to eq(reason)
       expect(blocked.first[:email]).to eq(email)
       expect(blocked.first[:account]).to eq(legacy_account)
       expect(blocked.first[:identifier]).to eq(StandardId::Identifier.find_by!(account_id: legacy_account.id))
@@ -233,6 +233,46 @@ RSpec.describe "Social link commit", type: :request do
           expect(response).to have_http_status(:bad_request)
           expect(json).to include("error" => "invalid_grant")
         end
+      end
+    end
+  end
+
+  # The (identifier, provider) unique index wins instead: a concurrent login
+  # linked this same identifier to google under ANOTHER sub, so no
+  # (provider, sub) row exists for this login's sub. That is reported as a
+  # subject mismatch, not a conflict over this sub.
+  describe "a concurrent link of the same identifier under another sub" do
+    before { legacy_account }
+
+    { "web" => :web_callback, "API" => :api_callback }.each do |label, callback|
+      it "#{label}: reports SOCIAL_LINK_BLOCKED with :subject_mismatch" do
+        sub = "g-mine-#{label}"
+        stub_google(sub)
+        identifier = StandardId::Identifier.find_by!(account_id: legacy_account.id)
+        link_other_sub = -> { StandardId::SocialIdentity.create!(provider: "google", subject: "g-theirs-#{label}", account: legacy_account, identifier: identifier) }
+        if label == "web"
+          allow(StandardId.config).to receive(:before_sign_in).and_return(->(*) { link_other_sub.call; nil })
+        else
+          with_policy(->(account:) { link_other_sub.call if account.id == legacy_account.id; true })
+        end
+        allow(StandardId::SocialIdentity).to receive(:find_or_create_by!).and_raise(ActiveRecord::RecordNotUnique, "duplicate key")
+
+        blocked = []
+        failed = []
+        subs = [
+          StandardId::Events.subscribe(StandardId::Events::SOCIAL_LINK_BLOCKED) { |event| blocked << event },
+          StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) { |event| failed << event }
+        ]
+        begin
+          instance_exec(&send(callback))
+        ensure
+          subs.each { |subscription| StandardId::Events.unsubscribe(subscription) }
+        end
+
+        expect(failed).to be_empty
+        expect(blocked.size).to eq(1)
+        expect(blocked.first[:reason]).to eq(:subject_mismatch)
+        expect(StandardId::SocialIdentity.where(subject: sub)).to be_empty
       end
     end
   end

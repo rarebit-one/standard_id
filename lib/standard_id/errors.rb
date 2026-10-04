@@ -216,16 +216,20 @@ module StandardId
     def http_status = :forbidden
   end
 
-  # Raised while a social login writes its (provider, sub) link, when a
-  # concurrent login has committed the same (provider, sub) for a DIFFERENT
-  # account. The client sees a retryable `invalid_grant`; SOCIAL_LINK_BLOCKED
-  # is published with reason `:subject_conflict` (not SOCIAL_AUTH_FAILED,
-  # which is for infrastructure failures).
+  # Raised while a social login writes its (provider, sub) link and loses a
+  # race to a concurrent login. The client sees a retryable `invalid_grant`;
+  # SOCIAL_LINK_BLOCKED is published with `reason` (not SOCIAL_AUTH_FAILED,
+  # which is for infrastructure failures):
+  #   :subject_conflict — the same (provider, sub) was committed for a
+  #     DIFFERENT account;
+  #   :subject_mismatch — this identifier was linked to this provider under a
+  #     DIFFERENT sub (the (identifier, provider) unique index won).
   class SocialLinkConflictError < InvalidGrantError
-    attr_reader :identifier
+    attr_reader :identifier, :reason
 
-    def initialize(message = nil, identifier: nil)
+    def initialize(message = nil, identifier: nil, reason: :subject_conflict)
       @identifier = identifier
+      @reason = reason
       super(message)
     end
   end

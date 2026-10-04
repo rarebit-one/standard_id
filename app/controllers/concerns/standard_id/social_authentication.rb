@@ -209,7 +209,12 @@ module StandardId
       winner = StandardId::SocialIdentity.find_by(provider: provider.provider_name, subject: subject)
       return winner if winner && winner.account_id == identifier.account_id
 
-      raise StandardId::SocialLinkConflictError.new(SOCIAL_RETRY_MESSAGE, identifier: identifier)
+      # No (provider, sub) winner: the (identifier, provider) index won
+      # instead, i.e. a concurrent login linked this identifier to this
+      # provider under another sub. That is a subject mismatch, not a
+      # conflict over this sub.
+      reason = winner.nil? && StandardId::SocialIdentity.where(identifier_id: identifier.id, provider: provider.provider_name).where.not(subject: subject).exists? ? :subject_mismatch : :subject_conflict
+      raise StandardId::SocialLinkConflictError.new(SOCIAL_RETRY_MESSAGE, identifier: identifier, reason: reason)
     end
 
     # The (provider, sub) link and the provider backfill are STAGED, not
@@ -262,12 +267,12 @@ module StandardId
       identifier = pending[:identifier]
       begin
         write_social_link!(pending, identifier) { yield if block_given? }
-      rescue StandardId::SocialLinkConflictError
-        # A concurrent login committed this (provider, sub) for another
-        # account. Published here, once the transaction has rolled back, so a
+      rescue StandardId::SocialLinkConflictError => e
+        # A concurrent login won the link (see the error's reasons).
+        # Published here, once the transaction has rolled back, so a
         # subscriber that writes an audit row is not rolled back with the
         # link; and only on this path, so never for a link that commits.
-        emit_social_link_blocked(identifier, provider, :subject_conflict)
+        emit_social_link_blocked(identifier, provider, e.reason)
         raise
       end
 
