@@ -66,6 +66,28 @@ RSpec.describe "Social link commit", type: :request do
         expect(events.first).to include(account: legacy_account, link_written: true)
       end
 
+      it "#{label}: a subscriber that raises does not fail the committed login" do
+        stub_google("g-raise-#{label}")
+        subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_ACCOUNT_LINKED) { raise "subscriber boom" }
+        allow(Rails.error).to receive(:report)
+
+        begin
+          instance_exec(&send(callback))
+        ensure
+          StandardId::Events.unsubscribe(subscription)
+        end
+
+        expect(StandardId::SocialIdentity.exists?(provider: "google", subject: "g-raise-#{label}")).to be(true)
+        expect(Rails.error).to have_received(:report).with(an_instance_of(RuntimeError), hash_including(handled: true))
+        if label == "API"
+          expect(response).to have_http_status(:ok)
+          expect(json).to include("access_token")
+        else
+          expect(response).to have_http_status(:redirect)
+          expect(response.location).not_to include("/login")
+        end
+      end
+
       it "#{label}: is not published when the policy refuses the login" do
         stub_google("g-refused-#{label}")
         with_policy(->(**) { false })

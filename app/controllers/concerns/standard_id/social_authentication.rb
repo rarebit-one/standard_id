@@ -273,7 +273,19 @@ module StandardId
         identifier.provider = provider.provider_name
         identifier.clear_attribute_changes([:provider]) if identifier.respond_to?(:clear_attribute_changes)
       end
-      emit_social_account_linked(identifier.account, provider, identifier) if pending[:emit_linked]
+      emit_committed_social_link(identifier, provider) if pending[:emit_linked]
+    end
+
+    # SOCIAL_ACCOUNT_LINKED reports a link that has already committed, so it
+    # cannot refuse the login: a subscriber that raises here would fail the
+    # callback while the link stays. Its error is logged and reported to
+    # Rails.error instead of propagating. (Guards belong on the events that
+    # run before anything is written.)
+    def emit_committed_social_link(identifier, provider)
+      emit_social_account_linked(identifier.account, provider, identifier)
+    rescue StandardError => e
+      Rails.logger&.error("[StandardId] SOCIAL_ACCOUNT_LINKED subscriber raised after the link committed: #{e.class}: #{e.message}")
+      Rails.error.report(e, handled: true, source: "standard_id")
     end
 
     # A social login that recorded a link (and maybe created an account) and
