@@ -7,7 +7,18 @@ module StandardId
         @request = request
       end
 
-      def create_device_session(account, device_id: nil, device_agent: nil)
+      # Host-facing primitives: the engine itself never calls these two, so
+      # whoever does has authenticated `account` on its own. They still go
+      # through `config.login_method_policy` (flows :api_device_session /
+      # :api_service_session) so no session-creating entry point bypasses it;
+      # pass `auth_method:` (and `provider:`) so a policy can tell the method
+      # apart — without it the policy sees `:unspecified`.
+      def create_device_session(account, device_id: nil, device_agent: nil, auth_method: nil, provider: nil)
+        StandardId::LoginMethodPolicy.enforce!(
+          account: account, auth_method: auth_method, provider: provider,
+          request: @request, flow: :api_device_session
+        )
+
         session_class = StandardId::SessionTypeResolver.resolve!(
           request: @request,
           account: account,
@@ -22,7 +33,12 @@ module StandardId
         )
       end
 
-      def create_service_session(account, service_name:, service_version:, owner:, metadata: {})
+      def create_service_session(account, service_name:, service_version:, owner:, metadata: {}, auth_method: nil, provider: nil)
+        StandardId::LoginMethodPolicy.enforce!(
+          account: account, auth_method: auth_method, provider: provider,
+          request: @request, flow: :api_service_session
+        )
+
         session_class = StandardId::SessionTypeResolver.resolve!(
           request: @request,
           account: account,

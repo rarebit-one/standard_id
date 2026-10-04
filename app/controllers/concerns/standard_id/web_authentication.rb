@@ -154,7 +154,12 @@ module StandardId
         # but before session creation. The block may raise AuthenticationDenied.
         before_session&.call(password_credential.account)
 
-        session_manager.sign_in_account(password_credential.account, scope_name: request.path_parameters[:scope])
+        session_manager.sign_in_account(
+          password_credential.account,
+          scope_name: request.path_parameters[:scope],
+          auth_method: :password,
+          flow: :web_password
+        )
         session_manager.set_remember_cookie(password_credential) if remember_me
 
         StandardId::Events.publish(

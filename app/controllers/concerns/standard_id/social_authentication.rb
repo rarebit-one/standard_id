@@ -38,7 +38,9 @@ module StandardId
     #    reports is not consulted.
     # 2. The email matches an existing EmailIdentifier → link to that account,
     #    but only when
-    #      - the link_strategy allows it (validate_social_link!),
+    #      - the link_strategy allows it (validate_social_link!; under :strict a
+    #        provider that is trusted_for_linking? may link across providers
+    #        to a verified identifier),
     #      - the identifier is not already linked to a DIFFERENT sub from this
     #        provider (possible takeover), and
     #      - the provider reports the email as verified. Without that, the
@@ -103,8 +105,27 @@ module StandardId
       return if identifier.provider.nil?
       return if identifier.provider == provider.provider_name
       return if account_has_social_identifier_from?(identifier.account, provider)
+      return if trusted_cross_provider_link?(identifier, provider)
 
       refuse_social_link!(identifier, provider, :link_required)
+    end
+
+    # The provider opted in via Providers::Base.trusted_for_linking? (only the
+    # org's own IdP, whose email claims the org verifies, should) AND the
+    # existing identifier's address is itself verified. This only lifts the
+    # :strict cross-provider refusal: validate_social_subject! and
+    # validate_social_email_verified! still run after it, so an unverified
+    # provider email or a different sub is refused exactly as before.
+    #
+    # The verified-identifier requirement closes pre-account hijacking: an
+    # account someone registered for an address they never proved must not
+    # be handed to the address's real owner arriving via the trusted IdP
+    # (the registrant would keep their own way in).
+    def trusted_cross_provider_link?(identifier, provider)
+      return false unless provider.respond_to?(:trusted_for_linking?)
+      return false unless provider.trusted_for_linking? == true
+
+      identifier.respond_to?(:verified?) && identifier.verified?
     end
 
     # The identifier is already linked to another subject from this provider:

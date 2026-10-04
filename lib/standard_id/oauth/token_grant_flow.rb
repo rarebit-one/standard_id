@@ -17,10 +17,41 @@ module StandardId
 
       def execute
         instrumented_authenticate!
+        enforce_login_method_policy!
         generate_token_response
       end
 
       private
+
+      # The login-method policy context for this grant, or nil when the grant
+      # does not establish a new authentication (authorization_code,
+      # refresh_token, client_credentials derive from one that already
+      # happened, or have no account). Grants that authenticate an account
+      # themselves override this. See StandardId::LoginMethodPolicy.
+      #
+      # @return [Hash, nil] `{ auth_method:, flow:, provider: }`
+      def login_method_policy_context
+        nil
+      end
+
+      # Runs after authenticate! has proven the credential and before any
+      # token, refresh token or session row is created. On refusal an account
+      # created by this very request (passwordless or social registration) is
+      # removed again, mirroring the WebEngine's handle_authentication_denied.
+      def enforce_login_method_policy!
+        policy_context = login_method_policy_context
+        return if policy_context.nil?
+
+        account = token_account
+        return if account.nil?
+
+        StandardId::LoginMethodPolicy.enforce!(account: account, request: request, **policy_context)
+      rescue StandardId::LoginMethodDenied
+        if account.respond_to?(:previously_new_record?) && account.previously_new_record?
+          StandardId::AccountCleanup.destroy_newly_created!(account)
+        end
+        raise
+      end
 
       # authenticate!, wrapped in the Instrumentation::AUTHENTICATE event.
       def instrumented_authenticate!

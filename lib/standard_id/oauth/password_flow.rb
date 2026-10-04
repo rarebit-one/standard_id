@@ -55,6 +55,10 @@ module StandardId
         @account.id
       end
 
+      def login_method_policy_context
+        { auth_method: :password, flow: :oauth_password_grant }
+      end
+
       def client_id
         params[:client_id]
       end

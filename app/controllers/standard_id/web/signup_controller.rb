@@ -47,7 +47,12 @@ module StandardId
 
         if form.submit
           invoke_before_sign_in(form.account, { mechanism: "password", provider: nil })
-          session_manager.sign_in_account(form.account, scope_name: request.path_parameters[:scope])
+          session_manager.sign_in_account(
+            form.account,
+            scope_name: request.path_parameters[:scope],
+            auth_method: :password,
+            flow: :web_signup
+          )
           invoke_after_account_created(form.account, { mechanism: "signup", provider: nil })
 
           redirect_uri = string_param(:redirect_uri)

@@ -36,6 +36,11 @@ module StandardId
           kind: :keyword,
           keywords: %i[identifier params request]
         },
+        "login_method_policy" => {
+          signature: "(account:, auth_method:, provider:, request:, flow:)",
+          kind: :keyword,
+          keywords: %i[account auth_method provider request flow]
+        },
         "oauth.custom_claims" => {
           signature: "(account:, client:, request:, audience:)",
           kind: :keyword,

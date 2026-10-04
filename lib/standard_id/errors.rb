@@ -150,6 +150,41 @@ module StandardId
   # Lifecycle hook errors
   class AuthenticationDenied < StandardError; end
 
+  # Raised when `config.login_method_policy` refuses an authentication method
+  # for an account (e.g. "staff must sign in with the org IdP"). See
+  # StandardId::LoginMethodPolicy.
+  #
+  # A subclass of AuthenticationDenied so every WebEngine flow that already
+  # rescues AuthenticationDenied (redirect to /login with the message as the
+  # flash alert, new-account cleanup) handles it unchanged. The API engine
+  # renders it as `403 access_denied` (see Api::BaseController), the same
+  # shape as SocialLinkError.
+  #
+  # The policy is only ever consulted AFTER the credential has been proven
+  # (password checked, OTP verified, provider token verified), so the message
+  # reaches only someone who already controls the credential. Policies may
+  # raise this themselves to supply their own message:
+  #
+  #   raise StandardId::LoginMethodDenied, "Staff must sign in with Void Which Binds"
+  #
+  # `auth_method`, `provider` and `flow` are filled in by the engine for
+  # logging and audit; do not surface them to end users.
+  class LoginMethodDenied < AuthenticationDenied
+    DEFAULT_MESSAGE = "This sign-in method is not available for your account".freeze
+
+    attr_reader :auth_method, :provider, :flow
+
+    def initialize(message = nil, auth_method: nil, provider: nil, flow: nil)
+      @auth_method = auth_method
+      @provider = provider
+      @flow = flow
+      super(message.presence || DEFAULT_MESSAGE)
+    end
+
+    def oauth_error_code = :access_denied
+    def http_status = :forbidden
+  end
+
   # Social login errors
   # NOTE: email and provider_name are exposed as reader attributes for host
   # apps to build custom error responses. If you report exceptions to an
