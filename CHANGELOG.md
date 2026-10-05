@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Callback `iss` for providers (RFC 9207).** The web and API social callbacks pass the request's `iss` parameter to `get_user_info` as `callback_iss:` when it is a String, so a provider can refuse an authorization-server mix-up without hooking the callback controller itself. On the API callback, `iss` is no longer forwarded to `SOCIAL_AUTH_COMPLETED` subscribers as `original_request_params`, like the other OAuth-flow params.
+- **Core-managed PKCE: `Providers::Base.supports_pkce?`** (default `false`). For a provider that returns `true`, `/login?connection=<provider>` generates a fresh verifier per sign-in, stores it with the state and nonce in the encrypted pending-requests cookie, and passes `code_challenge:` / `code_challenge_method: "S256"` to `authorization_url`. The web callback passes the stored verifier to `get_user_info` as `code_verifier:`, and refuses a callback whose stored request has none. The API callback never passes a verifier (it has no server-held flow state; a client-supplied `code_verifier` is not forwarded), and the API social login grant refuses a PKCE provider. `build_authorization_url` emits `code_challenge` / `code_challenge_method` when `options` carries them; `Providers::Base.pkce_s256_challenge(verifier)` computes the S256 challenge. Providers that do not opt in see no change: both new kwargs reach them only through `**options`, and nil values are not passed. See the README, "Callback `iss` and core-managed PKCE".
+
 ### Fixed
 
 - **Social-link races are classified correctly under MySQL/InnoDB `REPEATABLE READ`.** When a concurrent login committed a rival `(provider, sub)` or `(identifier, provider)` row after this login's lookup, the re-read that decides who won ran inside the link transaction as a plain `SELECT`. Under `REPEATABLE READ` that read the transaction's earlier snapshot, missed the rival, and re-raised the `RecordNotUnique`: a 500 with no `SOCIAL_LINK_BLOCKED` instead of a retryable `invalid_grant` (or adopting a same-account rival). `SocialAuthentication#classify_social_link_race!` now uses locking reads (`SELECT ... FOR UPDATE`), which always see the latest committed row. PostgreSQL (`READ COMMITTED`) already saw the rival and behaves as before; on SQLite the lock is a no-op.

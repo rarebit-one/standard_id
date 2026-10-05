@@ -1527,21 +1527,64 @@ end
 | `skip_csrf?` | `false` | `true` for POST (form_post) callbacks |
 | `supports_mobile_callback?` | `false` | Enables the server-side redirect back to a native app |
 | `trusted_for_linking?` | `false` | `true` lets `:strict` link to an account created via another provider (verified emails only). Org-owned IdPs only; see "Trusted linking" (0.45+) |
+| `supports_pkce?` | `false` | `true` makes core generate, store and hand back a PKCE (S256) verifier for the web flow; see "Callback `iss` and core-managed PKCE" (0.46+) |
 
 **Protected helpers** for use inside those methods — signatures are stable:
 
 | Helper | Does |
 |--------|------|
 | `build_response(user_info, tokens:)` | The standard `get_user_info` return value |
-| `build_authorization_url(endpoint:, client_id:, redirect_uri:, state:, options: {}, defaults: {}, response_type: "code")` | `client_id`, `redirect_uri`, `response_type`, `state`, then each `supported_authorization_params` entry from `options` or `defaults`; nils dropped |
+| `build_authorization_url(endpoint:, client_id:, redirect_uri:, state:, options: {}, defaults: {}, response_type: "code")` | `client_id`, `redirect_uri`, `response_type`, `state`, then each `supported_authorization_params` entry from `options` or `defaults`, then `code_challenge` / `code_challenge_method` from `options`; nils dropped |
 | `extract_tokens(parsed_token)` | `{ access_token:, refresh_token:, id_token: }` from a token response, nils dropped |
 | `verify_nonce!(expected:, actual:)` | Constant-time nonce check; no-op when `expected` is blank. Raises `InvalidRequestError` without echoing either value |
 | `rescue_to_oauth_error(message_prefix = nil) { ... }` | Lets `StandardId::OAuthError` through; wraps anything else in one, keeping `cause` |
+| `pkce_s256_challenge(code_verifier)` (public) | `BASE64URL(SHA256(verifier))`, unpadded (RFC 7636 S256) |
 
 A plugin using `env:`, `required:` or these helpers should depend on
 `standard_id >= 0.42`. `Providers::Base.setup` is no longer called (removed
 from the base class in 0.42; the call-with-a-warning shim went in 0.43) — do
 one-off initialization in your own Railtie instead.
+
+#### Callback `iss` and core-managed PKCE (0.46+)
+
+Core hands two more values to `get_user_info`, so a provider does not have to
+capture or derive them itself. Both arrive through `**options`; a provider
+that does not name them ignores them, and a nil value is never passed.
+
+- **`callback_iss:`** — the callback's `iss` parameter (RFC 9207), when the
+  redirect carried one as a String. Compare it with the issuer you expect
+  before exchanging the code (authorization-server mix-up defence). It is
+  passed on both the web callback and `/api/oauth/callback/:provider` (where
+  it is whatever the client relayed); refuse a missing one if your IdP always
+  sends it.
+- **`code_verifier:`** — for a provider whose `supports_pkce?` returns `true`.
+  On every `/login?connection=<provider>` core generates a fresh verifier,
+  stores it with the state and nonce in the encrypted pending-requests cookie
+  (it never appears in a URL), and passes `code_challenge:` and
+  `code_challenge_method: "S256"` to `authorization_url`
+  (`build_authorization_url` emits both). At the web callback the stored
+  verifier comes back as `code_verifier:`; send it in the token request. A
+  web callback whose stored request has no verifier (a state issued for
+  another provider, or one started before the provider opted in) is refused
+  before the provider is called.
+
+```ruby
+def self.supports_pkce? = true
+
+def self.get_user_info(code: nil, redirect_uri: nil, nonce: nil, callback_iss: nil, code_verifier: nil, **_options)
+  raise StandardId::InvalidRequestError, "issuer mismatch" unless callback_iss == EXPECTED_ISSUER
+  raise StandardId::InvalidRequestError, "web sign-in only" if code_verifier.blank?
+
+  # POST code, redirect_uri and code_verifier to the token endpoint ...
+end
+```
+
+The API paths keep no server-side flow state, so they never pass a
+`code_verifier:` (a client-supplied `code_verifier` param is not forwarded),
+and the API social login grant (`/authorize?connection=...`) refuses to start
+a sign-in for a provider that `supports_pkce?` rather than send it without a
+challenge. A PKCE provider is therefore web-only unless it handles a native
+flow itself.
 
 **Testing a plugin, or an app that uses one:**
 

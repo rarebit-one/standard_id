@@ -25,10 +25,11 @@ module StandardId
             state_data = nil
 
             begin
-              extract_state_and_nonce => { state_data:, nonce: }
+              extract_state_and_nonce => { state_data:, nonce:, code_verifier: }
+              code_verifier = pkce_verifier_for_provider!(code_verifier)
               caller_redirect_uri = state_data&.dig("redirect_uri").presence
               redirect_uri = callback_url_for
-              provider_response = get_user_info_from_provider(redirect_uri:, nonce:)
+              provider_response = get_user_info_from_provider(redirect_uri:, nonce:, code_verifier:)
               social_info = provider_response[:user_info]
               provider_tokens = provider_response[:tokens]
               begin
@@ -168,8 +169,22 @@ module StandardId
 
             {
               state_data: oauth_state["params"],
-              nonce: oauth_state["nonce"]
+              nonce: oauth_state["nonce"],
+              code_verifier: oauth_state["code_verifier"].presence
             }
+          end
+
+          # Core-managed PKCE (Providers::Base.supports_pkce?): the provider
+          # receives the verifier stored with this flow's state, and only
+          # then. A PKCE provider's flow must have been started with one (by
+          # /login for this provider), so a missing verifier — a state issued
+          # for another provider, or stored before the provider opted in — is
+          # refused rather than the code exchanged without it.
+          def pkce_verifier_for_provider!(code_verifier)
+            return nil unless provider.supports_pkce?
+            raise StandardId::InvalidRequestError, "Missing PKCE verifier for this sign-in" if code_verifier.nil?
+
+            code_verifier
           end
 
           def handle_callback_error

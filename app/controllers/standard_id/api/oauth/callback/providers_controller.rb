@@ -14,7 +14,7 @@ module StandardId
         # (UTM, campaign IDs, deep-link slugs) to the signing-in account.
         RESERVED_CALLBACK_PARAMS = %w[
           id_token code scope scopes audience redirect_uri flow
-          state nonce provider controller action format
+          state nonce iss provider controller action format
           authenticity_token utf8 _method
         ].freeze
 
@@ -104,6 +104,12 @@ module StandardId
         # ...) are policy/client errors, not infrastructure failures, and
         # must not emit. The error re-raises into the standard
         # handle_oauth_error JSON response.
+        #
+        # The provider receives the request's `iss` as `callback_iss:` (as on
+        # the web callback) but never a `code_verifier:`: this endpoint has no
+        # server-held flow state, and a client-supplied `code_verifier` param
+        # is not forwarded. A provider that opts in to core-managed PKCE
+        # (supports_pkce?) gets no verifier here and should refuse.
         def fetch_provider_user_info
           get_user_info_from_provider(flow: provider.flow_for(params))
         rescue StandardId::OAuthError => e

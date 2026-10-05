@@ -1,4 +1,6 @@
 require "uri"
+require "base64"
+require "digest"
 require "active_support/security_utils"
 
 module StandardId
@@ -81,7 +83,14 @@ module StandardId
         # @param id_token [String, nil] JWT ID token (mobile/implicit flow)
         # @param access_token [String, nil] Access token (implicit flow)
         # @param redirect_uri [String, nil] Original redirect_uri for code exchange validation
-        # @param options [Hash] Provider-specific options (client_id for Apple mobile, etc.)
+        # @param options [Hash] Provider-specific options (client_id for Apple mobile, etc.).
+        #   Core may also pass, and a provider that does not need them ignores:
+        #   - `nonce:` the nonce the server issued for this flow (only for
+        #     providers listing :nonce in {supported_authorization_params});
+        #   - `callback_iss:` the callback's RFC 9207 `iss` parameter, when the
+        #     redirect carried one as a String (absent otherwise);
+        #   - `code_verifier:` the PKCE verifier core generated and stored with
+        #     the flow's state (web callback only, and only when {supports_pkce?}).
         # @return [HashWithIndifferentAccess] Standardized response with user_info and tokens
         # @raise [NotImplementedError] if not overridden by subclass
         # @raise [StandardId::InvalidRequestError] if credentials are missing or invalid
@@ -244,6 +253,42 @@ module StandardId
         # @return [Boolean]
         def trusted_for_linking?
           false
+        end
+
+        # Whether core manages PKCE (RFC 7636, S256) for this provider's web
+        # sign-in.
+        #
+        # Default: false — core neither sends a challenge nor passes a verifier.
+        #
+        # When true, the web login flow generates a fresh `code_verifier` for
+        # every sign-in, stores it server-held alongside the state and nonce
+        # (the encrypted pending-requests cookie; it is never sent to the
+        # provider or put in a URL), and:
+        #   - passes `code_challenge:` (the S256 challenge) and
+        #     `code_challenge_method: "S256"` to {authorization_url}
+        #     ({build_authorization_url} emits both when present);
+        #   - passes the stored `code_verifier:` to {get_user_info} at the web
+        #     callback, which the provider sends in its token request. A web
+        #     callback whose stored request has no verifier is refused before
+        #     the provider is called.
+        #
+        # The API callback (`/api/oauth/callback/:provider`) has no server-held
+        # flow state, so it never passes a `code_verifier:`; the API social
+        # login grant refuses to start a sign-in for a provider that returns
+        # true here rather than send it without a challenge.
+        #
+        # @return [Boolean]
+        def supports_pkce?
+          false
+        end
+
+        # The RFC 7636 S256 code challenge for a verifier:
+        # BASE64URL(SHA256(verifier)) without padding.
+        #
+        # @param code_verifier [String]
+        # @return [String]
+        def pkce_s256_challenge(code_verifier)
+          Base64.urlsafe_encode64(Digest::SHA256.digest(code_verifier.to_s), padding: false)
         end
 
         # Returns list of supported authorization parameters for this provider.
@@ -453,7 +498,10 @@ module StandardId
         #
         # Emits `client_id`, `redirect_uri`, `response_type`, `state`, then one
         # entry per {supported_authorization_params}, taking the caller's value
-        # from `options` or falling back to `defaults`. Nil values are dropped.
+        # from `options` or falling back to `defaults`, then `code_challenge` and
+        # `code_challenge_method` when `options` carries them (core passes them
+        # only to providers that opt in with {supports_pkce?}). Nil values are
+        # dropped.
         #
         # @param endpoint [String] Provider authorization endpoint
         # @param client_id [String]
@@ -485,6 +533,9 @@ module StandardId
           supported_authorization_params.each do |param|
             query[param] = options[param] || defaults[param]
           end
+
+          query[:code_challenge] = options[:code_challenge]
+          query[:code_challenge_method] = options[:code_challenge_method]
 
           "#{endpoint}?#{URI.encode_www_form(query.compact)}"
         end

@@ -115,6 +115,32 @@ RSpec.describe StandardId::Providers::Base, "plugin helpers" do
 
       expect(URI.decode_www_form(URI(url).query).to_h["response_type"]).to eq("code id_token")
     end
+
+    it "emits code_challenge and code_challenge_method when core passes them" do
+      url = provider.url(endpoint: "https://idp.example.com/a", client_id: "c", redirect_uri: "r", state: "s",
+                         options: { code_challenge: "ch", code_challenge_method: "S256" })
+
+      expect(URI.decode_www_form(URI(url).query).to_h).to include("code_challenge" => "ch", "code_challenge_method" => "S256")
+    end
+
+    it "emits no PKCE params otherwise" do
+      url = provider.url(endpoint: "https://idp.example.com/a", client_id: "c", redirect_uri: "r", state: "s")
+
+      expect(URI.decode_www_form(URI(url).query).to_h.keys).not_to include("code_challenge", "code_challenge_method")
+    end
+  end
+
+  describe ".supports_pkce?" do
+    it "defaults to false" do
+      expect(provider.supports_pkce?).to be(false)
+    end
+  end
+
+  describe ".pkce_s256_challenge" do
+    it "matches the RFC 7636 Appendix B example" do
+      expect(provider.pkce_s256_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"))
+        .to eq("E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    end
   end
 
   describe ".extract_tokens" do
