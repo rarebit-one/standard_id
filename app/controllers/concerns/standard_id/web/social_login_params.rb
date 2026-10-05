@@ -8,7 +8,10 @@ module StandardId
 
       private
 
-      def store_oauth_request(state:, nonce: nil, params:)
+      # `code_verifier` is the PKCE verifier for providers that opt in with
+      # `supports_pkce?`; like the nonce it stays server-held (the cookie is
+      # encrypted) and is handed back to the provider at the callback.
+      def store_oauth_request(state:, params:, nonce: nil, code_verifier: nil)
         pending_requests = load_pending_requests || {}
 
         cleanup_expired_requests!(pending_requests)
@@ -16,6 +19,7 @@ module StandardId
         pending_requests[state] = {
           "params" => params,
           "nonce" => nonce,
+          "code_verifier" => code_verifier,
           "expires_at" => REQUEST_EXPIRY.from_now.to_i
         }
 
@@ -43,7 +47,7 @@ module StandardId
           save_pending_requests(pending_requests)
         end
 
-        request_data.slice("params", "nonce")
+        request_data.slice("params", "nonce", "code_verifier")
       rescue JSON::ParserError => e
         StandardId.logger.error({
           subject: "standard_id.consume_oauth_request.error",

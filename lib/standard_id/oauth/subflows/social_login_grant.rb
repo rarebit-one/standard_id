@@ -12,6 +12,12 @@ module StandardId
           @social_provider_url ||= begin
             connection = params[:connection]
             provider = StandardId::ProviderRegistry.get(connection)
+            # This flow's state is a stateless encoding, so there is nowhere
+            # server-held to keep a PKCE verifier. Refuse a provider that
+            # requires core-managed PKCE rather than start it without one.
+            if provider.supports_pkce?
+              raise StandardId::InvalidRequestError, "#{connection} sign-in requires the web login flow (PKCE)"
+            end
 
             provider.authorization_url(
               state: encode_state_with_original_params,

@@ -133,10 +133,12 @@ module StandardId
 
         state = generate_oauth_token
         nonce = provider_supports_nonce?(provider) ? generate_oauth_token : nil
+        code_verifier = provider.supports_pkce? ? generate_oauth_token : nil
 
         store_oauth_request(
           state:,
           nonce:,
+          code_verifier:,
           params: extract_social_login_params
         )
 
@@ -145,6 +147,12 @@ module StandardId
 
         # Add nonce to OAuth params if provider supports it
         extra_params[:nonce] = nonce if nonce.present?
+
+        # Core-managed PKCE: only the S256 challenge leaves the server.
+        if code_verifier
+          extra_params[:code_challenge] = provider.pkce_s256_challenge(code_verifier)
+          extra_params[:code_challenge_method] = "S256"
+        end
 
         url = provider.authorization_url(
           state:,

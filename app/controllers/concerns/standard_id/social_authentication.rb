@@ -18,17 +18,30 @@ module StandardId
       raise StandardId::InvalidRequestError, e.message
     end
 
-    def get_user_info_from_provider(redirect_uri: nil, nonce: nil, flow: :web)
+    # `callback_iss` is the callback's RFC 9207 `iss` parameter (a String
+    # only; anything else is dropped), for providers that defend against
+    # authorization-server mix-up. `code_verifier` is passed only by the web
+    # callback, from the server-held flow state, for providers that opt in to
+    # core-managed PKCE (Providers::Base.supports_pkce?). Nil values are not
+    # passed, so a provider that ignores both sees no change.
+    def get_user_info_from_provider(redirect_uri: nil, nonce: nil, code_verifier: nil, flow: :web)
       provider_params = {
         code: params[:code],
         id_token: params[:id_token],
         access_token: params[:access_token],
         redirect_uri:,
-        nonce:
+        nonce:,
+        callback_iss: callback_iss_param,
+        code_verifier:
       }
 
       resolved_params = provider.resolve_params(provider_params, context: { flow: flow })
       provider.get_user_info(**resolved_params.compact)
+    end
+
+    def callback_iss_param
+      iss = params[:iss]
+      iss.is_a?(String) && iss.present? ? iss : nil
     end
 
     # Resolves the account for a social login, in this order:
