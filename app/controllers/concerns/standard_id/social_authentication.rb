@@ -206,13 +206,21 @@ module StandardId
     # (identifier, provider) collision into RecordNotFound, and return a
     # (provider, sub) winner for ANY account). Every one of them is classified
     # by classify_social_link_race!.
+    #
+    # A row found by the first lookup can be removed again (e.g. by a
+    # concurrent account cleanup) before classify_social_link_race! re-reads
+    # it. The (provider, sub) is then free, so the insert goes ahead: returning
+    # instead would let commit_social_link! backfill the provider and publish
+    # SOCIAL_ACCOUNT_LINKED for a link no row records.
     def record_social_identity!(identifier, subject)
       return if subject.nil?
       return unless social_identities_available?
 
       attributes = { provider: provider.provider_name, subject: subject }
-      existing = StandardId::SocialIdentity.find_by(attributes)
-      return classify_social_link_race!(identifier, subject) if existing
+      if StandardId::SocialIdentity.find_by(attributes)
+        winner = classify_social_link_race!(identifier, subject)
+        return winner if winner
+      end
 
       StandardId::SocialIdentity.transaction(requires_new: true) do
         StandardId::SocialIdentity.create!(attributes.merge(account: identifier.account, identifier: identifier))
@@ -222,6 +230,22 @@ module StandardId
     rescue ActiveRecord::RecordInvalid => e
       raise unless social_link_race_invalid?(e.record)
 
+      classify_social_link_race!(identifier, subject) || insert_past_stale_uniqueness!(e.record, identifier, subject)
+    end
+
+    # The uniqueness validations said `taken`, but the locking re-read in
+    # classify_social_link_race! finds no rival: the validations read a stale
+    # snapshot. Under MySQL/InnoDB REPEATABLE READ they read the transaction's
+    # snapshot, which still holds a row a concurrent cleanup has since removed
+    # (the vanished-row case above), and every later validation would say
+    # `taken` again. Every other validation passed (social_link_race_invalid?),
+    # and both uniqueness rules are backed by unique indexes, so insert once
+    # without validating and let the indexes decide; a rival that commits in
+    # the meantime surfaces as RecordNotUnique and is classified as usual.
+    def insert_past_stale_uniqueness!(record, identifier, subject)
+      StandardId::SocialIdentity.transaction(requires_new: true) { record.save!(validate: false) }
+      record
+    rescue ActiveRecord::RecordNotUnique
       classify_social_link_race!(identifier, subject) || raise
     end
 

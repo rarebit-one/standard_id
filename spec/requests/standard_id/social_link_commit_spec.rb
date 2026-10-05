@@ -415,6 +415,57 @@ RSpec.describe "Social link commit", type: :request do
       end
     end
 
+    # Codex on #365: the first lookup finds a (provider, sub) row, which is
+    # removed again (e.g. a concurrent cleanup of the other account) before
+    # classify_social_link_race! re-reads it. The sub is free by then, so
+    # this login links it; it must never report a link no row records.
+    # stale_snapshot: also emulate MySQL/InnoDB REPEATABLE READ, where the
+    # uniqueness validations read the transaction's snapshot and keep seeing
+    # the removed row (Codex on #370). SQLite has no snapshots, so the
+    # validator is made to report `taken` for the removed sub.
+    def row_vanishes_after_select(rival, stale_snapshot: false)
+      if stale_snapshot
+        allow_any_instance_of(ActiveRecord::Validations::UniquenessValidator).to receive(:validate_each).and_wrap_original do |original, record, attribute, value|
+          if record.is_a?(StandardId::SocialIdentity) && attribute == :subject && value == rival[:subject]
+            record.errors.add(attribute, :taken, value: value)
+          else
+            original.call(record, attribute, value)
+          end
+        end
+      end
+      rival = rival.merge(id: SecureRandom.uuid) if StandardId::SocialIdentity.columns_hash["id"]&.type == :string
+      selected = false
+      allow(StandardId::SocialIdentity).to receive(:find_by).and_wrap_original do |original, *args, **kwargs|
+        next original.call(*args, **kwargs) if selected || !(args.first.is_a?(Hash) && args.first.keys.map(&:to_sym).sort == %i[provider subject])
+
+        selected = true
+        StandardId::SocialIdentity.insert_all!([rival])
+        original.call(*args, **kwargs).tap { StandardId::SocialIdentity.where(rival.slice(:provider, :subject)).delete_all }
+      end
+    end
+
+    [["web", :web_callback, false], ["API", :api_callback, false],
+      ["web (REPEATABLE READ snapshot)", :web_callback, true], ["API (REPEATABLE READ snapshot)", :api_callback, true]].each do |label, callback, stale|
+      it "#{label}, rival found then removed before classification: links the sub, and publishes only once it is recorded" do
+        sub = "g-vanished-#{label.parameterize}"
+        stub_google(sub)
+        row_vanishes_after_select(rival_attributes(:other_account, sub), stale_snapshot: stale)
+
+        blocked, failed, linked = capture_link_events { instance_exec(&send(callback)) }
+
+        expect(blocked).to be_empty
+        expect(failed).to be_empty
+        expect(linked.size).to eq(1)
+        expect(StandardId::SocialIdentity.where(provider: "google", subject: sub).pluck(:account_id)).to eq([legacy_account.id])
+        expect(StandardId::Identifier.find_by!(account_id: legacy_account.id).provider).to eq("google")
+        if callback == :web_callback
+          expect(response.location).not_to end_with("/login")
+        else
+          expect(response).to have_http_status(:ok)
+        end
+      end
+    end
+
     it "re-raises a RecordInvalid that is not a lost race" do
       stub_google("g-invalid")
       # A validation failure that is not a uniqueness race (provider blank).
