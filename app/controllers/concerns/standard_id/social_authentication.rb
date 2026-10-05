@@ -206,13 +206,21 @@ module StandardId
     # (identifier, provider) collision into RecordNotFound, and return a
     # (provider, sub) winner for ANY account). Every one of them is classified
     # by classify_social_link_race!.
+    #
+    # A row found by the first lookup can be removed again (e.g. by a
+    # concurrent account cleanup) before classify_social_link_race! re-reads
+    # it. The (provider, sub) is then free, so the insert goes ahead: returning
+    # instead would let commit_social_link! backfill the provider and publish
+    # SOCIAL_ACCOUNT_LINKED for a link no row records.
     def record_social_identity!(identifier, subject)
       return if subject.nil?
       return unless social_identities_available?
 
       attributes = { provider: provider.provider_name, subject: subject }
-      existing = StandardId::SocialIdentity.find_by(attributes)
-      return classify_social_link_race!(identifier, subject) if existing
+      if StandardId::SocialIdentity.find_by(attributes)
+        winner = classify_social_link_race!(identifier, subject)
+        return winner if winner
+      end
 
       StandardId::SocialIdentity.transaction(requires_new: true) do
         StandardId::SocialIdentity.create!(attributes.merge(account: identifier.account, identifier: identifier))
