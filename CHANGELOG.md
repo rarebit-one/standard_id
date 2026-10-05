@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-10-05
+
 ### Added
 
 - **Callback `iss` for providers (RFC 9207).** The web and API social callbacks pass the request's `iss` parameter to `get_user_info` as `callback_iss:` when it is a String, so a provider can refuse an authorization-server mix-up without hooking the callback controller itself. On the API callback, `iss` is no longer forwarded to `SOCIAL_AUTH_COMPLETED` subscribers as `original_request_params`, like the other OAuth-flow params.
