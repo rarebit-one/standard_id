@@ -143,7 +143,7 @@ module StandardId
               created.revoke!(reason: "social_sign_in_rejected") unless created.revoked?
               session_manager.clear_session!
             end
-            discard_social_attempt!(account, newly_created: newly_created)
+            discard_social_attempt!(account, newly_created: newly_created, sessions: [created])
           end
 
           # Write the (provider, sub) link only once the login is accepted.
