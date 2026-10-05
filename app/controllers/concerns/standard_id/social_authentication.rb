@@ -229,8 +229,19 @@ module StandardId
     # (:subject_conflict) or this identifier to this provider under ANOTHER
     # sub (:subject_mismatch); returns nil when no rival is found (it was
     # removed again), so the caller re-raises the original error.
+    #
+    # Both lookups are locking reads (SELECT ... FOR UPDATE). They run inside
+    # commit_social_link!'s transaction, and under MySQL/InnoDB's default
+    # REPEATABLE READ a plain SELECT there reads the snapshot taken by the
+    # transaction's first plain read (record_social_identity!'s own lookup),
+    # which predates the rival that just made the INSERT fail: the rival
+    # would be invisible, the race unclassified, and the login a 500 with no
+    # SOCIAL_LINK_BLOCKED. A locking read always reads the latest committed
+    # row. Under PostgreSQL's READ COMMITTED (and on SQLite, where `lock` is
+    # a no-op) a plain read already saw it; the lock only holds the rival row
+    # until this transaction ends.
     def classify_social_link_race!(identifier, subject)
-      winner = StandardId::SocialIdentity.find_by(provider: provider.provider_name, subject: subject)
+      winner = StandardId::SocialIdentity.lock.find_by(provider: provider.provider_name, subject: subject)
       if winner
         return winner if winner.account_id == identifier.account_id
 
@@ -238,7 +249,7 @@ module StandardId
       end
 
       other_sub = StandardId::SocialIdentity.where(identifier_id: identifier.id, provider: provider.provider_name).where.not(subject: subject)
-      return nil unless other_sub.exists?
+      return nil unless other_sub.lock.exists?
 
       raise StandardId::SocialLinkConflictError.new(SOCIAL_RETRY_MESSAGE, identifier: identifier, reason: :subject_mismatch)
     end
@@ -343,9 +354,18 @@ module StandardId
     # binding, an unexpected error — must leave nothing behind: drop the link
     # and remove an account this request created. Safe to call when nothing
     # was recorded, and when the account is already gone.
-    def discard_social_attempt!(account, newly_created:)
+    #
+    # When the login matched an EXISTING account, `sessions` / `refresh_tokens`
+    # are what this request issued (and has revoked): if a concurrent, refused
+    # request kept that account only because this login had signed in to it,
+    # the account is removed after all (AccountCleanup.reclaim_for_failed_adopter!).
+    def discard_social_attempt!(account, newly_created:, sessions: [], refresh_tokens: [])
       rollback_social_link!
-      StandardId::AccountCleanup.destroy_newly_created!(account) if newly_created
+      if newly_created
+        StandardId::AccountCleanup.destroy_newly_created!(account)
+      else
+        StandardId::AccountCleanup.reclaim_for_failed_adopter!(account, sessions:, refresh_tokens:)
+      end
     end
 
     # The login matched an account by email that a concurrent, refused

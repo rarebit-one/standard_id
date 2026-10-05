@@ -52,8 +52,8 @@ module StandardId
             commit_social_link!
           rescue StandardError
             removed = social_account_removed_concurrently?(account, newly_created:)
-            revoke_issued_tokens!(flow)
-            discard_social_attempt!(account, newly_created: newly_created)
+            issued = revoke_issued_tokens!(flow)
+            discard_social_attempt!(account, newly_created: newly_created, **issued)
             raise unless removed
 
             # The matched account was removed under this login by a
@@ -79,9 +79,12 @@ module StandardId
         # AccountCleanup does not mistake them for a concurrent login using a
         # new account. A token whose transaction rolled back is not persisted
         # and is skipped (its session write was rolled back with it).
+        #
+        # Returns what was revoked, as discard_social_attempt!'s `sessions:` /
+        # `refresh_tokens:`.
         def revoke_issued_tokens!(flow)
           record = flow&.issued_refresh_token
-          return unless record&.persisted?
+          return { sessions: [], refresh_tokens: [] } unless record&.persisted?
 
           # Loaded by id, not through the association: the record was built
           # with only session_id, and a host with strict_loading_by_default
@@ -89,6 +92,7 @@ module StandardId
           session = record.session_id && StandardId::Session.find_by(id: record.session_id)
           session.revoke!(reason: "social_sign_in_rejected") unless session.nil? || session.revoked?
           record.revoke!
+          { sessions: [session].compact, refresh_tokens: [record] }
         end
 
         # Mirror of the web callback's OAuthError handling: emit

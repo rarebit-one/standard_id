@@ -340,6 +340,81 @@ RSpec.describe "Social link commit", type: :request do
       end
     end
 
+    # MySQL/InnoDB REPEATABLE READ (Codex on #365): every plain SELECT in the
+    # link transaction reads the snapshot taken by its first plain read, so
+    # a rival committed after this login's SELECT stays invisible to plain
+    # reads — the uniqueness validations pass, the unique index refuses the
+    # INSERT, and only a locking read (SELECT ... FOR UPDATE) sees the rival.
+    # SQLite has no such snapshot, so it is emulated: once the rival has
+    # committed, plain reads of standard_id_social_identities leave it out;
+    # reads on a relation with a lock clause see it.
+    def under_repeatable_read(rival)
+      rival = rival.merge(id: SecureRandom.uuid) if StandardId::SocialIdentity.columns_hash["id"]&.type == :string
+      hidden_ids = []
+      hidden = ->(record) { record && hidden_ids.include?(record.id) }
+
+      allow(StandardId::SocialIdentity).to receive(:find_by).and_wrap_original do |original, *args, **kwargs|
+        result = original.call(*args, **kwargs)
+        if hidden_ids.empty? && args.first.is_a?(Hash) && args.first.keys.map(&:to_sym).sort == %i[provider subject]
+          StandardId::SocialIdentity.insert_all!([rival])
+          hidden_ids.concat(StandardId::SocialIdentity.where(rival.slice(:provider, :subject)).pluck(:id))
+        end
+        hidden.call(result) ? nil : result
+      end
+
+      relation_class = StandardId::SocialIdentity.all.class
+      allow_any_instance_of(relation_class).to receive(:find_by).and_wrap_original do |original, *args, **kwargs|
+        result = original.call(*args, **kwargs)
+        original.receiver.lock_value || !hidden.call(result) ? result : nil
+      end
+      allow_any_instance_of(relation_class).to receive(:exists?).and_wrap_original do |original, *args, **kwargs|
+        next original.call(*args, **kwargs) if original.receiver.lock_value || hidden_ids.empty? || args.any? || kwargs.any?
+
+        (original.receiver.pluck(:id) - hidden_ids).any?
+      end
+    end
+
+    { "web" => :web_callback, "API" => :api_callback }.each do |label, callback|
+      { other_account: :subject_conflict, other_sub: :subject_mismatch }.each do |kind, reason|
+        it "#{label}, rival #{kind} under REPEATABLE READ: classified by a locking read, not a 500" do
+          sub = "g-rr-#{kind}-#{label}"
+          stub_google(sub)
+          under_repeatable_read(rival_attributes(kind, sub))
+
+          blocked, failed, linked = capture_link_events { instance_exec(&send(callback)) }
+
+          expect(failed).to be_empty
+          expect(linked).to be_empty
+          expect(blocked.map { |event| event[:reason] }).to eq([reason])
+          expect(StandardId::SocialIdentity.where(subject: sub, account_id: legacy_account.id)).to be_empty
+          if label == "web"
+            expect(response).to redirect_to("/login")
+            expect(flash[:alert]).to include(StandardId::SocialAuthentication::SOCIAL_RETRY_MESSAGE)
+          else
+            expect(response).to have_http_status(:bad_request)
+            expect(json).to include("error" => "invalid_grant")
+          end
+        end
+      end
+
+      it "#{label}, rival for the same account under REPEATABLE READ: adopts it and signs in" do
+        sub = "g-rr-same-#{label}"
+        stub_google(sub)
+        under_repeatable_read(rival_attributes(:same_account, sub))
+
+        blocked, failed, linked = capture_link_events { instance_exec(&send(callback)) }
+
+        expect(blocked).to be_empty
+        expect(failed).to be_empty
+        expect(linked.size).to eq(1)
+        if label == "web"
+          expect(response.location).not_to end_with("/login")
+        else
+          expect(response).to have_http_status(:ok)
+        end
+      end
+    end
+
     it "re-raises a RecordInvalid that is not a lost race" do
       stub_google("g-invalid")
       # A validation failure that is not a uniqueness race (provider blank).
@@ -471,6 +546,124 @@ RSpec.describe "Social link commit", type: :request do
       fresh_id = StandardId::EmailIdentifier.find_by(value: new_email).account_id
       expect(fresh_id).not_to eq(doomed.id)
       expect(StandardId::SocialIdentity.find_by(subject: "g-b-api").account_id).to eq(fresh_id)
+    end
+
+    # A is refused while B has already signed in to A's account, so A keeps
+    # it (above). B then fails as well (Codex on #364): B's discard path has
+    # newly_created == false, so without coordination nobody removes the
+    # account and it is orphaned, blocking a later signup for the address.
+    # A remembers the credentials it kept the account for; B's failure
+    # reclaims it. Simulated by running A's cleanup from inside B's request
+    # once B's session / tokens exist (a SOCIAL_AUTH_COMPLETED subscriber),
+    # then failing B.
+    describe "the login A kept its account for fails as well" do
+      let(:cache) { ActiveSupport::Cache::MemoryStore.new }
+
+      before { allow(StandardId).to receive(:cache_store).and_return(cache) }
+
+      # Runs A's refusal cleanup for the doomed account from inside B's
+      # request, then lets B fail with `failure` (or succeed when nil).
+      def refuse_a_during_b(doomed, failure: nil)
+        kept = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
+          next unless event[:account].id == doomed.id
+
+          kept << !StandardId::AccountCleanup.destroy_newly_created!(event[:account])
+          raise failure if failure
+        end
+        yield
+        kept
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+
+      def account_footprint(account)
+        [
+          Account.exists?(account.id),
+          StandardId::Identifier.where(account_id: account.id).exists?,
+          StandardId::Session.where(account_id: account.id).exists?,
+          StandardId::RefreshToken.where(account_id: account.id).exists?
+        ]
+      end
+
+      it "web: B raises after signing in, and the account is removed" do
+        stub_google("g-b-fails-web", new_email)
+        doomed = doomed_account
+
+        kept = refuse_a_during_b(doomed, failure: "B failed") do
+          expect { web_callback.call }.to raise_error(RuntimeError, "B failed")
+        end
+
+        expect(kept).to eq([true])
+        expect(account_footprint(doomed)).to eq([false, false, false, false])
+        expect(StandardId::SocialIdentity.where(subject: "g-b-fails-web")).to be_empty
+      end
+
+      it "web: B is denied by after_sign_in, and the account is removed" do
+        stub_google("g-b-denied-web", new_email)
+        doomed = doomed_account
+        allow(StandardId.config).to receive(:after_sign_in).and_return(->(_a, _r, _c) { raise StandardId::AuthenticationDenied, "Nope" })
+
+        kept = refuse_a_during_b(doomed) { web_callback.call }
+
+        expect(kept).to eq([true])
+        expect(response).to redirect_to("/login")
+        expect(account_footprint(doomed)).to eq([false, false, false, false])
+      end
+
+      it "API: B fails after its tokens were issued, and the account is removed" do
+        stub_google("g-b-fails-api", new_email)
+        doomed = doomed_account
+
+        kept = refuse_a_during_b(doomed, failure: "B failed") do
+          expect { api_callback.call }.to raise_error(RuntimeError, "B failed")
+        end
+
+        expect(kept).to eq([true])
+        expect(account_footprint(doomed)).to eq([false, false, false, false])
+      end
+
+      it "web: the account stays when another login still uses it" do
+        stub_google("g-b-other-web", new_email)
+        doomed = doomed_account
+        # C signs in to the account too, while B is in flight.
+        c_session = nil
+        allow(StandardId.config).to receive(:before_sign_in).and_return(->(account, _r, _c) {
+          c_session = StandardId::BrowserSession.create!(account: account, ip_address: "127.0.0.3", user_agent: "C", expires_at: 1.hour.from_now)
+          nil
+        })
+
+        kept = refuse_a_during_b(doomed, failure: "B failed") do
+          expect { web_callback.call }.to raise_error(RuntimeError, "B failed")
+        end
+
+        expect(kept).to eq([true])
+        expect(Account.exists?(doomed.id)).to be(true)
+        expect(c_session.reload.revoked_at).to be_nil
+      end
+
+      # B succeeds: the account is B's now. A later login on it that fails
+      # did not issue any credential A kept the account for, so it never
+      # removes the account.
+      it "web: once B has succeeded, a later failing login leaves the account alone" do
+        stub_google("g-b-succeeds-web", new_email)
+        doomed = doomed_account
+
+        kept = refuse_a_during_b(doomed) { web_callback.call }
+        expect(kept).to eq([true])
+        expect(response.location).not_to end_with("/login")
+        StandardId::Session.where(account_id: doomed.id).find_each { |session| session.revoke!(reason: "logout") }
+
+        refuse_later = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) { |_e| raise "later failure" }
+        begin
+          expect { web_callback.call }.to raise_error(RuntimeError, "later failure")
+        ensure
+          StandardId::Events.unsubscribe(refuse_later)
+        end
+
+        expect(Account.exists?(doomed.id)).to be(true)
+        expect(StandardId::SocialIdentity.find_by(subject: "g-b-succeeds-web").account_id).to eq(doomed.id)
+      end
     end
 
     # The commit itself re-checks the account under the row lock: if the

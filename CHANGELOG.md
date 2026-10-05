@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Social-link races are classified correctly under MySQL/InnoDB `REPEATABLE READ`.** When a concurrent login committed a rival `(provider, sub)` or `(identifier, provider)` row after this login's lookup, the re-read that decides who won ran inside the link transaction as a plain `SELECT`. Under `REPEATABLE READ` that read the transaction's earlier snapshot, missed the rival, and re-raised the `RecordNotUnique`: a 500 with no `SOCIAL_LINK_BLOCKED` instead of a retryable `invalid_grant` (or adopting a same-account rival). `SocialAuthentication#classify_social_link_race!` now uses locking reads (`SELECT ... FOR UPDATE`), which always see the latest committed row. PostgreSQL (`READ COMMITTED`) already saw the rival and behaves as before; on SQLite the lock is a no-op.
+- **A refused request's new account is reclaimed when the login it was kept for fails too.** Since 0.45.0, `AccountCleanup.destroy_newly_created!` keeps a refused request's new account when a concurrent login (B) has already signed in to it. If B then failed as well, B revoked its own session or refresh token but, not having created the account, removed nothing, so the account and its identifier were left behind with no way in and blocked a later signup for that address. The kept account now remembers the session and refresh-token ids it was kept for (in `StandardId.cache_store`, for one hour), and the social callbacks and `handle_authentication_denied` call the new **`AccountCleanup.reclaim_for_failed_adopter!`** with what the failing login issued. The account is removed, under the same row lock, only when one of those credentials was among the remembered ones and nothing else is signed in to it; if another login still is, the account is kept for that one instead. A login that succeeded, or any other later sign-in, never triggers the removal. This needs a cache store shared by all processes (e.g. Solid Cache or Redis); with a per-process store or `:null_store` nothing is remembered and the account is kept, as in 0.45.0.
+
 ## [0.45.0] - 2026-10-04
 
 Two opt-in hooks that the org-IdP provider plugin (`standard_id-void_which_binds`) needs. With neither configured, behaviour is unchanged.

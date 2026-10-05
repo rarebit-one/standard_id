@@ -191,8 +191,16 @@ module StandardId
     # @param account [Object, nil] the account to clean up if newly created
     # @param newly_created [Boolean] whether the account was created during this request
     def handle_authentication_denied(error, account: nil, newly_created: false)
+      # Only a session THIS request created can have kept a refused new
+      # account alive (see AccountCleanup.reclaim_for_failed_adopter!), never
+      # one the browser already had.
+      created_session = session_manager.created_session if session_manager.respond_to?(:created_session)
       session_manager.revoke_current_session! if session_manager.current_session.present?
-      destroy_newly_created_account(account) if newly_created
+      if newly_created
+        destroy_newly_created_account(account)
+      elsif account && created_session
+        StandardId::AccountCleanup.reclaim_for_failed_adopter!(account, sessions: [created_session])
+      end
       message = error.message
       # When raised without arguments, StandardError#message returns the class name
       message = "Sign-in was denied" if message.blank? || message == error.class.name
