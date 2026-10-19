@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-10-19
+
 ### Added
 
 - **`c.oauth.disabled_grant_types`** (array, default `[]`): grant types the token endpoint refuses even though the engine implements them. A disabled grant answers exactly like an unknown one — 400 `unsupported_grant_type`, "Unsupported grant_type: <name>" — before the flow's parameters are read, so a caller cannot distinguish "disabled" from "never implemented", and both discovery documents drop it from `grant_types_supported`. Hosts that routed email+password sign-in through their own API and closed the resource-owner password grant with a `prepend` on `PasswordFlow` / `TokensController` (luminality-web `config/initializers/standard_id_password_grant.rb`) can replace the patch with `c.oauth.disabled_grant_types = %w[password]`.
@@ -15,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `PasswordFlow#emit_authentication_failed` takes optional `error_code:` / `error_message:` (defaults unchanged) so the verified-identifier refusal can be told apart in audit subscribers.
+- `StandardId::Oauth::GrantTypes` (`.disabled`, `.disabled?(name)`) is the single reader of `oauth.disabled_grant_types`, used by both the token endpoint and the discovery documents so they cannot normalise the list differently (#375).
 
 ## [0.46.0] - 2026-10-05
 
