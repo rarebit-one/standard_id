@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`c.oauth.disabled_grant_types`** (array, default `[]`): grant types the token endpoint refuses even though the engine implements them. A disabled grant answers exactly like an unknown one — 400 `unsupported_grant_type`, "Unsupported grant_type: <name>" — before the flow's parameters are read, so a caller cannot distinguish "disabled" from "never implemented", and both discovery documents drop it from `grant_types_supported`. Hosts that routed email+password sign-in through their own API and closed the resource-owner password grant with a `prepend` on `PasswordFlow` / `TokensController` (luminality-web `config/initializers/standard_id_password_grant.rb`) can replace the patch with `c.oauth.disabled_grant_types = %w[password]`.
+- **`c.oauth.password_grant_requires_verified_identifier`** (boolean, default `false`): when on, `grant_type=password` refuses a credential whose identifier is unverified with the same 400 `invalid_grant` / "Invalid username or password" it gives a wrong password, and publishes `AUTHENTICATION_FAILED` with `error_code: "identifier_unverified"`. Until now the grant minted tokens for a sign-up that never confirmed its email, bypassing verification the host enforces on its other login paths. Off by default so an upgrade changes nothing; turn it on wherever the grant stays enabled.
+
+### Changed
+
+- `PasswordFlow#emit_authentication_failed` takes optional `error_code:` / `error_message:` (defaults unchanged) so the verified-identifier refusal can be told apart in audit subscribers.
+
 ## [0.46.0] - 2026-10-05
 
 ### Added

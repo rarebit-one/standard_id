@@ -19,6 +19,16 @@ RSpec.describe StandardId::Oauth::DiscoveryDocument do
       expect(doc[:code_challenge_methods_supported]).to eq(%w[S256])
     end
 
+    it "advertises every implemented grant by default" do
+      expect(doc[:grant_types_supported]).to eq(%w[authorization_code refresh_token client_credentials])
+    end
+
+    it "drops grants listed in oauth.disabled_grant_types" do
+      allow(StandardId.config.oauth).to receive(:disabled_grant_types).and_return(%w[client_credentials password])
+
+      expect(doc[:grant_types_supported]).to eq(%w[authorization_code refresh_token])
+    end
+
     it "omits registration_endpoint by default (DCR is Phase 2)" do
       expect(doc).not_to have_key(:registration_endpoint)
     end

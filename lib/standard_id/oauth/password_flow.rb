@@ -19,6 +19,13 @@ module StandardId
           raise StandardId::InvalidGrantError, "Invalid username or password"
         end
 
+        # Same answer as a wrong password on purpose: the grant must not reveal
+        # which addresses exist but are unverified.
+        if unverified_identifier_refused?
+          emit_authentication_failed(error_code: "identifier_unverified", error_message: "Identifier not verified")
+          raise StandardId::InvalidGrantError, "Invalid username or password"
+        end
+
         emit_password_validated
         validate_requested_scope!
       end
@@ -33,14 +40,21 @@ module StandardId
         )
       end
 
-      def emit_authentication_failed
+      def emit_authentication_failed(error_code: "invalid_credentials", error_message: "Invalid username or password")
         StandardId::Events.publish(
           StandardId::Events::AUTHENTICATION_FAILED,
           account_lookup: params[:username],
           auth_method: "password",
-          error_code: "invalid_credentials",
-          error_message: "Invalid username or password"
+          error_code: error_code,
+          error_message: error_message
         )
+      end
+
+      def unverified_identifier_refused?
+        return false unless StandardId.config.oauth.password_grant_requires_verified_identifier
+
+        identifier = @credential&.credential&.identifier
+        identifier.nil? || !identifier.verified?
       end
 
       def emit_password_validated
