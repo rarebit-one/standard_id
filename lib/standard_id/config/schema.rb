@@ -457,6 +457,33 @@ StandardId::ConfigSchema.define do
     # immediately.
     field :introspection_enabled, type: :boolean, default: false
 
+    # Grant types the token endpoint refuses even though the engine implements
+    # them. Values are the `grant_type` strings: "authorization_code",
+    # "refresh_token", "client_credentials", "password", "passwordless_otp".
+    #
+    # A disabled grant answers exactly like an unknown one — 400
+    # `unsupported_grant_type`, "Unsupported grant_type: <name>" — before the
+    # flow's parameters are read, so a caller cannot tell a disabled grant from
+    # one that was never implemented, and the discovery documents drop it from
+    # `grant_types_supported`. Typical use: a host whose email+password sign-in
+    # runs through its own API (verification, per-email limits, generic
+    # answers) and must not leave the resource-owner password grant open as a
+    # second, weaker door to the same credentials.
+    #
+    # Empty (default) = every implemented grant is available, as before.
+    field :disabled_grant_types, type: :array, default: -> { [] }
+
+    # When true, the resource-owner password grant refuses a credential whose
+    # identifier has not been verified (`StandardId::Identifier#verified_at`
+    # nil) with the same 400 `invalid_grant` / "Invalid username or password"
+    # it gives a wrong password, and publishes AUTHENTICATION_FAILED with
+    # `error_code: "identifier_unverified"`. Without it a sign-up that never
+    # confirmed its email can mint tokens through `grant_type=password`,
+    # bypassing whatever verification the host enforces on its web and API
+    # login paths. Default false so an upgrade changes nothing; turn it on
+    # wherever the grant stays enabled.
+    field :password_grant_requires_verified_identifier, type: :boolean, default: false
+
     # Where the discovery documents say the ENDPOINTS live.
     #
     # The issuer and the endpoint base are different things. The issuer is a

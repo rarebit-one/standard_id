@@ -189,6 +189,24 @@ StandardId.configure do |config|
 end
 ```
 
+Two further settings close the resource-owner password grant, or harden it, for
+hosts whose email+password sign-in lives in their own API:
+
+```ruby
+StandardId.configure do |config|
+  # Refuse grant types you do not want on the token endpoint. A disabled grant
+  # answers exactly like an unknown one (400 unsupported_grant_type, before the
+  # flow's params are read) and is dropped from `grant_types_supported` in both
+  # discovery documents. Values are the grant_type strings.
+  config.oauth.disabled_grant_types = %w[password]
+
+  # If the password grant stays enabled: refuse credentials whose identifier is
+  # not verified, with the same invalid_grant answer as a wrong password, and
+  # publish AUTHENTICATION_FAILED with error_code "identifier_unverified".
+  config.oauth.password_grant_requires_verified_identifier = true
+end
+```
+
 Under `:grant`, revoking a **stateless access token is a no-op** — this engine
 has no per-access-token store, so it cannot invalidate one before its `exp`
 (the response is still `200`, per RFC 7009 §2.2). Clients that need revocation
