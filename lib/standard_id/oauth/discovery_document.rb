@@ -53,11 +53,6 @@ module StandardId
       # @param overrides [Hash] members to replace, add, or (with a nil value)
       #   remove. Already resolved — callables are evaluated by the caller.
       # @return [Hash]
-      def disabled_grant_types
-        Array(StandardId.config.oauth.disabled_grant_types).map(&:to_s)
-      end
-      private :disabled_grant_types
-
       def build(issuer, endpoint_base: nil, registration_enabled: false,
         introspection_enabled: false, overrides: {})
         base = (endpoint_base.presence || issuer).to_s.chomp("/")
@@ -71,7 +66,7 @@ module StandardId
           response_types_supported: %w[code],
           # Minus anything the host turned off with `oauth.disabled_grant_types`,
           # so a client is never pointed at a grant the token endpoint refuses.
-          grant_types_supported: %w[authorization_code refresh_token client_credentials] - disabled_grant_types,
+          grant_types_supported: %w[authorization_code refresh_token client_credentials] - StandardId::Oauth::GrantTypes.disabled,
           subject_types_supported: %w[public],
           id_token_signing_alg_values_supported: [StandardId.config.oauth.signing_algorithm.to_s.upcase],
           # "none" advertises public-client support (PKCE-only token exchange,
