@@ -88,15 +88,11 @@ module StandardId
             klass = FLOW_STRATEGIES[grant_type]
             # A disabled grant is indistinguishable from an unknown one: same
             # error, same message, raised before the flow's params are read.
-            if klass.nil? || disabled_grant_type?(grant_type)
+            if klass.nil? || StandardId::Oauth::GrantTypes.disabled?(grant_type)
               raise StandardId::UnsupportedGrantTypeError, "Unsupported grant_type: #{grant_type}"
             end
             klass
           end
-        end
-
-        def disabled_grant_type?(name)
-          Array(StandardId.config.oauth.disabled_grant_types).map(&:to_s).include?(name.to_s)
         end
 
         def flow_strategy_params
