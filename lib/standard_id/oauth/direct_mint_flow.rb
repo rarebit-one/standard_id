@@ -16,9 +16,11 @@ module StandardId
       AUDIT_ERROR_MODES = %i[raise report].freeze
 
       def initialize(account:, audience:, grant_type:, scopes: nil, client_id: nil, claims: {}, expires_in: nil,
-        refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise)
+        refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise,
+        requested_scopes: nil)
         super({ audience: audience }, request || NullRequest.new)
         @profile = profile
+        @audit_requested_scopes = requested_scopes.nil? ? nil : Array(requested_scopes).map(&:to_s)
         @audit_errors = audit_errors.to_s.to_sym
         unless AUDIT_ERROR_MODES.include?(@audit_errors)
           raise ArgumentError, "audit_errors must be one of #{AUDIT_ERROR_MODES.join(', ')} (got #{audit_errors.inspect})"
@@ -119,6 +121,12 @@ module StandardId
             "#{e.class}: #{e.message} at #{e.backtrace&.first}"
           )
         end
+      end
+
+      # A direct mint's caller may record what it actually granted (a
+      # permission set carried in a host claim) rather than the scope words.
+      def issued_event_requested_scopes
+        @audit_requested_scopes.nil? ? super : @audit_requested_scopes
       end
 
       # No new authentication happened here: the host vouches for the account.

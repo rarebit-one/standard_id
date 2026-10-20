@@ -487,8 +487,13 @@ module StandardId
           profile_id: @resolved_profile&.id,
           audience: audience,
           jti: @issued_jti,
-          requested_scopes: current_scopes
+          requested_scopes: issued_event_requested_scopes
         )
+      end
+
+      # What OAUTH_TOKEN_ISSUED reports as `requested_scopes`: the scope words.
+      def issued_event_requested_scopes
+        current_scopes
       end
     end
   end
