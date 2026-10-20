@@ -551,6 +551,31 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
         expect { flow.authenticate! }.not_to raise_error
       end
 
+      it "refuses when only deactivated_at is set, the same as ClientApplication#active? would" do
+        client.update_columns(deactivated_at: Time.current)
+
+        expect(client.reload).not_to be_active
+        expect_refusal(flow)
+      end
+
+      it "still revokes the family when an already-rotated token is replayed while the application is suspended" do
+        record.update!(revoked_at: 1.minute.ago)
+        successor = create_refresh_token_record(previous_token: record, token_digest: "successor-digest", client_application_id: client.id)
+        client.deactivate!
+
+        expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError, "Refresh token reuse detected")
+        expect(successor.reload).to be_revoked
+      end
+
+      it "refuses a graced successor against a deactivated application" do
+        allow(StandardId.config.oauth).to receive(:refresh_token_reuse_leeway).and_return(60)
+        record.update!(revoked_at: 5.seconds.ago)
+        create_refresh_token_record(previous_token: record, token_digest: "successor-digest", client_application_id: client.id)
+        client.deactivate!
+
+        expect_refusal(flow)
+      end
+
       it "refuses once the application is deleted" do
         # The dummy app raises on lazy loads; destroy! cascades through the
         # dependent associations, as a host's deregistration would.

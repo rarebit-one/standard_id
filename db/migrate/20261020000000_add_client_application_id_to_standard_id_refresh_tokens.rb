@@ -12,7 +12,8 @@
 # "gone" from the token's side, which a cascading or nullifying FK would erase.
 # One nullable column, no default, no index, no backfill: metadata-only on
 # PostgreSQL, so safe on a large table and under StrongMigrations. Until the
-# migration has run the gem does not write or read the column.
+# migration has run the gem does not write or read the column; a deactivated
+# application is still refused by client_id lookup, a deleted one is not.
 class AddClientApplicationIdToStandardIdRefreshTokens < ActiveRecord::Migration[8.0]
   include StandardId::MigrationHelpers
 
