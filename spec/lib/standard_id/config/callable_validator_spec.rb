@@ -15,6 +15,8 @@ RSpec.describe StandardId::Config::CallableValidator do
       passwordless.account_factory
       oauth.custom_claims
       oauth.claim_resolvers
+      oauth.audience_resolver
+      oauth.audience_scope_resolver
     ].freeze
   end
 
@@ -128,6 +130,28 @@ RSpec.describe StandardId::Config::CallableValidator do
       it "validates account_factory keywords" do
         StandardId.config.passwordless.account_factory = ->(identifier:, params:, request:) { nil }
         expect { described_class.validate! }.not_to raise_error
+      end
+
+      it "validates audience_resolver keywords" do
+        StandardId.config.oauth.audience_resolver = ->(client:, resource:) { nil }
+        expect { described_class.validate! }.not_to raise_error
+
+        StandardId.config.oauth.audience_resolver = ->(account:) { nil }
+        expect { described_class.validate! }.to raise_error(
+          StandardId::ConfigurationError,
+          /`oauth.audience_resolver`.*\[:account\]/
+        )
+      end
+
+      it "validates audience_scope_resolver keywords" do
+        StandardId.config.oauth.audience_scope_resolver = ->(audience:, configured_scopes:, **) { nil }
+        expect { described_class.validate! }.not_to raise_error
+
+        StandardId.config.oauth.audience_scope_resolver = ->(audience:, account:) { nil }
+        expect { described_class.validate! }.to raise_error(
+          StandardId::ConfigurationError,
+          /`oauth.audience_scope_resolver`.*\[:account\]/
+        )
       end
 
       it "raises when account_factory uses unexpected keywords" do

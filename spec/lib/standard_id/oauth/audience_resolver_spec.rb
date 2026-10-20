@@ -30,9 +30,16 @@ RSpec.describe StandardId::Oauth::AudienceResolver do
       expect(resolve(resource: "https://app.example.com/mcp/")).to eq("mcp-api")
     end
 
-    it "resolves an unmapped resource to nil rather than the client default" do
+    it "refuses an unmapped resource with invalid_target once a mapping is configured" do
       allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp" => "mcp-api")
-      expect(resolve(resource: "https://elsewhere.example.com")).to be_nil
+      expect { resolve(resource: "https://elsewhere.example.com") }.to raise_error(StandardId::InvalidTargetError) { |e|
+        expect(e.oauth_error_code).to eq(:invalid_target)
+      }
+    end
+
+    it "ignores the resource parameter when no mapping is configured, so the client default still applies" do
+      expect(resolve(resource: "https://app.example.com/mcp")).to eq("mcp")
+      expect(resolve(client: bare_client, resource: "https://app.example.com/mcp")).to be_nil
     end
 
     it "falls back to the client's registered metadata audience" do
@@ -67,6 +74,21 @@ RSpec.describe StandardId::Oauth::AudienceResolver do
         allow(StandardId.config.oauth).to receive(:audience_resolver).and_return(->(**) { nil })
         expect(resolve(audience: "https://api.example.com")).to eq("https://api.example.com")
         expect(resolve).to eq("mcp")
+      end
+
+      it "treats a blank answer as 'no audience' rather than falling through" do
+        allow(StandardId.config.oauth).to receive(:audience_resolver).and_return(->(**) { "" })
+        expect(resolve(audience: "https://api.example.com")).to be_nil
+      end
+
+      it "accepts a Symbol answer" do
+        allow(StandardId.config.oauth).to receive(:audience_resolver).and_return(->(**) { :kit })
+        expect(resolve).to eq("kit")
+      end
+
+      it "raises ConfigurationError on a non-string answer instead of stringifying it" do
+        allow(StandardId.config.oauth).to receive(:audience_resolver).and_return(->(**) { %w[a b] })
+        expect { resolve }.to raise_error(StandardId::ConfigurationError, /audience_resolver/)
       end
     end
   end

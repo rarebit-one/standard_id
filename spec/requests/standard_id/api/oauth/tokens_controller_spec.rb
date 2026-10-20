@@ -249,6 +249,36 @@ RSpec.describe "StandardId::Api::Oauth::TokensController", type: :request do
           expect(body["refresh_token"]).to be_present
         end
 
+        it "accepts a repeated RFC 8707 resource parameter at the token endpoint (audience was bound at /authorize)" do
+          code = issue_code!(client_id: public_client.client_id)
+
+          post path,
+            params: {
+              grant_type: "authorization_code",
+              client_id: public_client.client_id,
+              code: code,
+              redirect_uri: redirect_uri,
+              code_verifier: code_verifier,
+              resource: "https://app.example.com/mcp"
+            },
+            as: :json
+
+          expect(response).to have_http_status(:ok)
+          refresh = JSON.parse(response.body)["refresh_token"]
+
+          post path,
+            params: {
+              grant_type: "refresh_token",
+              client_id: public_client.client_id,
+              refresh_token: refresh,
+              resource: "https://app.example.com/mcp"
+            },
+            as: :json
+
+          expect(response).to have_http_status(:ok)
+          expect(JSON.parse(response.body)["access_token"]).to be_present
+        end
+
         it "rejects a wrong code_verifier with invalid_grant" do
           code = issue_code!(client_id: public_client.client_id)
 
