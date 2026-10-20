@@ -42,9 +42,9 @@ module StandardId
           keywords: %i[account auth_method provider request flow]
         },
         "oauth.custom_claims" => {
-          signature: "(account:, client:, request:, audience:)",
+          signature: "(account:, client:, request:, audience:, profile:)",
           kind: :keyword,
-          keywords: %i[account client request audience]
+          keywords: %i[account client request audience profile]
         },
         "oauth.audience_resolver" => {
           signature: "(client:, audience:, resource:, request:)",
@@ -73,8 +73,11 @@ module StandardId
         }
       }.freeze
 
-      # Keys available to claim_resolvers callables at invocation time.
-      CLAIM_RESOLVER_KEYWORDS = %i[client account request audience].freeze
+      # Keys available to claim_resolvers callables at invocation time
+      # (TokenGrantFlow#claim_resolvers_context). `profile` is the profile the
+      # audience binding resolved, or the one passed to TokenMinter; nil when
+      # the audience has no binding.
+      CLAIM_RESOLVER_KEYWORDS = %i[client account request audience profile].freeze
 
       class << self
         def validate!(config = StandardId.config)

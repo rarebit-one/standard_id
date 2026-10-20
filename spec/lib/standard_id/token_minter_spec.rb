@@ -151,6 +151,15 @@ RSpec.describe StandardId::TokenMinter do
       expect(issued.first[:profile_id]).to eq(2)
     end
 
+    it "passes the profile to a resolver declaring profile:, which also passes boot validation" do
+      resolvers = { "profile_id" => ->(account:, profile: nil) { profile&.id } }
+      allow(StandardId.config.oauth).to receive_messages(scope_claims: { "profile" => %w[profile_id] }, claim_resolvers: resolvers)
+      expect { StandardId::Config::CallableValidator.validate! }.not_to raise_error
+
+      result = described_class.mint(account: account, audience: "harness", grant_type: "harness.mint", scopes: "profile", profile: staff)
+      expect(decode(result.access_token)[:profile_id]).to eq(1)
+    end
+
     it "refuses a profile of another account, an inactive one, or one of an unbound type" do
       other = profile_class.new(id: 3, account_id: SecureRandom.uuid, profileable_type: "PlatformProfile", active: true)
       inactive = profile_class.new(id: 4, account_id: account.id, profileable_type: "PlatformProfile", active: false)
