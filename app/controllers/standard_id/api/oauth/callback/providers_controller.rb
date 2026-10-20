@@ -86,40 +86,43 @@ module StandardId
         end
 
         # config.social.before_account: before find-or-create, so a refusal
-        # here has nothing to clean up.
+        # here has nothing to clean up. The hook audits its own refusals: no
+        # event is published for them (none would have an account to name).
         def run_before_social_account(social_info:, provider_tokens:)
-          hook = StandardId.config.social.before_account
-          return unless hook.respond_to?(:call)
-
-          context = {
+          call_social_hook(StandardId.config.social.before_account,
             provider: provider.provider_name,
             social_info: social_info,
             provider_tokens: provider_tokens,
+            **requested_audience_and_scopes,
             params: forwarded_request_params,
-            request: request
-          }
-          hook.call(**StandardId::Utils::CallableParameterFilter.filter(hook, context))
+            request: request)
         end
 
         # config.social.before_mint, inside the same begin/rescue as the mint
-        # so a refusal here is cleaned up exactly like one from the grant.
+        # so a refusal here is cleaned up exactly like one from the grant —
+        # except in the concurrent-removal race, where the retryable
+        # InvalidGrantError replaces even a StandardId::RequestRefused.
         def run_before_social_mint(account:, social_info:, provider_tokens:)
-          hook = StandardId.config.social.before_mint
-          return unless hook.respond_to?(:call)
-
-          # audience: and scopes: are passed explicitly: forwarded_request_params
-          # strips both (RESERVED_CALLBACK_PARAMS), and the audience is the
-          # thing the headline use case keys on.
-          context = {
+          call_social_hook(StandardId.config.social.before_mint,
             account: account,
             provider: provider.provider_name,
             social_info: social_info,
             provider_tokens: provider_tokens,
-            audience: params[:audience].presence,
-            scopes: params[:scope].presence,
+            **requested_audience_and_scopes,
             params: forwarded_request_params,
-            request: request
-          }
+            request: request)
+        end
+
+        # audience: and scopes: are passed explicitly: forwarded_request_params
+        # strips both (RESERVED_CALLBACK_PARAMS), and the audience is the
+        # thing the headline use cases key on.
+        def requested_audience_and_scopes
+          { audience: params[:audience].presence, scopes: params[:scope].presence }
+        end
+
+        def call_social_hook(hook, **context)
+          return unless hook.respond_to?(:call)
+
           hook.call(**StandardId::Utils::CallableParameterFilter.filter(hook, context))
         end
 
