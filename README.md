@@ -210,9 +210,11 @@ end
 Refresh tokens are **bound to the `ClientApplication`** their grant resolved
 (`standard_id_refresh_tokens.client_application_id`, since 0.48). Deactivating
 the application suspends every refresh token it was issued — the grant answers
-the generic `invalid_grant` — and reactivating it restores them; deleting the
-application ends them for good, which is what makes RFC 7592 `DELETE` on a
-dynamically registered client an actual revocation. A token whose `client_id`
+the generic `invalid_grant` — and reactivating it restores them (a replayed,
+already-rotated token still trips reuse detection meanwhile and revokes its
+family, as it always did); deleting the application ends them for good, which
+is what makes RFC 7592 `DELETE` on a dynamically registered client an actual
+revocation. A token whose `client_id`
 is not a registered application (social sign-in refreshes as the provider's
 name) has no application to share a fate with and is left alone. There is no
 setting: this is how the grant behaves once the migration has run.

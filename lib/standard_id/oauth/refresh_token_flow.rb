@@ -87,14 +87,23 @@ module StandardId
       # issued kept rotating. Hosts closed that with a prepend on this class.
       #
       # The binding is the row's `client_application_id` (migration
-      # 20261020000000), copied down each rotation. A row minted before the
-      # column existed is bound lazily, by the token's client_id: refused now if
-      # an application with that client_id exists and is inactive, and its
-      # successor carries the id. A token whose client_id is not an application
-      # at all (social sign-in refreshes as the provider's name) is left alone.
+      # 20261020000000), copied down each rotation. A row without one — minted
+      # before the column existed, or on a host that has not migrated yet — is
+      # checked by the token's client_id instead: refused if an application with
+      # that client_id exists and is inactive, and (once the column exists) its
+      # successor carries the id. So deactivation bites with or without the
+      # migration; only deletion needs the column, because a deleted
+      # application leaves nothing to look up by client_id. A token whose
+      # client_id is not an application at all (social sign-in refreshes as the
+      # provider's name; a free-form client_id that happens to collide with a
+      # registered one is treated as that application) is left alone.
       #
       # Deactivation suspends: nothing is revoked, so reactivating the
-      # application restores its tokens. Deletion is final because the row is
+      # application restores its tokens. One exception, deliberate: reuse
+      # detection in #validate_refresh_token_record! runs first, so a replayed
+      # already-rotated token still revokes its family while the application is
+      # suspended. That is the theft signal it always was, and suspension is
+      # not a reason to stop honouring it. Deletion is final because the row is
       # gone and client_ids are random. Either way the answer is the generic
       # `invalid_grant` every other dead token gets (RFC 6749 §5.2): a distinct
       # message would tell whoever holds a leaked token why it stopped working.

@@ -40,6 +40,13 @@ RSpec.describe StandardId::RefreshToken, type: :model do
       expect(token.client_application_live?).to be true
     end
 
+    it "is false when only deactivated_at is set, matching ClientApplication#active?" do
+      token = create_refresh_token(client_application_id: client.id)
+      client.update_columns(deactivated_at: Time.current)
+
+      expect(token.client_application_live?).to be false
+    end
+
     it "is false once the application is deleted, because there is no foreign key to erase the binding" do
       token = create_refresh_token(client_application_id: client.id)
       client.strict_loading!(false)
