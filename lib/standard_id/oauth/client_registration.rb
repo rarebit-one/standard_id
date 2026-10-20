@@ -92,7 +92,9 @@ module StandardId
       end
 
       # OAUTH_CLIENT_REGISTERED / _UPDATED / _DEREGISTERED, after the change has
-      # committed. The owner is identified by type and id rather than published
+      # committed — the outermost transaction, so a host that wraps the call in
+      # its own transaction gets no event for a change it then rolls back
+      # (and gets it immediately when no transaction is open). The owner is identified by type and id rather than published
       # as a record: on update and deregister it is not loaded, and a host
       # running strict_loading_by_default would refuse the lazy read. Never
       # raises: the change is already committed, and a registration whose
@@ -110,7 +112,11 @@ module StandardId
           owner_id: client.owner_id
         }
         payload[:client_metadata] = client_metadata unless client_metadata.nil?
-        StandardId::Events.publish(event, payload)
+        ActiveRecord.after_all_transactions_commit do
+          StandardId::Events.publish(event, payload)
+        rescue StandardError => e
+          StandardId.logger&.warn("[StandardId] failed to publish #{event}: #{e.class}: #{e.message}")
+        end
       rescue StandardError => e
         StandardId.logger&.warn("[StandardId] failed to publish #{event}: #{e.class}: #{e.message}")
       end

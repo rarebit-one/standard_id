@@ -124,12 +124,13 @@ module StandardId
     # Enforce `audience_profile_types[matched]` against the current account.
     # No-op when the audience has no binding configured (back-compat).
     def enforce_audience_profile_binding!(matched_audience, token_audiences)
-      expected_types = StandardId::Oauth::AudienceProfileResolver.profile_types_for(matched_audience)
+      binding_audience = profile_binding_audience(matched_audience)
+      expected_types = StandardId::Oauth::AudienceProfileResolver.profile_types_for(binding_audience)
       return if expected_types.empty?
 
       profile = StandardId::Oauth::AudienceProfileResolver.call(
         account: current_account,
-        audience: matched_audience
+        audience: binding_audience
       )
       actual_type = profile_type_name(profile)
 
@@ -149,6 +150,21 @@ module StandardId
       )
       emit_audience_mismatch(error)
       raise error
+    end
+
+    # The key `audience_profile_types` is looked up under: the matched `aud`,
+    # or — for a StandardId::ResourceServer whose tokens carry the resource's
+    # URL (`protected_resources` entry with `audience: :resource`) — the
+    # resource's name when only that is configured. Without the fallback a
+    # binding configured under the name would silently stop applying once the
+    # resource switched to URL audiences.
+    def profile_binding_audience(matched_audience)
+      return matched_audience if StandardId::Oauth::AudienceProfileResolver.profile_types_for(matched_audience).any?
+
+      resource_name = respond_to?(:_protected_resource_audience) ? _protected_resource_audience.presence : nil
+      return matched_audience if resource_name.nil?
+
+      StandardId::Oauth::AudienceProfileResolver.profile_types_for(resource_name).any? ? resource_name : matched_audience
     end
 
     def profile_type_name(profile)

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **An `audience_profile_types` binding keyed by the resource name still applies under `audience: :resource`.** The binding is looked up under the matched `aud` first and, in a `StandardId::ResourceServer`, falls back to the resource's name, so switching a resource to URL audiences no longer silently drops a binding configured as `"mcp" => [...]`.
+- **Dynamic-client lifecycle events wait for the outermost transaction** (`ActiveRecord.after_all_transactions_commit`): a host that wraps `ClientRegistration` in its own transaction and rolls it back no longer gets an event for a client that never existed.
+- `StandardId::ResourceServer` resolves a resource's `origin:` callable once per request.
+
 ### Added
 
 - **Dynamic-client lifecycle events**: `oauth.client.registered`, `oauth.client.updated` and `oauth.client.deregistered` (`StandardId::Events::OAUTH_CLIENT_*`, in `OAUTH_EVENTS` and `SECURITY_EVENTS`), published by `Oauth::ClientRegistration` once the change has committed, with the client, its registered metadata, the owner by `owner_type` / `owner_id` (never the record, so no lazy load under strict loading) and, on registration and update, the RFC 7591 document as sent. A raising subscriber is logged and never fails the registration, whose one-time secrets are already committed. Consumers can move their registration audit off the owner row's `after_create_commit` and gain update/deregistration rows.

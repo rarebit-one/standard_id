@@ -340,6 +340,39 @@ RSpec.describe StandardId::Oauth::ClientRegistration do
       expect(events).to be_empty
     end
 
+    it "waits for the host's own transaction to commit, and publishes nothing when it rolls back" do
+      events = capture(StandardId::Events::OAUTH_CLIENT_REGISTERED) do
+        ActiveRecord::Base.transaction do
+          described_class.call(redirect_uris: ["https://app.example.com/cb"])
+          raise ActiveRecord::Rollback
+        end
+      end
+      expect(events).to be_empty
+
+      events = capture(StandardId::Events::OAUTH_CLIENT_REGISTERED) do
+        ActiveRecord::Base.transaction do
+          described_class.call(redirect_uris: ["https://app.example.com/cb"])
+          expect(events).to be_empty
+        end
+      end
+      expect(events.size).to eq(1)
+    end
+
+    it "publishes the updated document and survives a raising subscriber on update and deregister" do
+      client = described_class.call(redirect_uris: ["https://app.example.com/cb"]).client
+      updated = capture(StandardId::Events::OAUTH_CLIENT_UPDATED) do
+        described_class.update(client, client_name: "Renamed", redirect_uris: ["https://app.example.com/cb"])
+      end
+      expect(updated.first.payload[:client_metadata]).to include(client_name: "Renamed")
+
+      sub = StandardId::Events.subscribe(/oauth\.client\./) { raise "audit down" }
+      expect { described_class.update(client, client_name: "Again", redirect_uris: ["https://app.example.com/cb"]) }.not_to raise_error
+      expect { described_class.deregister(client) }.not_to raise_error
+      expect(client.reload).not_to be_active
+    ensure
+      StandardId::Events.unsubscribe(sub) if sub
+    end
+
     it "does not fail a committed registration when a subscriber raises" do
       sub = StandardId::Events.subscribe(StandardId::Events::OAUTH_CLIENT_REGISTERED) { raise "audit down" }
       result = described_class.call(redirect_uris: ["https://app.example.com/cb"])

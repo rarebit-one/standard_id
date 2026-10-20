@@ -127,6 +127,15 @@ RSpec.describe "StandardId::ResourceServer", type: :request do
       expect(challenge).to include(%(realm="mcp"), %(resource_metadata="#{public_metadata_url}"))
     end
 
+    it "still applies an audience_profile_types binding configured under the resource name" do
+      allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return("mcp" => %w[OrganisationProfile])
+      allow(StandardId::Oauth::AudienceProfileResolver).to receive(:call).and_return(nil)
+      as_service(account: account, scope: "mcp", extra: { aud: "https://public.example.com/mcp" }) { http_get "/api/v1/mcp" }
+
+      expect(response).to have_http_status(:forbidden)
+      expect(StandardId::Oauth::AudienceProfileResolver).to have_received(:call).with(account: account, audience: "mcp")
+    end
+
     it "serves the document with the public resource URL" do
       http_get "/.well-known/oauth-protected-resource/mcp"
 
