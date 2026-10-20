@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Refresh tokens are bound to their `ClientApplication`**, and the `refresh_token` grant refuses a token whose application has been deactivated or deleted. Migration `20261020000000_add_client_application_id_to_standard_id_refresh_tokens` adds the nullable column; each grant records the application its `client_id` resolved to (authorization_code, client_credentials, any grant whose `client_id` names one) and every rotation copies it to the successor. The refusal is the same 400 `invalid_grant` / "Refresh token is no longer valid" every other dead token gets, so a leaked token learns nothing from it. Deactivation suspends (reactivating the application restores its tokens); deletion is final. A row minted before the migration ran is bound lazily on its next rotation by `client_id`, and refused meanwhile only if an application with that `client_id` exists and is inactive. A token whose `client_id` is not a registered application (social sign-in refreshes as the provider's name) is untouched. `/oauth/introspect` reports a refresh token bound to a gone or deactivated application as inactive. Replaces the host-side prepend sidekick-web carried as `config/initializers/standard_id_refresh_client_guard.rb` (core-platform-brain#490), which can be deleted once this is installed. `ClientApplication#refresh_tokens` is the new association; there is deliberately no foreign key, so a deleted application stays detectable from the token's side.
+
+### Upgrade
+
+- Run `bin/rails standard_id:install:migrations && bin/rails db:migrate`. Until the column exists the gem neither writes nor reads the binding, and the boot-time migration check names it.
+
 ## [0.47.0] - 2026-10-19
 
 ### Added

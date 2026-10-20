@@ -16,6 +16,10 @@ module StandardId
 
     has_many :client_secret_credentials, dependent: :destroy
     has_many :authorization_codes, foreign_key: :client_id, primary_key: :client_id, dependent: :destroy
+    # Refresh tokens issued to this application (migration 20261020000000). Not
+    # a dependent association: rows outlive a deleted application on purpose,
+    # so the refresh_token grant and introspection can see that it is gone.
+    has_many :refresh_tokens, class_name: "StandardId::RefreshToken", inverse_of: :client_application
 
     accepts_nested_attributes_for :client_secret_credentials, allow_destroy: false
 

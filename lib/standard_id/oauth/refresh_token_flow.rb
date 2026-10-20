@@ -42,6 +42,7 @@ module StandardId
 
         validate_refresh_token_record!
         validate_scope_narrowing!
+        validate_client_application_liveness!
       end
 
       private
@@ -75,6 +76,57 @@ module StandardId
       rescue StandardId::LoginMethodDenied
         @current_refresh_token_record&.revoke_family!
         raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
+      end
+
+      # Refuse a refresh whose ClientApplication has been deactivated or deleted.
+      #
+      # Deleting a client is the only revocation RFC 7592 gives a client manager,
+      # and a public (DCR, PKCE) client never sends a secret, so until this check
+      # existed the grant never looked the client up at all: DELETE
+      # /oauth/register/:client_id answered 204 while every refresh token it had
+      # issued kept rotating. Hosts closed that with a prepend on this class.
+      #
+      # The binding is the row's `client_application_id` (migration
+      # 20261020000000), copied down each rotation. A row minted before the
+      # column existed is bound lazily, by the token's client_id: refused now if
+      # an application with that client_id exists and is inactive, and its
+      # successor carries the id. A token whose client_id is not an application
+      # at all (social sign-in refreshes as the provider's name) is left alone.
+      #
+      # Deactivation suspends: nothing is revoked, so reactivating the
+      # application restores its tokens. Deletion is final because the row is
+      # gone and client_ids are random. Either way the answer is the generic
+      # `invalid_grant` every other dead token gets (RFC 6749 §5.2): a distinct
+      # message would tell whoever holds a leaked token why it stopped working.
+      def validate_client_application_liveness!
+        return if @current_refresh_token_record.nil?
+        return if client_application_live?
+
+        raise StandardId::InvalidGrantError, "Refresh token is no longer valid"
+      end
+
+      def client_application_live?
+        record = @current_refresh_token_record
+        return record.client_application_live? if record.try(:client_application_id).present?
+
+        client = token_client
+        client.nil? || client.active?
+      end
+
+      # Resolved by client_id (TokenGrantFlow#token_client), memoised: the
+      # liveness check, the successor's binding and the claim resolvers all
+      # read it on the hot path.
+      def token_client
+        return @token_client if defined?(@token_client)
+
+        @token_client = super
+      end
+
+      # The successor inherits the presented token's binding; a legacy unbound
+      # token's successor is bound by client_id (see
+      # #validate_client_application_liveness!).
+      def bound_client_application_id
+        @current_refresh_token_record.try(:client_application_id) || super
       end
 
       def validate_refresh_token_record!

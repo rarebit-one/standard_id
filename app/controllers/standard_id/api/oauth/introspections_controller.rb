@@ -105,6 +105,9 @@ module StandardId
           end
           return render_inactive if persisted && !persisted.active?
           return render_inactive if persisted&.session && !persisted.session.active?
+          # ...and whose ClientApplication is gone or deactivated, which the
+          # refresh grant refuses too (#validate_client_application_liveness!).
+          return render_inactive if persisted && !persisted.client_application_live?
 
           render json: active_response(payload, persisted), status: :ok
         end

@@ -5,6 +5,12 @@ module StandardId
     belongs_to :account, class_name: StandardId.config.account_class_name
     belongs_to :session, class_name: "StandardId::Session", optional: true
     belongs_to :previous_token, class_name: "StandardId::RefreshToken", optional: true
+    # The ClientApplication this token was issued to, when the grant's client_id
+    # named one (migration 20261020000000). NULL for tokens whose client_id is
+    # not an application (social sign-in refreshes as the provider's name) and
+    # for rows minted before the column existed. No FK on purpose: a deleted
+    # application has to stay detectable as "gone" (see #client_application_live?).
+    belongs_to :client_application, class_name: "StandardId::ClientApplication", optional: true
 
     scope :active, -> { where(revoked_at: nil).where("expires_at > ?", Time.current) }
     scope :expired, -> { where("expires_at <= ?", Time.current) }
@@ -23,6 +29,24 @@ module StandardId
 
     def active?
       !revoked? && !expired?
+    end
+
+    # Whether the host has run migration 20261020000000. Until then the gem
+    # neither writes nor reads the binding.
+    def self.client_binding_column?
+      column_names.include?("client_application_id")
+    rescue ActiveRecord::ActiveRecordError
+      false
+    end
+
+    # false once the application this token is bound to has been deactivated
+    # or deleted. An unbound token (NULL, or the column not yet migrated) is
+    # live by this measure: there is no application whose fate it shares.
+    def client_application_live?
+      return true unless self.class.client_binding_column?
+      return true if client_application_id.nil?
+
+      StandardId::ClientApplication.active.exists?(id: client_application_id)
     end
 
     def expired?

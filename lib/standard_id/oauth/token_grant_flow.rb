@@ -230,8 +230,25 @@ module StandardId
           token_digest: StandardId::RefreshToken.digest_for(jti),
           expires_at: expires_at,
           previous_token: previous_refresh_token_record,
-          **StandardId::AuthLineage.refresh_token_attributes(refresh_token_auth_lineage)
+          **StandardId::AuthLineage.refresh_token_attributes(refresh_token_auth_lineage),
+          **client_binding_attributes
         )
+      end
+
+      # The ClientApplication the refresh token is bound to, so the
+      # refresh_token grant can refuse it once that application is deactivated
+      # or deleted. Nothing is written until migration 20261020000000 has run.
+      def client_binding_attributes
+        return {} unless StandardId::RefreshToken.client_binding_column?
+
+        { client_application_id: bound_client_application_id }
+      end
+
+      # nil when the grant's client_id is not a registered application (the
+      # social flow, a password/passwordless grant with a free-form client_id):
+      # such a token has no application whose fate to share.
+      def bound_client_application_id
+        token_client&.id
       end
 
       # How the authentication behind this grant was established, recorded on

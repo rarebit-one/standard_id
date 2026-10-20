@@ -207,6 +207,16 @@ StandardId.configure do |config|
 end
 ```
 
+Refresh tokens are **bound to the `ClientApplication`** their grant resolved
+(`standard_id_refresh_tokens.client_application_id`, since 0.48). Deactivating
+the application suspends every refresh token it was issued — the grant answers
+the generic `invalid_grant` — and reactivating it restores them; deleting the
+application ends them for good, which is what makes RFC 7592 `DELETE` on a
+dynamically registered client an actual revocation. A token whose `client_id`
+is not a registered application (social sign-in refreshes as the provider's
+name) has no application to share a fate with and is left alone. There is no
+setting: this is how the grant behaves once the migration has run.
+
 Under `:grant`, revoking a **stateless access token is a no-op** — this engine
 has no per-access-token store, so it cannot invalidate one before its `exp`
 (the response is still `200`, per RFC 7009 §2.2). Clients that need revocation

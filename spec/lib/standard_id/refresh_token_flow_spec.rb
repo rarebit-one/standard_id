@@ -195,7 +195,9 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
 
     it "passes account and client context to the resolver" do
       create_refresh_token_record
-      client_application = instance_double("StandardId::ClientApplication")
+      # The refresh grant also reads the client's id (to bind the successor) and
+      # active flag (client liveness) from the same lookup.
+      client_application = instance_double("StandardId::ClientApplication", id: 42, active?: true)
 
       allow(StandardId).to receive(:account_class).and_return(Account)
       allow(StandardId::ClientApplication).to receive(:find_by).with(client_id: client_id).and_return(client_application)
@@ -513,6 +515,90 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       flow = described_class.new({ client_id: client_id, refresh_token: "rtok" }, request)
 
       expect { flow.authenticate! }.not_to raise_error
+    end
+  end
+  describe "client application liveness" do
+    let(:client) do
+      StandardId::ClientApplication.create!(owner: account, name: "Bound Client", redirect_uris: "https://app.example.com/cb")
+    end
+    let(:client_id) { client.client_id }
+    let(:flow) { described_class.new({ client_id: client_id, refresh_token: "rtok" }, request) }
+
+    before { allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload) }
+
+    def expect_refusal(flow)
+      expect { flow.authenticate! }.to raise_error(StandardId::InvalidGrantError, "Refresh token is no longer valid")
+    end
+
+    context "when the token is bound to the application" do
+      let!(:record) { create_refresh_token_record(client_application_id: client.id) }
+
+      it "authenticates while the application is active" do
+        expect { flow.authenticate! }.not_to raise_error
+      end
+
+      it "refuses once the application is deactivated, without revoking the token" do
+        client.deactivate!
+
+        expect_refusal(flow)
+        expect(record.reload).to be_active
+      end
+
+      it "honours the token again once the application is reactivated" do
+        client.deactivate!
+        client.activate!
+
+        expect { flow.authenticate! }.not_to raise_error
+      end
+
+      it "refuses once the application is deleted" do
+        # The dummy app raises on lazy loads; destroy! cascades through the
+        # dependent associations, as a host's deregistration would.
+        client.strict_loading!(false)
+        client.destroy!
+
+        expect_refusal(described_class.new({ client_id: client_id, refresh_token: "rtok" }, request))
+      end
+
+      it "copies the binding onto the rotated successor" do
+        described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
+
+        successor = StandardId::RefreshToken.find_by!(previous_token_id: record.id)
+        expect(successor.client_application_id).to eq(client.id)
+      end
+    end
+
+    context "when the token predates the binding column (client_application_id NULL)" do
+      let!(:record) { create_refresh_token_record(client_application_id: nil) }
+
+      it "authenticates while the application named by client_id is active" do
+        expect { flow.authenticate! }.not_to raise_error
+      end
+
+      it "refuses when the application named by client_id is deactivated" do
+        client.deactivate!
+
+        expect_refusal(flow)
+      end
+
+      it "binds the successor by client_id" do
+        described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
+
+        successor = StandardId::RefreshToken.find_by!(previous_token_id: record.id)
+        expect(successor.client_application_id).to eq(client.id)
+      end
+    end
+
+    context "when the client_id is not a registered application (social sign-in refreshes as the provider)" do
+      let(:client_id) { "google" }
+      let!(:record) { create_refresh_token_record(client_application_id: nil) }
+
+      it "leaves the token alone and its successor unbound" do
+        described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
+
+        successor = StandardId::RefreshToken.find_by!(previous_token_id: record.id)
+        expect(successor.client_application_id).to be_nil
+      end
     end
   end
 end
