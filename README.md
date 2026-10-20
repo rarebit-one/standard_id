@@ -944,6 +944,15 @@ end
 
 The concern works with both PostgreSQL enum and string columns - Rails enum handles both transparently.
 
+If your column already carries a different value for a deactivated account,
+keep it: `c.inactive_account_status = :suspended` (set in the initializer,
+before the model loads) makes the concern declare `{ active: "active",
+suspended: "suspended" }`, so `suspended?`, the `suspended` scope and
+`deactivate!` all use your word, and the sign-in / token / live-session guard
+raises `AccountDeactivatedError, "Account is suspended"`. `inactive?` remains as
+an alias. `activated_at` / `deactivated_at` are stamped only when the columns
+exist.
+
 ### Usage
 
 ```ruby
