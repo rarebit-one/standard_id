@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_20_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_20_120000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -71,6 +71,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_20_000000) do
     t.integer "owner_id", null: false
     t.string "owner_type", null: false
     t.text "redirect_uris", null: false
+    t.string "registration_access_token_digest"
     t.boolean "require_consent", default: true, null: false
     t.boolean "require_pkce", default: true, null: false
     t.string "response_types", default: "code"

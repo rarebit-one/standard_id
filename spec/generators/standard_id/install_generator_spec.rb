@@ -183,10 +183,11 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
         StandardId::CleanupExpiredRefreshTokensJob
         StandardId::CleanupExpiredAuthorizationCodesJob
         StandardId::CleanupExpiredCodeChallengesJob
+        StandardId::PurgeStaleDynamicClientsJob
       ]
     end
 
-    it "schedules all four cleanup jobs under production:" do
+    it "schedules all five cleanup jobs under production:" do
       File.write(recurring_path, <<~YAML)
         production:
           clear_solid_queue_finished_jobs:
@@ -207,6 +208,7 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
       expect(parsed["production"]).to have_key("clear_solid_queue_finished_jobs")
       expect(parsed["development"].keys).to eq(["noop"])
       expect(parsed["production"]["standard_id_cleanup_expired_code_challenges"]["schedule"]).to eq("every hour at minute 13")
+      expect(parsed["production"]["standard_id_purge_stale_dynamic_clients"]["schedule"]).to eq("every day at 4am")
     end
 
     it "is idempotent" do

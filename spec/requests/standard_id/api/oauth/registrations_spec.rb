@@ -142,4 +142,89 @@ RSpec.describe "StandardId::Api::Oauth::RegistrationsController", type: :request
       end
     end
   end
+
+  describe "RFC 7592 client-configuration endpoint" do
+    let(:resolver) { -> { owner } }
+
+    before do
+      enable_dcr!(resolver)
+      allow(StandardId.config.oauth).to receive(:dynamic_registration_attributes).and_return(scopes: %w[mcp mcp:read])
+    end
+
+    def register!
+      post path, params: { client_name: "Managed", redirect_uris: ["https://app.example.com/cb"] }, as: :json
+      expect(response).to have_http_status(:created)
+      response.parsed_body
+    end
+
+    def manage(verb, client_id, token: nil, params: nil)
+      headers = token ? { "Authorization" => "Bearer #{token}" } : {}
+      send(verb, "#{path}/#{client_id}", params: params, headers: headers, as: :json)
+    end
+
+    it "returns registration_client_uri and a one-time registration_access_token at registration" do
+      body = register!
+      expect(body["registration_access_token"]).to be_present
+      expect(body["registration_client_uri"]).to eq("http://www.example.com/api/oauth/register/#{body['client_id']}")
+      expect(body["scope"]).to eq("mcp mcp:read")
+    end
+
+    it "reads, updates and deregisters the client with its token" do
+      body = register!
+      client_id = body["client_id"]
+      token = body["registration_access_token"]
+
+      manage(:get, client_id, token: token)
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body).to include("client_id" => client_id, "client_name" => "Managed", "registration_client_uri" => body["registration_client_uri"])
+      expect(response.parsed_body).not_to have_key("registration_access_token")
+
+      manage(:put, client_id, token: token, params: { client_id: client_id, client_name: "Renamed", redirect_uris: ["https://app.example.com/cb2"], scope: "openid" })
+      expect(response).to have_http_status(:ok)
+      expect(response.parsed_body).to include("client_name" => "Renamed", "redirect_uris" => ["https://app.example.com/cb2"], "scope" => "mcp mcp:read")
+
+      manage(:delete, client_id, token: token)
+      expect(response).to have_http_status(:no_content)
+      expect(StandardId::ClientApplication.find_by(client_id: client_id)).not_to be_active
+
+      manage(:get, client_id, token: token)
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it "401s a missing token (bare challenge), a wrong token, and an unknown or non-dynamic client alike" do
+      body = register!
+      client_id = body["client_id"]
+
+      manage(:get, client_id)
+      expect(response).to have_http_status(:unauthorized)
+      expect(response.headers["WWW-Authenticate"]).to eq("Bearer")
+
+      manage(:get, client_id, token: "wrong")
+      expect(response).to have_http_status(:unauthorized)
+      expect(response.headers["WWW-Authenticate"]).to eq(%(Bearer error="invalid_token"))
+      expect(response.parsed_body["error"]).to eq("invalid_token")
+
+      manage(:get, "nope", token: body["registration_access_token"])
+      expect(response).to have_http_status(:unauthorized)
+
+      static = StandardId::ClientApplication.create!(owner: owner, name: "Static", client_id: "static_client",
+        redirect_uris: "https://app.example.com/cb", scopes: "read")
+      manage(:get, static.client_id, token: body["registration_access_token"])
+      expect(response).to have_http_status(:unauthorized)
+    end
+
+    it "renders a 400 RFC 7591 error for an invalid update" do
+      body = register!
+      manage(:put, body["client_id"], token: body["registration_access_token"], params: { redirect_uris: ["not a uri"] })
+      expect(response).to have_http_status(:bad_request)
+      expect(response.parsed_body["error"]).to eq("invalid_redirect_uri")
+    end
+
+    it "is absent while dynamic registration is disabled" do
+      body = register!
+      allow(StandardId.config.oauth).to receive(:dynamic_registration_enabled).and_return(false)
+      manage(:get, body["client_id"], token: body["registration_access_token"])
+      expect(response).to have_http_status(:not_found)
+    end
+  end
 end

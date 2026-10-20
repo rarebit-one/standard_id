@@ -1,5 +1,5 @@
 module StandardId
-  # Runs all four expired-row cleanup jobs inline, in one job.
+  # Runs all five cleanup jobs inline, in one job.
   #
   # Schedule this ONE job instead of the four individual ones when you want a
   # single recurring entry — typically so the schedule carries one cron
@@ -14,7 +14,7 @@ module StandardId
   #   end
   #
   # One table's DELETE failing (a lock timeout, say) does not skip the others;
-  # the first error is re-raised once all four have run, so the run still
+  # the first error is re-raised once all five have run, so the run still
   # fails its cron check-in and lands in the queue's failed executions.
   #
   # Each job keeps its default grace windows (see README "Scheduled
@@ -28,7 +28,8 @@ module StandardId
         StandardId::CleanupExpiredSessionsJob,
         StandardId::CleanupExpiredRefreshTokensJob,
         StandardId::CleanupExpiredAuthorizationCodesJob,
-        StandardId::CleanupExpiredCodeChallengesJob
+        StandardId::CleanupExpiredCodeChallengesJob,
+        StandardId::PurgeStaleDynamicClientsJob
       ]
     end
 

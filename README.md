@@ -411,6 +411,45 @@ for an audience outside `config.oauth.allowed_audiences` is refused at decode ti
 as `401 invalid_token`, before the concern sees it; the `403 insufficient_scope` is
 for a token minted for another *allowed* audience.
 
+### Dynamic Client Registration (RFC 7591 / RFC 7592)
+
+`POST /oauth/register` is off by default (`config.oauth.dynamic_registration_enabled`).
+When on, a self-registering client (an MCP connector, say) chooses only what a client
+should: its name, redirect URIs, grant and response types, and its
+`token_endpoint_auth_method` from `config.oauth.dynamic_registration_auth_methods`
+(`%w[none]` to accept public PKCE clients only). Everything else is yours to pin:
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.dynamic_registration_enabled = true
+  config.oauth.dynamic_registration_owner = ->(metadata:) { Oauth::DynamicRegistration.create!(client_metadata: metadata) }
+  config.oauth.dynamic_registration_attributes = {
+    scopes: %w[mcp mcp:read],                       # whatever scope was requested
+    metadata: { "audience" => "mcp", "dcr" => true }, # what AudienceResolver reads at /authorize
+    access_token_lifetime: 3600
+  }
+end
+```
+
+`dynamic_registration_attributes` may also be a callable taking `metadata:` and/or
+`request:`. Pinnable keys: `scopes`, `metadata`, `access_token_lifetime`,
+`authorization_code_lifetime`, `require_consent`, `description`. With no `scopes`
+pinned, a pinned `metadata["audience"]` that has an `audience_scopes` vocabulary
+gives the client that vocabulary. Every registered client is PKCE/S256 and
+consent-gated.
+
+Once migration `20261020120000` has run, the registration response also carries
+`registration_client_uri` and a one-time `registration_access_token` (stored as a
+digest), and the RFC 7592 client-configuration endpoint is live:
+`GET`/`PUT`/`DELETE /oauth/register/:client_id`, authenticated by that token as a
+bearer credential. `PUT` changes the client-shaped members under the registration
+rules (never the pinned attributes or the client type); `DELETE` deactivates the
+client and revokes its refresh tokens. An unknown client, a wrong token and a
+deregistered client are the same `401`. `StandardId::PurgeStaleDynamicClientsJob`
+(in `CleanupAllJob`, `standard_id:cleanup:dynamic_clients`, scheduled daily by the
+install generator) deletes deregistered clients and clients nobody ever authorized
+after a 7-day grace window.
+
 ### Social Login Setup
 
 Need the account ready before the token is minted — a profile the requested

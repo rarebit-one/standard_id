@@ -27,6 +27,11 @@ StandardId::ApiEngine.routes.draw do
       # The controller returns 404 when oauth.dynamic_registration_enabled is
       # false, so the endpoint is fully absent unless explicitly enabled.
       resource :register, only: [:create], controller: :registrations
+      # RFC 7592 client-configuration endpoint, authenticated by the
+      # registration access token issued at registration.
+      get "register/:client_id", to: "registrations#show", as: :registration
+      put "register/:client_id", to: "registrations#update"
+      delete "register/:client_id", to: "registrations#destroy"
 
       namespace :callback do
         post ":provider", to: "providers#callback", as: :provider

@@ -44,7 +44,8 @@ module StandardId
         "standard_id_cleanup_expired_sessions" => ["StandardId::CleanupExpiredSessionsJob", "every hour at minute 6"],
         "standard_id_cleanup_expired_refresh_tokens" => ["StandardId::CleanupExpiredRefreshTokensJob", "every hour at minute 3"],
         "standard_id_cleanup_expired_authorization_codes" => ["StandardId::CleanupExpiredAuthorizationCodesJob", "every hour at minute 9"],
-        "standard_id_cleanup_expired_code_challenges" => ["StandardId::CleanupExpiredCodeChallengesJob", "every hour at minute 13"]
+        "standard_id_cleanup_expired_code_challenges" => ["StandardId::CleanupExpiredCodeChallengesJob", "every hour at minute 13"],
+        "standard_id_purge_stale_dynamic_clients" => ["StandardId::PurgeStaleDynamicClientsJob", "every day at 4am"]
       }.freeze
 
       def create_initializer_file
