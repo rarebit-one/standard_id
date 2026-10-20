@@ -164,6 +164,10 @@ module StandardId
           end
         end
 
+        public
+
+        # The type name a profile is matched on: `profileable_type`, else
+        # `type`, else its class name.
         def profile_type_for(profile)
           if profile.respond_to?(:profileable_type)
             profile.profileable_type.to_s

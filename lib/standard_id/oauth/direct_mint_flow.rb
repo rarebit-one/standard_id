@@ -13,9 +13,16 @@ module StandardId
     # grant_type strings to flows explicitly, and this one is never in that
     # map. The caller supplies the account; the flow authenticates nothing.
     class DirectMintFlow < TokenGrantFlow
+      AUDIT_ERROR_MODES = %i[raise report].freeze
+
       def initialize(account:, audience:, grant_type:, scopes: nil, client_id: nil, claims: {}, expires_in: nil,
-        refresh_token: false, request: nil, auth_method: nil, auth_provider: nil)
+        refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise)
         super({ audience: audience }, request || NullRequest.new)
+        @profile = profile
+        @audit_errors = audit_errors.to_sym
+        unless AUDIT_ERROR_MODES.include?(@audit_errors)
+          raise ArgumentError, "audit_errors must be one of #{AUDIT_ERROR_MODES.join(', ')} (got #{audit_errors.inspect})"
+        end
         @account = account
         @audience = audience
         @grant_type = grant_type.to_s
@@ -34,6 +41,10 @@ module StandardId
         @issued_jti
       end
 
+      # The error an OAUTH_TOKEN_ISSUED subscriber raised under
+      # `audit_errors: :report`, else nil.
+      attr_reader :audit_error
+
       def authenticate!
         raise StandardId::InvalidGrantError, "Account is required" if @account.nil?
         raise StandardId::InvalidGrantError, "Account must be persisted" unless @account.respond_to?(:persisted?) && @account.persisted?
@@ -50,6 +61,64 @@ module StandardId
       end
 
       private
+
+      # An explicit profile replaces the strict lookup: the host already knows
+      # which of the account's profiles the token is for (several of one type
+      # is legitimate there, and AmbiguousProfileError would refuse it). It
+      # must still be the account's, active, and of the bound type when the
+      # audience has a binding — the guarantees the lookup gives. Resolvers
+      # receive it as `profile:` either way.
+      def enforce_audience_profile_binding!
+        return super if @profile.nil?
+
+        validate_explicit_profile!
+        @resolved_profile = @profile
+      end
+
+      def validate_explicit_profile!
+        unless profile_belongs_to_account?(@profile)
+          raise StandardId::InvalidGrantError, "profile does not belong to the account"
+        end
+        if @profile.respond_to?(:active?) && !@profile.active?
+          raise StandardId::InvalidGrantError, "profile is not active"
+        end
+
+        bound = Array(audience).reject(&:blank?).select { |a| StandardId::Oauth::AudienceProfileResolver.configured_for?(a) }
+        if bound.length > 1
+          raise StandardId::InvalidGrantError,
+            "Cannot bind a single token to multiple profile-bound audiences: #{bound.join(', ')}"
+        end
+        return if bound.empty?
+
+        types = StandardId::Oauth::AudienceProfileResolver.profile_types_for(bound.first)
+        return if types.include?(StandardId::Oauth::AudienceProfileResolver.profile_type_for(@profile))
+
+        raise StandardId::InvalidGrantError,
+          "profile is not of a type bound to audience #{bound.first.inspect} (expected #{types.join(', ')})"
+      end
+
+      def profile_belongs_to_account?(profile)
+        return profile.account_id.to_s == @account.id.to_s if profile.respond_to?(:account_id)
+        return @account.profiles.include?(profile) if @account.respond_to?(:profiles)
+
+        false
+      end
+
+      # Under `audit_errors: :report` a raising OAUTH_TOKEN_ISSUED subscriber
+      # no longer costs the caller a token that is already signed (and, with a
+      # refresh token, committed): the error is logged and handed back on the
+      # result. OAUTH_TOKEN_ISSUING is never softened — its subscribers are the
+      # account-status and locking guards.
+      def emit_token_issued(expires_in)
+        return super if @audit_errors == :raise
+
+        begin
+          super
+        rescue StandardError => e
+          @audit_error = e
+          StandardId.config.logger&.warn("[StandardId] OAUTH_TOKEN_ISSUED subscriber raised for #{grant_type}: #{e.class}: #{e.message}")
+        end
+      end
 
       # No new authentication happened here: the host vouches for the account.
       def login_method_policy_context

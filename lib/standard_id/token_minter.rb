@@ -29,7 +29,7 @@ module StandardId
   # Raises the same errors the token endpoint would (InvalidGrantError,
   # InvalidRequestError, NoBoundProfileError, AccountDeactivatedError, …).
   module TokenMinter
-    Result = Data.define(:access_token, :refresh_token, :token_type, :expires_in, :scope, :jti)
+    Result = Data.define(:access_token, :refresh_token, :token_type, :expires_in, :scope, :jti, :audit_error)
 
     module_function
 
@@ -52,13 +52,24 @@ module StandardId
     #   account, recorded on the refresh token for login_method_policy; nil is
     #   judged as :unspecified on refresh, which a restrictive policy refuses
     # @param auth_provider [String, nil]
+    # @param profile [ActiveRecord::Base, nil] the account's profile the token
+    #   is for, instead of the strict audience → profile lookup (which refuses
+    #   an account holding several active profiles of the bound type). Must
+    #   belong to the account, be active, and be of the bound type when the
+    #   audience has a binding; claim resolvers receive it as `profile:`.
+    # @param audit_errors [Symbol] :raise (default) re-raises an
+    #   OAUTH_TOKEN_ISSUED subscriber's error, as every grant does; :report
+    #   logs it and returns it as +Result#audit_error+ with the token, for a
+    #   caller whose contract is that an audit failure never costs it the
+    #   credential. OAUTH_TOKEN_ISSUING (the status / locking guards) always
+    #   raises.
     # @return [Result]
     def mint(account:, audience:, grant_type:, scopes: nil, client_id: nil, claims: {}, expires_in: nil,
-      refresh_token: false, request: nil, auth_method: nil, auth_provider: nil)
+      refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise)
       flow = StandardId::Oauth::DirectMintFlow.new(
         account: account, audience: audience, grant_type: grant_type, scopes: scopes, client_id: client_id,
         claims: claims, expires_in: expires_in, refresh_token: refresh_token, request: request,
-        auth_method: auth_method, auth_provider: auth_provider
+        auth_method: auth_method, auth_provider: auth_provider, profile: profile, audit_errors: audit_errors
       )
       response = flow.execute
       Result.new(
@@ -67,7 +78,8 @@ module StandardId
         token_type: response[:token_type],
         expires_in: response[:expires_in],
         scope: response[:scope],
-        jti: flow.issued_jti
+        jti: flow.issued_jti,
+        audit_error: flow.audit_error
       )
     end
   end

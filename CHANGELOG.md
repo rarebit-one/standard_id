@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`TokenMinter.mint(profile:)`**: mint for a specific profile of the account instead of the strict audience → profile lookup, which refuses an account holding several active profiles of the bound type. The profile must belong to the account, be active, and be of the bound type when the audience has a binding (`InvalidGrantError` otherwise); claim resolvers receive it as `profile:` and `OAUTH_TOKEN_ISSUED` reports its id. For hosts that choose the profile themselves (sidekick-web's Slack and trigger mints).
+- **`TokenMinter.mint(audit_errors: :report)`**: an `OAUTH_TOKEN_ISSUED` subscriber that raises no longer costs the caller a token that is already signed; the error is logged and returned as the new `Result#audit_error`. The default stays `:raise`, like every grant. `OAUTH_TOKEN_ISSUING`, whose subscribers are the account-status and locking guards, always raises. `AudienceProfileResolver.profile_type_for` is now public.
+
 ### Fixed
 
 - **An `audience_profile_types` binding keyed by the resource name still applies under `audience: :resource`.** The binding is looked up under the matched `aud` first and, in a `StandardId::ResourceServer`, falls back to the resource's name, so switching a resource to URL audiences no longer silently drops a binding configured as `"mcp" => [...]`.
