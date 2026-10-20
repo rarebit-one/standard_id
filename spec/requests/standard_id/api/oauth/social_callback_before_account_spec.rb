@@ -39,6 +39,15 @@ RSpec.describe "API social callback host hooks", type: :request do
       expect(seen).to eq(["google", email, { "region" => "sg" }, "/api/oauth/callback/google", false])
     end
 
+    it "receives the requested audience and scopes, which the forwarded params strip" do
+      seen = nil
+      allow(StandardId.config.social).to receive(:before_account).and_return(->(audience:, scopes:, params:) { seen = [audience, scopes, params] })
+
+      post "/api/oauth/callback/google", params: { code: "c", audience: "api", scope: "profile" }
+
+      expect(seen).to eq(["api", "profile", {}])
+    end
+
     it "refuses with the host's own response and leaves no account and no account events" do
       body = { "error" => { "code" => "REGION_BLOCKED", "message" => "Not here", "details" => nil } }
       allow(StandardId.config.social).to receive(:before_account).and_return(
@@ -91,12 +100,41 @@ RSpec.describe "API social callback host hooks", type: :request do
       expect(response).to have_http_status(:ok)
     end
 
+    it "lets a completion subscriber create what the audience binding needs, visible to the mint" do
+      allow(StandardId.config.social).to receive(:completion_before_mint).and_return(true)
+      allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return({ "api" => ["Provisioned"] })
+      # The binding resolves only once the subscriber's write is visible on
+      # the account the mint holds — which is what the reload is for.
+      allow(StandardId.config.oauth).to receive(:audience_profile_resolver).and_return(
+        ->(account:) { account if account.name == "provisioned" }
+      )
+      sub = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
+        Account.find(event[:account].id).update!(name: "provisioned")
+      end
+
+      post "/api/oauth/callback/google", params: { code: "c", audience: "api" }
+
+      expect(response).to have_http_status(:ok)
+      expect(json["access_token"]).to be_present
+    ensure
+      StandardId::Events.unsubscribe(sub)
+    end
+
     it "still removes a new account when the mint refuses after an early completion" do
       allow(StandardId.config.social).to receive(:completion_before_mint).and_return(true)
       allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return({ "api" => ["PlatformProfile"] })
 
       expect { post "/api/oauth/callback/google", params: { code: "c", audience: "api" } }.not_to change(Account, :count)
       expect(response).to have_http_status(:bad_request)
+    end
+  end
+
+  describe StandardId::RequestRefused do
+    it "carries status, body and string-keyed headers, defaulting to none" do
+      error = described_class.new(status: :forbidden, body: { a: 1 })
+      expect([error.status, error.body, error.headers]).to eq([:forbidden, { a: 1 }, {}])
+      expect(error.message).to eq("Request refused (forbidden)")
+      expect(described_class.new(status: 403, body: nil, headers: [["X-A", "1"]]).headers).to eq("X-A" => "1")
     end
   end
 end

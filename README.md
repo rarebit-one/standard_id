@@ -479,12 +479,14 @@ stays: make it idempotent. It covers the API callback only; the WebEngine's
 social callback does not run it.
 
 Two more knobs on the same callback. `config.social.before_account` runs before
-the account is found or created (same keywords minus `account:`, `audience:`
-and `scopes:`), for a refusal that must leave no account row and fire no account
-events. `config.social.completion_before_mint = true` publishes
-`SOCIAL_AUTH_COMPLETED` after `before_mint` and before the mint (then reloads
-the account), for a completion subscriber that creates what the mint depends on.
-Either hook can refuse in the host's own error envelope:
+the account is found or created (same keywords minus `account:`), for a refusal
+that must leave no account row and fire no account events — and no event of its
+own, so audit it in the hook. `config.social.completion_before_mint = true`
+publishes `SOCIAL_AUTH_COMPLETED` after `before_mint` and before the mint (then
+reloads the account), for a completion subscriber that creates what the mint
+depends on; if the mint then refuses on an account that already existed, the
+subscriber's writes stay, so make it idempotent. Either hook can refuse in the
+host's own error envelope:
 
 ```ruby
 config.social.before_account = ->(social_info:, request:) {

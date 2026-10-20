@@ -744,9 +744,10 @@ StandardId::ConfigSchema.define do
     # user and BEFORE the account is found or created — for a refusal that
     # must leave no account row and fire no account events (a region block).
     # A callable taking any subset of `provider:`, `social_info:`,
-    # `provider_tokens:`, `params:` (forwarded, as for before_mint) and
-    # `request:`. Raising refuses the sign-in with nothing written; raise
-    # StandardId::RequestRefused to answer with the host's own response.
+    # `provider_tokens:`, `audience:`, `scopes:`, `params:` (forwarded, as for
+    # before_mint) and `request:`. Raising refuses the sign-in with nothing
+    # written; raise StandardId::RequestRefused to answer with the host's own
+    # response. No event is published for the refusal: audit it in the hook.
     # API callback only, like before_mint.
     field :before_account, type: :any, default: nil
     # When true, the API social callback publishes SOCIAL_AUTH_COMPLETED after
