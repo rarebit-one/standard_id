@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-20
+
 ### Added
 
 - **Refresh tokens are bound to their `ClientApplication`**, and the `refresh_token` grant refuses a token whose application has been deactivated or deleted. Migration `20261020000000_add_client_application_id_to_standard_id_refresh_tokens` adds the nullable column; each grant records the application its `client_id` resolved to (authorization_code, client_credentials, any grant whose `client_id` names one) and every rotation copies it to the successor. The refusal is the same 400 `invalid_grant` / "Refresh token is no longer valid" every other dead token gets, so a leaked token learns nothing from it. Deactivation suspends (reactivating the application restores its tokens, with one deliberate exception: a replayed, already-rotated token still trips reuse detection and revokes its family, suspended or not); deletion is final. A row minted before the migration ran is bound lazily on its next rotation by `client_id`, and refused meanwhile if an application with that `client_id` exists and is inactive. A token whose `client_id` is not a registered application (social sign-in refreshes as the provider's name) is untouched. `/oauth/introspect` reports a refresh token bound to a gone or deactivated application as inactive. Replaces the host-side prepend sidekick-web carried as `config/initializers/standard_id_refresh_client_guard.rb` (core-platform-brain#490), which can be deleted once this is installed. `ClientApplication#refresh_tokens` is the new association; there is deliberately no foreign key, so a deleted application stays detectable from the token's side.
@@ -17,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The OTP resend cooldown is atomic.** `BaseStrategy#start!` now runs the `retry_delay` check and the challenge insert in one transaction, serialised per (realm, channel, address) with a PostgreSQL transaction-scoped advisory lock (a no-op on other adapters). Two concurrent starts for one address used to both pass the check and both issue, and creating the second code invalidated the first, so the user held a dead one (fundbright delivery-ops#345; fundbright-web wraps `Otp.issue` in its own advisory lock for this and can stop). `PASSWORDLESS_CODE_REQUESTED` is published once that transaction has committed (still before `PASSWORDLESS_CODE_GENERATED`), so a subscriber's own writes cannot be rolled back with a failed insert.
+- **The OTP resend cooldown is atomic.** `BaseStrategy#start!` now runs the `retry_delay` check and the challenge insert in one transaction, serialised per (realm, channel, address) with a PostgreSQL transaction-scoped advisory lock (a no-op on other adapters). Two concurrent starts for one address used to both pass the check and both issue, and creating the second code invalidated the first, so the user held a dead one (fundbright delivery-ops#345; fundbright-web wraps `Otp.issue` in its own advisory lock for this and can stop). `PASSWORDLESS_CODE_REQUESTED` is published once that transaction has committed (still before `PASSWORDLESS_CODE_GENERATED`), so a subscriber's own writes cannot be rolled back with a failed insert; the flip side is that a subscriber which raises now leaves the user with an invalidated previous code and no new one delivered, so subscribers to this event should not raise.
 
 ### Fixed
 

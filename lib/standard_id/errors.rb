@@ -80,7 +80,8 @@ module StandardId
   # API error handler renders it as 429 `rate_limit_exceeded`, the same shape
   # the controller-level limits produce.
   class RateLimitExceededError < InvalidRequestError
-    # Seconds until the window that tripped resets, for a Retry-After header.
+    # Length in seconds of the window that tripped (an upper bound on the
+    # wait, not the time remaining), for a Retry-After header.
     attr_reader :retry_after
 
     def initialize(message = "Too many requests. Please try again later.", retry_after: nil)
