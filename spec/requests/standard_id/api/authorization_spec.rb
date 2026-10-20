@@ -136,6 +136,27 @@ RSpec.describe "StandardId API Authorization", type: :request do
             expect(issued_audience).to eq("companion_kit")
           end
 
+          it "accepts a String, Symbol or nil from authorize_scope_resolver and refuses anything else" do
+            resolver = ->(scope:) { scope.to_s.split.first }
+            allow(StandardId.config.oauth).to receive(:authorize_scope_resolver).and_return(resolver)
+            http_get "/api/authorize", params: valid_params.merge(scope: "read write")
+            code = Rack::Utils.parse_query(URI.parse(response.location).query)["code"]
+            expect(StandardId::AuthorizationCode.lookup(code).scope).to eq("read")
+
+            allow(StandardId.config.oauth).to receive(:authorize_scope_resolver).and_return(->(**) { :write })
+            http_get "/api/authorize", params: valid_params.merge(scope: "read write")
+            code = Rack::Utils.parse_query(URI.parse(response.location).query)["code"]
+            expect(StandardId::AuthorizationCode.lookup(code).scope).to eq("write")
+
+            allow(StandardId.config.oauth).to receive(:authorize_scope_resolver).and_return(->(**) { nil })
+            http_get "/api/authorize", params: valid_params.merge(scope: "read write")
+            code = Rack::Utils.parse_query(URI.parse(response.location).query)["code"]
+            expect(StandardId::AuthorizationCode.lookup(code).scope).to eq("read write")
+
+            allow(StandardId.config.oauth).to receive(:authorize_scope_resolver).and_return(->(**) { { bad: true } })
+            expect { http_get "/api/authorize", params: valid_params }.to raise_error(StandardId::ConfigurationError, /authorize_scope_resolver/)
+          end
+
           it "normalises the requested scope through authorize_scope_resolver before binding and enforcing it" do
             allow(StandardId.config.oauth).to receive(:audience_scopes).and_return("https://api.example.com" => %w[read write])
             allow(StandardId.config.oauth).to receive(:authorize_scope_resolver).and_return(

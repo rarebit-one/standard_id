@@ -1391,9 +1391,15 @@ shows:
 ```ruby
 config.oauth.authorize_scope_resolver = ->(scope:, audience:) {
   tokens = scope.to_s.split
-  audience == "mcp" && tokens.include?("mcp") ? tokens - ["mcp:read"] : nil   # nil = unchanged
+  next nil unless audience == "mcp" && tokens.include?("mcp")   # nil leaves the request as is
+
+  tokens - ["mcp:read"]   # "mcp" already implies read; an Array or a String is fine
 }
 ```
+
+It runs again when a consent resumes, so make it idempotent (its own output must
+come back unchanged); it also decides what the consent screen shows and what the
+grant records.
 
 ```ruby
 StandardId.configure do |config|

@@ -104,19 +104,7 @@ module StandardId
       end
 
       def resolve_scope(requested)
-        custom = StandardId.config.oauth.authorize_scope_resolver
-        return requested unless custom.respond_to?(:call)
-
-        context = { scope: requested, audience: audience, client: @client, request: request }
-        answer = custom.call(**StandardId::Utils::CallableParameterFilter.filter(custom, context))
-        case answer
-        when nil then requested
-        when Array then answer.map(&:to_s).reject(&:blank?).join(" ")
-        when String, Symbol then answer.to_s
-        else
-          raise StandardId::ConfigurationError,
-            "StandardId config: `oauth.authorize_scope_resolver` must return a String, Array, Symbol or nil, got #{answer.class}"
-        end
+        StandardId::Oauth::AuthorizeScopeResolver.resolve(scope: requested, audience: audience, client: @client, request: request)
       end
 
       # Resolved once, after the client is known (see AudienceResolver): the

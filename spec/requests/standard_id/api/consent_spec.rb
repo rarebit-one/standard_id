@@ -101,6 +101,25 @@ RSpec.describe "StandardId OAuth consent flow", type: :request do
       expect(grant.client_id).to eq(client.client_id)
     end
 
+    it "shows, checks and records the scope the way authorize_scope_resolver normalises it" do
+      allow(StandardId.config.oauth).to receive(:authorize_scope_resolver).and_return(
+        ->(scope:) { scope.to_s.split.include?("read") ? scope.to_s.split - %w[write] : nil }
+      )
+      http_get "/api/authorize", params: authorize_params.merge(scope: "read write")
+      token = Rack::Utils.parse_query(URI.parse(response.location).query)["consent_request"]
+      expect(StandardId::Oauth::ConsentPayload.decode(token)[:scope]).to eq("read")
+
+      http_post "/consent", params: { decision: "approve", consent_request: token }
+      expect(response).to have_http_status(:found)
+      code = Rack::Utils.parse_query(URI.parse(response.location).query)["code"]
+      expect(StandardId::AuthorizationCode.lookup(code).scope).to eq("read")
+      expect(StandardId::ClientGrant.last.scope).to eq("read")
+
+      # A prior grant covering the normalised scope skips consent for the same raw request.
+      http_get "/api/authorize", params: authorize_params.merge(scope: "read write")
+      expect(response.location).to include("code=")
+    end
+
     it "carries the RFC 8707 resource through the consent resume so the code gets its audience" do
       allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp" => "mcp")
       http_get "/api/authorize", params: authorize_params.merge(resource: "https://app.example.com/mcp")

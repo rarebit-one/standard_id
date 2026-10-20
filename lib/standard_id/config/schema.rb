@@ -424,8 +424,8 @@ StandardId::ConfigSchema.define do
     # final), else the client's registered default `metadata["audience"]`
     # (server-set, so it outranks the request), else the `audience` param,
     # else the RFC 8707 `resource` param mapped through `resource_audiences`.
-    # The resolved audience is bound to the
-    # authorization code and reaches the token as `aud`; `audience_scopes`
+    # The resolved audience is bound to the authorization code and reaches the
+    # token as `aud`; `audience_scopes`
     # (above) is then enforced at /authorize for it.
     field :audience_resolver, type: :any, default: nil
 
@@ -436,7 +436,9 @@ StandardId::ConfigSchema.define do
     # a default. A callable taking any subset of `scope:` (the raw param),
     # `audience:` (resolved), `client:` and `request:`; returns the scope as a
     # String or Array, or nil to leave the request unchanged. The result is
-    # what the code is issued with and what the consent screen shows.
+    # what the code is issued with, what the consent screen shows and what the
+    # grant is checked against and recorded as. It runs again on the consent
+    # resume, so it must be idempotent (its own output must come back unchanged).
     #
     #   c.oauth.authorize_scope_resolver = ->(scope:, audience:) {
     #     tokens = scope.to_s.split

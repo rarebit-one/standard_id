@@ -74,12 +74,27 @@ module StandardId
         !StandardId::ClientGrant.granted?(
           account: current_account,
           client_id: client.client_id,
-          requested_scope: params[:scope]
+          requested_scope: consent_scope
         )
       end
 
       def consent_client
         @consent_client ||= StandardId::ClientApplication.active.find_by(client_id: params[:client_id])
+      end
+
+      # The scope consent is checked against, shown and recorded: the request's,
+      # normalised by `oauth.authorize_scope_resolver` exactly as the flow will
+      # normalise it when the code is issued, so the screen and the grant never
+      # disagree with the token. Needs the client and the resolved audience, so
+      # it is computed here rather than inside the flow.
+      def consent_scope
+        return @consent_scope if defined?(@consent_scope)
+
+        client = consent_client
+        audience = StandardId::Oauth::AudienceResolver.resolve(client: client, params: params, request: request)
+        @consent_scope = StandardId::Oauth::AuthorizeScopeResolver.resolve(
+          scope: params[:scope], audience: audience, client: client, request: request
+        )
       end
 
       def redirect_to_consent
@@ -98,13 +113,14 @@ module StandardId
 
       # The exact params required to resume authorization-code issuance after
       # approval. Carried through a signed payload so they cannot be tampered
-      # with; redirect_uri + PKCE are revalidated when the flow re-runs.
+      # with; redirect_uri + PKCE are revalidated when the flow re-runs. The
+      # scope is the normalised one the user is shown (see #consent_scope).
       def authorize_params_for_resume
         {
           response_type: response_type,
           client_id: params[:client_id],
           redirect_uri: params[:redirect_uri],
-          scope: params[:scope],
+          scope: consent_scope,
           audience: params[:audience],
           resource: params[:resource],
           state: params[:state],
