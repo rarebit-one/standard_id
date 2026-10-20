@@ -7,7 +7,7 @@ module StandardId
       MAX_REUSE_LEEWAY_SECONDS = 120
 
       expect_params :refresh_token, :client_id
-      permit_params :client_secret, :scope, :audience
+      permit_params :client_secret, :scope, :audience, :resource
 
       # authenticate! runs outside the transaction so reuse-detection
       # revocations (revoke_family!) persist even when the error propagates.

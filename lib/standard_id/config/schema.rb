@@ -417,6 +417,22 @@ StandardId::ConfigSchema.define do
     # When nil (default), only the static `audience_scopes` map is consulted.
     field :audience_scope_resolver, type: :any, default: nil
 
+    # How /authorize decides which audience a request is for — server-side,
+    # instead of trusting a client-supplied `audience` alone. Resolution order
+    # (StandardId::Oauth::AudienceResolver): this callable when set (any
+    # subset of client:, audience:, resource:, request:; a non-nil answer is
+    # final), else the `audience` param, else the RFC 8707 `resource` param
+    # mapped through `resource_audiences`, else the client's registered
+    # default `metadata["audience"]`. The resolved audience is bound to the
+    # authorization code and reaches the token as `aud`; `audience_scopes`
+    # (above) is then enforced at /authorize for it.
+    field :audience_resolver, type: :any, default: nil
+
+    # RFC 8707: resource indicator → audience, e.g.
+    # { "https://app.example.com/mcp" => "mcp" }. Matched with the trailing
+    # slash removed. An unmapped resource resolves to no audience.
+    field :resource_audiences, type: :hash, default: -> { {} }
+
     # JWT signing configuration (for asymmetric algorithms)
     # If nil, uses HS256 with Rails.application.secret_key_base
     field :signing_key, type: :any, default: nil

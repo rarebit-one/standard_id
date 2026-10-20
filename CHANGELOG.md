@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/authorize` resolves the audience server-side** (`StandardId::Oauth::AudienceResolver`): `c.oauth.audience_resolver` (callable) when set, else the `audience` param, else the RFC 8707 **`resource`** param mapped through the new **`c.oauth.resource_audiences`** hash, else the client's registered default `metadata["audience"]`. The result is bound to the authorization code as before. `resource` is now a permitted parameter on both authorize flows and accepted at the token endpoint. A dynamically registered client whose registration stamps `metadata["audience"]` therefore gets its `aud` with no audience-injecting shim in front of the endpoint — the shim every consumer carried (sidekick-web #1126 → nutripod-web #949 → luminality-web #821 → fundbright-web #809).
+- **`c.oauth.audience_scopes` is enforced at `/authorize`**: a scope outside the resolved audience's vocabulary is refused with `invalid_scope` before anything is issued (unconfigured audiences and empty scopes pass through, as before).
+
+### Added
+
 - **`StandardId::TokenMinter.mint(account:, audience:, grant_type:, scopes:, client_id:, claims:, expires_in:, refresh_token:, request:)`**: mint a token for an account the host already authenticated, through the same pipeline as `/oauth/token` (`Oauth::DirectMintFlow`, not reachable from the endpoint): audience validation, audience → profile binding, `scope_claims` / `claim_resolvers` / `custom_claims`, the AccountStatus / AccountLocking guards, `OAUTH_TOKEN_ISSUING` / `OAUTH_TOKEN_ISSUED`, optional refresh token (bound to `client_id`'s application) and session persistence when a request is passed. Replaces the hand-rolled `JwtService.encode` mint sites that re-derive the initializer's claim resolvers (sidekick-web has nine).
 - **`c.social.before_mint`** (callable): runs on the API social callback after the account is found or created and before the token is minted, with any subset of `account:`, `provider:`, `social_info:`, `provider_tokens:`, `params:`, `request:`. Raising refuses the sign-in through the callback's existing cleanup. Replaces the host subclass of `Api::Oauth::Callback::ProvidersController` that reordered those steps by copying the method body (sidekick-web, re-synced on 6 of the last 10 bumps).
 
