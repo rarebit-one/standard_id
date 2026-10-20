@@ -59,6 +59,17 @@ RSpec.describe "StandardId::ResourceServer", type: :request do
     expect(challenge).to include(%(resource_metadata="#{metadata_url}"))
   end
 
+  it "leaves a session-less request to the auth layer rather than raising from the scope check" do
+    klass = Class.new(ActionController::API) do
+      include StandardId::ResourceServer
+      protected_resource "mcp", scopes: %w[mcp]
+    end
+    controller = klass.new
+    allow(controller).to receive(:current_session).and_return(nil)
+    expect(controller).not_to receive(:require_scopes!)
+    controller.send(:verify_protected_resource_scopes!)
+  end
+
   it "skips the scope check when protected_resource is given no scopes" do
     klass = Class.new(ActionController::API) do
       include StandardId::ResourceServer
