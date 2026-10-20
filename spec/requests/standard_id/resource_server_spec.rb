@@ -23,12 +23,51 @@ RSpec.describe "StandardId::ResourceServer", type: :request do
     expect(json_body).to include("ok" => true, "account_id" => account.id)
   end
 
-  it "401s with an invalid_token challenge naming the metadata document when no token is sent" do
+  it "401s with a bare challenge (realm + metadata document, no error code) when no token is sent" do
     http_get "/api/v1/mcp"
 
     expect(response).to have_http_status(:unauthorized)
     expect(json_body["error"]).to eq("invalid_token")
-    expect(challenge).to include(%(realm="mcp"), %(error="invalid_token"), %(resource_metadata="#{metadata_url}"))
+    expect(challenge).to eq(%(Bearer realm="mcp", resource_metadata="#{metadata_url}"))
+  end
+
+  it "401s with error=invalid_token for an expired token" do
+    expired = StandardId::JwtService.encode({ sub: account.id, client_id: "svc-test", scope: "mcp", grant_type: "access_token", aud: "mcp" }, expires_at: 1.hour.ago)
+    with_headers(auth_headers(expired)) { http_get "/api/v1/mcp" }
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(challenge).to include(%(error="invalid_token"), %(resource_metadata="#{metadata_url}"))
+  end
+
+  it "401s an already-issued token once the account is deactivated, saying so" do
+    token = bearer_jwt(account: account, scope: "mcp", extra: { aud: "mcp" })
+    account.deactivate!
+    with_headers(auth_headers(token)) { http_get "/api/v1/mcp" }
+
+    expect(response).to have_http_status(:unauthorized)
+    expect(json_body["error_description"]).to eq("The account is deactivated")
+    expect(challenge).to include(%(error_description="The account is deactivated"), %(resource_metadata="#{metadata_url}"))
+  end
+
+  it "403s through the audience → profile-type binding when configured" do
+    allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return("mcp" => %w[OrganisationProfile])
+    allow(StandardId::Oauth::AudienceProfileResolver).to receive(:call).and_return(nil)
+    as_service(account: account, scope: "mcp", extra: { aud: "mcp" }) { http_get "/api/v1/mcp" }
+
+    expect(response).to have_http_status(:forbidden)
+    expect(json_body["error"]).to eq("insufficient_scope")
+    expect(challenge).to include(%(resource_metadata="#{metadata_url}"))
+  end
+
+  it "skips the scope check when protected_resource is given no scopes" do
+    klass = Class.new(ActionController::API) do
+      include StandardId::ResourceServer
+      protected_resource "mcp"
+    end
+    expect(klass._protected_resource_scopes).to eq([])
+    controller = klass.new
+    expect(controller).not_to receive(:require_scopes!)
+    controller.send(:verify_protected_resource_scopes!)
   end
 
   it "401s for a garbage token" do

@@ -404,6 +404,13 @@ RFC 9728 member; callables receive `{ origin:, audience:, issuer:, request: }` a
 `nil` removes a member. Rate limiting and resolving the token's claims to a profile
 stay in the host controller.
 
+Two things to know. The document's `resource` and the challenge URL are built from
+the request origin, as RFC 9728 §3.3 requires, so pin `Host` (`config.hosts`, or at
+the proxy): the document is served with `Cache-Control: public`. And a token minted
+for an audience outside `config.oauth.allowed_audiences` is refused at decode time
+as `401 invalid_token`, before the concern sees it; the `403 insufficient_scope` is
+for a token minted for another *allowed* audience.
+
 ### Social Login Setup
 
 Need the account ready before the token is minted — a profile the requested
