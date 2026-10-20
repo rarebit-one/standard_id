@@ -20,14 +20,23 @@ module StandardId
       class RegistrationsController < BaseController
         public_controller
 
-        # Throttle the open, unauthenticated endpoint by IP so an enabled
-        # deployment can't be flooded with ClientApplication rows (or
-        # management-token guesses).
+        # Throttle the open, unauthenticated registration endpoint by IP so an
+        # enabled deployment can't be flooded with ClientApplication rows, and
+        # the management endpoint separately so token guessing is slow without
+        # management traffic competing with registrations for one budget.
         rate_limit to: StandardId.config.rate_limits.dynamic_registration_per_ip,
                    within: 1.hour,
                    name: "dynamic-registration-ip",
+                   only: :create,
+                   store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
+        rate_limit to: StandardId.config.rate_limits.dynamic_registration_management_per_ip,
+                   within: 1.hour,
+                   name: "dynamic-registration-management-ip",
+                   only: %i[show update destroy],
                    store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
 
+        # GET and DELETE carry no body, so no Content-Type to validate.
+        skip_before_action :validate_content_type!, only: %i[show destroy]
         before_action :require_dynamic_registration_enabled!
         before_action :authenticate_registration_access!, only: %i[show update destroy]
 
@@ -103,6 +112,9 @@ module StandardId
             %i[redirect_uris grant_types response_types].each do |key|
               permitted[key] = params[key] if permitted[key].blank? && params[key].present?
             end
+            # The route's :client_id shadows a body client_id in `params`; RFC
+            # 7592 §2.2 wants the DOCUMENT's id checked against the path.
+            permitted[:client_id] = request.request_parameters["client_id"]
           end
         end
 

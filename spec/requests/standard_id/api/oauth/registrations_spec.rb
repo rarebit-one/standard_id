@@ -157,9 +157,15 @@ RSpec.describe "StandardId::Api::Oauth::RegistrationsController", type: :request
       response.parsed_body
     end
 
+    # GET and DELETE are sent the way a client sends them: no body, no
+    # Content-Type. Only PUT carries a JSON document.
     def manage(verb, client_id, token: nil, params: nil)
       headers = token ? { "Authorization" => "Bearer #{token}" } : {}
-      send(verb, "#{path}/#{client_id}", params: params, headers: headers, as: :json)
+      if params.nil?
+        send(verb, "#{path}/#{client_id}", headers: headers)
+      else
+        send(verb, "#{path}/#{client_id}", params: params, headers: headers, as: :json)
+      end
     end
 
     it "returns registration_client_uri and a one-time registration_access_token at registration" do
@@ -213,11 +219,16 @@ RSpec.describe "StandardId::Api::Oauth::RegistrationsController", type: :request
       expect(response).to have_http_status(:unauthorized)
     end
 
-    it "renders a 400 RFC 7591 error for an invalid update" do
+    it "renders a 400 RFC 7591 error for an invalid update, including a document whose client_id is another client's" do
       body = register!
       manage(:put, body["client_id"], token: body["registration_access_token"], params: { redirect_uris: ["not a uri"] })
       expect(response).to have_http_status(:bad_request)
       expect(response.parsed_body["error"]).to eq("invalid_redirect_uri")
+
+      manage(:put, body["client_id"], token: body["registration_access_token"], params: { client_id: "someone_else", redirect_uris: ["https://app.example.com/cb"] })
+      expect(response).to have_http_status(:bad_request)
+      expect(response.parsed_body["error"]).to eq("invalid_client_metadata")
+      expect(response.parsed_body["error_description"]).to include("client_id")
     end
 
     it "is absent while dynamic registration is disabled" do

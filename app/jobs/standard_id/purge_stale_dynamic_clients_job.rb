@@ -7,11 +7,16 @@ module StandardId
   # registered more than `stale_after_seconds` ago and EITHER
   #
   #   * it was deregistered (RFC 7592 DELETE deactivates; see
-  #     ClientRegistration.deregister), or
-  #   * nobody ever authorized it: no ClientGrant for its client_id (DCR clients
-  #     are consent-gated, so a completed authorization always records one), no
-  #     unconsumed, unexpired AuthorizationCode (a consent in flight), and no
-  #     live refresh token bound to it.
+  #     ClientRegistration.deregister) more than the window ago — the row is
+  #     what lets refresh and introspection say "gone" meanwhile, or
+  #   * nobody ever used it: it is consent-gated (a completed authorization
+  #     records a ClientGrant; a client registered with `require_consent:
+  #     false` pinned never gets one, so it is only ever reaped once
+  #     deregistered), and it has no ClientGrant, no AuthorizationCode in any
+  #     state and no refresh token in any state. Consumed codes and dead
+  #     refresh tokens count as use on purpose: they are what an active client
+  #     leaves behind between authorizations, and the cleanup jobs delete them
+  #     on their own schedule.
   #
   # The grace window is what lets a client register now and complete consent
   # days later. Only clients created through dynamic registration are ever
@@ -49,14 +54,17 @@ module StandardId
     def stale_clients(cutoff)
       base = StandardId::ClientApplication.dynamically_registered.where("created_at < ?", cutoff)
 
-      never_authorized = base
+      # A deregistered client only ever goes through the deactivated branch,
+      # whatever it did or did not do while live.
+      never_used = base
+        .where(active: true, require_consent: true)
         .where.not(client_id: StandardId::ClientGrant.select(:client_id))
-        .where.not(client_id: StandardId::AuthorizationCode.unused.unexpired.select(:client_id))
+        .where.not(client_id: StandardId::AuthorizationCode.select(:client_id))
       if StandardId::RefreshToken.client_binding_column?
-        never_authorized = never_authorized.where.not(id: StandardId::RefreshToken.active.where.not(client_application_id: nil).select(:client_application_id))
+        never_used = never_used.where.not(id: StandardId::RefreshToken.where.not(client_application_id: nil).select(:client_application_id))
       end
 
-      base.where(active: false).or(never_authorized)
+      base.where(active: false).where("deactivated_at < ?", cutoff).or(never_used)
     end
   end
 end

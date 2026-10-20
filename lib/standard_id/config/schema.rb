@@ -817,6 +817,10 @@ StandardId::ConfigSchema.define do
     # Dynamic client registration (RFC 7591) — throttle the open registration
     # endpoint by IP so an enabled deployment can't be flooded with client rows.
     field :dynamic_registration_per_ip, type: :integer, default: 10      # per hour
+    # RFC 7592 management (GET/PUT/DELETE /oauth/register/:client_id) — its
+    # own counter, so management traffic behind a shared NAT does not compete
+    # with registrations, while still slowing token guessing.
+    field :dynamic_registration_management_per_ip, type: :integer, default: 60 # per hour
 
     # Token introspection (RFC 7662) — throttle by IP so the endpoint cannot be
     # used to bulk-classify stolen tokens. Note the limit renders the ordinary
