@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-10-20
+
 ### Added
 
 - **`StandardId::RetryDelayError`** (an `InvalidRequestError`, with `retry_after` seconds) is what the OTP resend cooldown (`passwordless.retry_delay`) now raises, and **`Otp.issue` reports it as `error_code: :cooldown`** instead of the generic `:invalid_request`. A host that wraps `Otp.issue` can tell "a usable code was issued moments ago" apart from a real failure and keep its own cooldown copy — which is what fundbright-web needed before it could drop its advisory lock around `Otp.issue` now that the cooldown check is atomic (0.48.0). Every existing `rescue StandardId::InvalidRequestError` keeps working.
