@@ -101,8 +101,11 @@ module StandardId
       )
     end
 
+    # Memoized: the host's `origin:` callable answers once per request, so
+    # the audience check, the challenge and the metadata URL agree.
     def protected_resource_origin
-      StandardId::Oauth::ProtectedResourceDocument.origin_for(protected_resource_audience, request: request)
+      @protected_resource_origin ||=
+        StandardId::Oauth::ProtectedResourceDocument.origin_for(protected_resource_audience, request: request)
     end
 
     def protected_resource_metadata_url
