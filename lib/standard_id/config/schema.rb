@@ -633,6 +633,26 @@ StandardId::ConfigSchema.define do
 
   scope :social do
     field :social_account_attributes, type: :any, default: nil
+
+    # Runs on the API social callback (POST /oauth/callback/:provider) AFTER the
+    # account is found or created and BEFORE the token is minted — the one
+    # place a host can make the account ready for the mint: provision the
+    # profile the requested audience is bound to, apply a region or
+    # pending-deletion check, record a first-touch. A callable taking any
+    # subset of `account:`, `provider:`, `social_info:`, `provider_tokens:`,
+    # `audience:` and `scopes:` (the requested ones, as strings or nil),
+    # `params:` (the forwarded request params, minus the reserved OAuth ones)
+    # and `request:`. Raising refuses the sign-in through the callback's
+    # normal path: nothing is minted, a staged social link is dropped, and an
+    # account this request created is removed again. Two things to know: the
+    # hook runs BEFORE the login-method policy and the audience binding, so
+    # if those refuse the sign-in on an account that already existed, whatever
+    # the hook wrote stays (make it idempotent); and it covers the API
+    # callback only — the WebEngine's social callback does not run it.
+    # SOCIAL_AUTH_COMPLETED still fires after the mint as before. Replaces the
+    # host subclass of the callback controller that reordered these steps by
+    # copying its body.
+    field :before_mint, type: :any, default: nil
     field :allowed_redirect_url_prefixes, type: :array, default: []
     field :available_scopes, type: :array, default: -> { [] }
     # How a social login whose (provider, sub) is not linked yet may link to

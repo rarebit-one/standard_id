@@ -34,6 +34,7 @@ module StandardId
           token_response = nil
           flow = nil
           begin
+            run_before_social_mint(account:, social_info:, provider_tokens:)
             flow = StandardId::Oauth::SocialFlow.new(
               params,
               request,
@@ -69,6 +70,28 @@ module StandardId
         # Write the (provider, sub) link only once the login is accepted.
         def defer_social_link?
           true
+        end
+
+        # config.social.before_mint, inside the same begin/rescue as the mint
+        # so a refusal here is cleaned up exactly like one from the grant.
+        def run_before_social_mint(account:, social_info:, provider_tokens:)
+          hook = StandardId.config.social.before_mint
+          return unless hook.respond_to?(:call)
+
+          # audience: and scopes: are passed explicitly: forwarded_request_params
+          # strips both (RESERVED_CALLBACK_PARAMS), and the audience is the
+          # thing the headline use case keys on.
+          context = {
+            account: account,
+            provider: provider.provider_name,
+            social_info: social_info,
+            provider_tokens: provider_tokens,
+            audience: params[:audience].presence,
+            scopes: params[:scope].presence,
+            params: forwarded_request_params,
+            request: request
+          }
+          hook.call(**StandardId::Utils::CallableParameterFilter.filter(hook, context))
         end
 
         # The response was never sent, but the grant may already have
