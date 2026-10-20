@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-10-20
+
 ### Changed
 
 - **`AudienceResolver`: the client's registered `metadata["audience"]` now outranks the `audience` parameter.** The registered default is set by the server (`dynamic_registration_attributes`) or an operator; letting the request's `audience` beat it meant an openly registered client could ask `/authorize` for another allowed audience, which every consumer's shim had prevented by stripping the parameter. New order: `audience_resolver` hook → registered default → `audience` param → RFC 8707 `resource`. Hosts that set `audience_resolver` to return the registered default are unaffected; a client with no registered default behaves as before.
