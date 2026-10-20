@@ -123,6 +123,87 @@ RSpec.describe StandardId::TokenMinter do
       .to raise_error(StandardId::InvalidRequestError, "grant_type is required")
   end
 
+  describe "profile:" do
+    let(:profile_class) { Struct.new(:id, :account_id, :profileable_type, :active, keyword_init: true) { def active? = active } }
+    let(:staff) { profile_class.new(id: 1, account_id: account.id, profileable_type: "PlatformProfile", active: true) }
+    let(:second_staff) { profile_class.new(id: 2, account_id: account.id, profileable_type: "PlatformProfile", active: true) }
+
+    before do
+      allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return({ "harness" => ["PlatformProfile"] })
+      profiles = [staff, second_staff]
+      account.define_singleton_method(:profiles) { profiles }
+    end
+
+    it "binds the given profile where the strict lookup would refuse an ambiguous account, and hands it to resolvers" do
+      expect { described_class.mint(account: account, audience: "harness", grant_type: "harness.mint") }
+        .to raise_error(StandardId::InvalidGrantError)
+
+      seen_profile = nil
+      allow(StandardId.config.oauth).to receive_messages(
+        scope_claims: { "profile" => %w[profile_id] },
+        claim_resolvers: { "profile_id" => ->(profile:) { seen_profile = profile; profile.id } }
+      )
+      issued = capture(StandardId::Events::OAUTH_TOKEN_ISSUED) do
+        result = described_class.mint(account: account, audience: "harness", grant_type: "harness.mint", scopes: "profile", profile: second_staff)
+        expect(decode(result.access_token)[:profile_id]).to eq(2)
+      end
+      expect(seen_profile).to be(second_staff)
+      expect(issued.first[:profile_id]).to eq(2)
+    end
+
+    it "refuses a profile of another account, an inactive one, or one of an unbound type" do
+      other = profile_class.new(id: 3, account_id: SecureRandom.uuid, profileable_type: "PlatformProfile", active: true)
+      inactive = profile_class.new(id: 4, account_id: account.id, profileable_type: "PlatformProfile", active: false)
+      device = profile_class.new(id: 5, account_id: account.id, profileable_type: "DeviceUserProfile", active: true)
+
+      expect { described_class.mint(account: account, audience: "harness", grant_type: "harness.mint", profile: other) }
+        .to raise_error(StandardId::InvalidGrantError, /does not belong/)
+      expect { described_class.mint(account: account, audience: "harness", grant_type: "harness.mint", profile: inactive) }
+        .to raise_error(StandardId::InvalidGrantError, /not active/)
+      expect { described_class.mint(account: account, audience: "harness", grant_type: "harness.mint", profile: device) }
+        .to raise_error(StandardId::InvalidGrantError, /not of a type bound/)
+    end
+
+    it "accepts any of the account's profiles for an audience with no binding" do
+      result = described_class.mint(account: account, audience: "api", grant_type: "console.mint", profile: staff)
+      expect(result.access_token).to be_present
+    end
+  end
+
+  describe "audit_errors:" do
+    def with_raising_issued_subscriber
+      sub = StandardId::Events.subscribe(StandardId::Events::OAUTH_TOKEN_ISSUED) { raise "audit down" }
+      yield
+    ensure
+      StandardId::Events.unsubscribe(sub)
+    end
+
+    it "re-raises an OAUTH_TOKEN_ISSUED subscriber's error by default" do
+      with_raising_issued_subscriber do
+        expect { described_class.mint(account: account, audience: "api", grant_type: "console.mint") }.to raise_error(/audit down/)
+      end
+    end
+
+    it "returns the token and the error under :report" do
+      with_raising_issued_subscriber do
+        result = described_class.mint(account: account, audience: "api", grant_type: "console.mint", audit_errors: :report)
+        expect(result.access_token).to be_present
+        expect(result.audit_error.message).to eq("audit down")
+      end
+    end
+
+    it "never softens OAUTH_TOKEN_ISSUING, whose subscribers are the status guards" do
+      account.deactivate!
+      expect { described_class.mint(account: account, audience: "api", grant_type: "console.mint", audit_errors: :report) }
+        .to raise_error(StandardId::AccountDeactivatedError)
+    end
+
+    it "refuses an unknown mode" do
+      expect { described_class.mint(account: account, audience: "api", grant_type: "console.mint", audit_errors: :ignore) }
+        .to raise_error(ArgumentError, /audit_errors/)
+    end
+  end
+
   describe "refresh_token: true" do
     it "persists a refresh token, bound to the named client application when it exists" do
       client = StandardId::ClientApplication.create!(owner: account, name: "Console", redirect_uris: "https://c.example.com/cb")
