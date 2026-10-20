@@ -17,6 +17,37 @@ RSpec.describe StandardId::RefreshToken, type: :model do
     it { should belong_to(:account) }
     it { should belong_to(:session).optional }
     it { should belong_to(:previous_token).optional }
+    it { should belong_to(:client_application).optional }
+  end
+
+  describe "#client_application_live?" do
+    let(:client) do
+      StandardId::ClientApplication.create!(owner: account, name: "App", redirect_uris: "https://app.example.com/cb")
+    end
+
+    it "is true for an unbound token" do
+      expect(create_refresh_token.client_application_live?).to be true
+    end
+
+    it "follows the application's active flag" do
+      token = create_refresh_token(client_application_id: client.id)
+      expect(token.client_application_live?).to be true
+
+      client.deactivate!
+      expect(token.client_application_live?).to be false
+
+      client.activate!
+      expect(token.client_application_live?).to be true
+    end
+
+    it "is false once the application is deleted, because there is no foreign key to erase the binding" do
+      token = create_refresh_token(client_application_id: client.id)
+      client.strict_loading!(false)
+      client.destroy!
+
+      expect(token.reload.client_application_id).to eq(client.id)
+      expect(token.client_application_live?).to be false
+    end
   end
 
   describe "validations" do

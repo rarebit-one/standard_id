@@ -163,6 +163,28 @@ RSpec.describe "StandardId::Api::Oauth::IntrospectionsController", type: :reques
         expect(body["token_type"]).to eq("refresh_token")
       end
 
+      it "reports inactive once the application the token is bound to is deactivated, and again once it is deleted" do
+        # A different application from the one introspecting, so deleting it
+        # cannot also delete the credential this request authenticates with.
+        bound_app = StandardId::ClientApplication.create!(
+          owner: account, name: "Bound App", redirect_uris: "https://bound.example.com/cb"
+        )
+        refresh_token.update!(client_application_id: bound_app.id)
+
+        bound_app.deactivate!
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+        expect(response.parsed_body).to eq({ "active" => false })
+
+        bound_app.activate!
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+        expect(response.parsed_body["active"]).to be true
+
+        bound_app.strict_loading!(false)
+        bound_app.destroy!
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+        expect(response.parsed_body).to eq({ "active" => false })
+      end
+
       it "reports a REVOKED refresh token as inactive, immediately" do
         refresh_token.revoke!
 
