@@ -71,11 +71,13 @@ module StandardId
     #   caller whose contract is that an audit failure never costs it the
     #   credential. Report it to your error tracker: the gem only logs it.
     #   OAUTH_TOKEN_ISSUING (the status / locking guards) always raises.
-    # @param requested_scopes [Array<String>, nil] what OAUTH_TOKEN_ISSUED
+    # @param requested_scopes [Array<String>, String, nil] what OAUTH_TOKEN_ISSUED
     #   reports as `requested_scopes`, for a caller whose audit trail records
     #   the permissions it granted (carried in a host claim) rather than the
     #   OAuth scope words; default (nil) is the scope words, like every grant.
-    #   Changes the event only, never the token.
+    #   A String is split on whitespace. Changes the event only, never the
+    #   token — so for a direct mint, the event's requested_scopes may be
+    #   caller-supplied rather than what the token's `scope` claim says.
     # @return [Result]
     def mint(account:, audience:, grant_type:, scopes: nil, client_id: nil, claims: {}, expires_in: nil,
       refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise,

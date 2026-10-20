@@ -183,19 +183,31 @@ RSpec.describe StandardId::TokenMinter do
   end
 
   describe "requested_scopes:" do
-    it "reports the scope words by default and the caller's list when given, without touching the token" do
-      default = capture(StandardId::Events::OAUTH_TOKEN_ISSUED) do
-        described_class.mint(account: account, audience: "api", grant_type: "console.mint", scopes: "profile permissions")
+    def issued_requested_scopes(**opts)
+      seen = capture(StandardId::Events::OAUTH_TOKEN_ISSUED) do
+        described_class.mint(account: account, audience: "api", grant_type: "console.mint", scopes: "profile permissions", **opts)
       end
-      expect(default.first[:requested_scopes]).to eq(%w[profile permissions])
+      seen.first[:requested_scopes]
+    end
 
-      token = nil
-      custom = capture(StandardId::Events::OAUTH_TOKEN_ISSUED) do
-        token = described_class.mint(account: account, audience: "api", grant_type: "console.mint", scopes: "profile permissions",
-          requested_scopes: %w[inference:read]).access_token
-      end
-      expect(custom.first[:requested_scopes]).to eq(%w[inference:read])
+    it "reports the scope words by default" do
+      expect(issued_requested_scopes).to eq(%w[profile permissions])
+    end
+
+    it "reports the caller's list when given" do
+      expect(issued_requested_scopes(requested_scopes: %w[inference:read])).to eq(%w[inference:read])
+    end
+
+    it "leaves the token's scope claim alone" do
+      token = described_class.mint(account: account, audience: "api", grant_type: "console.mint", scopes: "profile permissions",
+        requested_scopes: %w[inference:read]).access_token
       expect(decode(token)[:scope]).to eq("profile permissions")
+    end
+
+    it "splits a space-delimited String and normalises symbols, keeping an explicit empty list empty" do
+      expect(issued_requested_scopes(requested_scopes: "inference:read  inference:write")).to eq(%w[inference:read inference:write])
+      expect(issued_requested_scopes(requested_scopes: %i[harness:read])).to eq(%w[harness:read])
+      expect(issued_requested_scopes(requested_scopes: [])).to eq([])
     end
   end
 

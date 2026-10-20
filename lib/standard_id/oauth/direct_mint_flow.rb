@@ -20,7 +20,7 @@ module StandardId
         requested_scopes: nil)
         super({ audience: audience }, request || NullRequest.new)
         @profile = profile
-        @audit_requested_scopes = requested_scopes.nil? ? nil : Array(requested_scopes).map(&:to_s)
+        @audit_requested_scopes = normalize_audit_scopes(requested_scopes)
         @audit_errors = audit_errors.to_s.to_sym
         unless AUDIT_ERROR_MODES.include?(@audit_errors)
           raise ArgumentError, "audit_errors must be one of #{AUDIT_ERROR_MODES.join(', ')} (got #{audit_errors.inspect})"
@@ -187,6 +187,14 @@ module StandardId
         return nil unless @request_given
 
         super
+      end
+
+      # nil keeps the scope words; otherwise an Array or a space-delimited
+      # String, split like `scopes`.
+      def normalize_audit_scopes(scopes)
+        return nil if scopes.nil?
+
+        Array(scopes).flat_map { |s| s.to_s.split(/\s+/) }.reject(&:blank?).uniq
       end
 
       def normalize_scopes(scopes)
