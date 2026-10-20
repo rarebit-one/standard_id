@@ -31,6 +31,9 @@ module StandardId
       # WebEngine's existing handling covers it — so it is mapped here.
       rescue_from StandardId::LoginMethodDenied, with: :handle_login_method_denied
 
+      # A host hook refused the request with its own response.
+      rescue_from StandardId::RequestRefused, with: :handle_request_refused
+
       protected
 
       def validate_content_type!
@@ -88,6 +91,11 @@ module StandardId
           error: error.oauth_error_code.to_s,
           error_description: error.message
         }, status: error.http_status
+      end
+
+      def handle_request_refused(error)
+        error.headers.each { |name, value| response.set_header(name.to_s, value.to_s) }
+        render json: error.body, status: error.status
       end
 
       def handle_oauth_error(error)

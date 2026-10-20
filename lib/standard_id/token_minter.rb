@@ -29,7 +29,13 @@ module StandardId
   # Raises the same errors the token endpoint would (InvalidGrantError,
   # InvalidRequestError, NoBoundProfileError, AccountDeactivatedError, …).
   module TokenMinter
-    Result = Data.define(:access_token, :refresh_token, :token_type, :expires_in, :scope, :jti, :audit_error)
+    Result = Data.define(:access_token, :refresh_token, :token_type, :expires_in, :scope, :jti, :audit_error) do
+      # audit_error arrived in 0.51; optional so a host spec that builds a
+      # Result to stub +mint+ keeps working.
+      def initialize(audit_error: nil, **members)
+        super
+      end
+    end
 
     module_function
 
@@ -57,12 +63,14 @@ module StandardId
     #   an account holding several active profiles of the bound type). Must
     #   belong to the account, be active, and be of the bound type when the
     #   audience has a binding; claim resolvers receive it as `profile:`.
+    #   oauth.audience_profile_resolver is not consulted for it — apply any
+    #   gate that resolver enforces before calling.
     # @param audit_errors [Symbol] :raise (default) re-raises an
     #   OAUTH_TOKEN_ISSUED subscriber's error, as every grant does; :report
     #   logs it and returns it as +Result#audit_error+ with the token, for a
     #   caller whose contract is that an audit failure never costs it the
-    #   credential. OAUTH_TOKEN_ISSUING (the status / locking guards) always
-    #   raises.
+    #   credential. Report it to your error tracker: the gem only logs it.
+    #   OAUTH_TOKEN_ISSUING (the status / locking guards) always raises.
     # @return [Result]
     def mint(account:, audience:, grant_type:, scopes: nil, client_id: nil, claims: {}, expires_in: nil,
       refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise)

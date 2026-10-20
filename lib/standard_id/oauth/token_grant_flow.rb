@@ -362,26 +362,30 @@ module StandardId
       # the requested audiences — preserves existing behavior for endpoints
       # that haven't opted into the audience→profile binding feature.
       def enforce_audience_profile_binding!
-        requested = Array(audience).reject(&:blank?)
-        return if requested.empty?
+        bound = profile_bound_audience
+        return if bound.nil?
 
-        bound = requested.select { |a| StandardId::Oauth::AudienceProfileResolver.configured_for?(a) }
-        return if bound.empty?
+        @resolved_profile = StandardId::Oauth::AudienceProfileResolver.resolve!(
+          account: token_account,
+          audience: bound
+        )
+      end
 
-        # Multiple bound audiences in one token would imply the holder is
-        # cleared for multiple distinct profile-type contexts simultaneously
-        # — there's no coherent answer for which profile to bind. Reject
-        # rather than silently picking one. Host apps that need cross-
-        # audience tokens should issue separate tokens per audience.
+      # The one requested audience with a profile-type binding, or nil.
+      #
+      # Multiple bound audiences in one token would imply the holder is
+      # cleared for multiple distinct profile-type contexts simultaneously
+      # — there's no coherent answer for which profile to bind. Reject
+      # rather than silently picking one. Host apps that need cross-
+      # audience tokens should issue separate tokens per audience.
+      def profile_bound_audience
+        bound = Array(audience).reject(&:blank?).select { |a| StandardId::Oauth::AudienceProfileResolver.configured_for?(a) }
         if bound.length > 1
           raise StandardId::InvalidGrantError,
             "Cannot bind a single token to multiple profile-bound audiences: #{bound.join(', ')}"
         end
 
-        @resolved_profile = StandardId::Oauth::AudienceProfileResolver.resolve!(
-          account: token_account,
-          audience: bound.first
-        )
+        bound.first
       end
 
       def claims_from_custom_claims

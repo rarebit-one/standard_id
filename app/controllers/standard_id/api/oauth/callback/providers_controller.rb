@@ -22,6 +22,7 @@ module StandardId
           provider_response = fetch_provider_user_info
           social_info = provider_response[:user_info]
           provider_tokens = provider_response[:tokens]
+          run_before_social_account(social_info:, provider_tokens:)
           account = find_or_create_account_from_social(social_info)
           newly_created = account.previously_new_record?
 
@@ -33,8 +34,16 @@ module StandardId
           # new account, and no usable token or session from this request.
           token_response = nil
           flow = nil
+          completion_before_mint = StandardId.config.social.completion_before_mint
           begin
             run_before_social_mint(account:, social_info:, provider_tokens:)
+            if completion_before_mint
+              complete_social_sign_in(account:, social_info:, provider_tokens:)
+              # The subscriber may have created records hanging off +account+
+              # (a profile); the mint, and AccountCleanup on a refusal, must
+              # see the database rather than those in-memory objects.
+              account.reload
+            end
             flow = StandardId::Oauth::SocialFlow.new(
               params,
               request,
@@ -43,13 +52,7 @@ module StandardId
               scopes: params[:scope]
             )
             token_response = flow.execute
-            run_social_callback(
-              provider: provider.provider_name,
-              social_info:,
-              provider_tokens:,
-              account:,
-              original_request_params: forwarded_request_params
-            )
+            complete_social_sign_in(account:, social_info:, provider_tokens:) unless completion_before_mint
             commit_social_link!
           rescue StandardError
             removed = social_account_removed_concurrently?(account, newly_created:)
@@ -70,6 +73,32 @@ module StandardId
         # Write the (provider, sub) link only once the login is accepted.
         def defer_social_link?
           true
+        end
+
+        def complete_social_sign_in(account:, social_info:, provider_tokens:)
+          run_social_callback(
+            provider: provider.provider_name,
+            social_info:,
+            provider_tokens:,
+            account:,
+            original_request_params: forwarded_request_params
+          )
+        end
+
+        # config.social.before_account: before find-or-create, so a refusal
+        # here has nothing to clean up.
+        def run_before_social_account(social_info:, provider_tokens:)
+          hook = StandardId.config.social.before_account
+          return unless hook.respond_to?(:call)
+
+          context = {
+            provider: provider.provider_name,
+            social_info: social_info,
+            provider_tokens: provider_tokens,
+            params: forwarded_request_params,
+            request: request
+          }
+          hook.call(**StandardId::Utils::CallableParameterFilter.filter(hook, context))
         end
 
         # config.social.before_mint, inside the same begin/rescue as the mint

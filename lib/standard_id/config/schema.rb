@@ -734,10 +734,29 @@ StandardId::ConfigSchema.define do
     # if those refuse the sign-in on an account that already existed, whatever
     # the hook wrote stays (make it idempotent); and it covers the API
     # callback only — the WebEngine's social callback does not run it.
-    # SOCIAL_AUTH_COMPLETED still fires after the mint as before. Replaces the
+    # SOCIAL_AUTH_COMPLETED fires after the mint unless completion_before_mint
+    # is set; raise StandardId::RequestRefused to answer in the host's own
+    # error envelope. Replaces the
     # host subclass of the callback controller that reordered these steps by
     # copying its body.
     field :before_mint, type: :any, default: nil
+    # Runs on the API social callback once the provider has vouched for the
+    # user and BEFORE the account is found or created — for a refusal that
+    # must leave no account row and fire no account events (a region block).
+    # A callable taking any subset of `provider:`, `social_info:`,
+    # `provider_tokens:`, `params:` (forwarded, as for before_mint) and
+    # `request:`. Raising refuses the sign-in with nothing written; raise
+    # StandardId::RequestRefused to answer with the host's own response.
+    # API callback only, like before_mint.
+    field :before_account, type: :any, default: nil
+    # When true, the API social callback publishes SOCIAL_AUTH_COMPLETED after
+    # before_mint and BEFORE the mint (then reloads the account), instead of
+    # after it — for a host whose completion subscriber writes what the mint
+    # depends on (accepting an invitation that creates the profile the
+    # audience is bound to). A refusal at the mint then comes after the
+    # subscriber's writes, which stay on an account that already existed, so
+    # the subscriber must be idempotent. The web callback is unchanged.
+    field :completion_before_mint, type: :boolean, default: false
     field :allowed_redirect_url_prefixes, type: :array, default: []
     field :available_scopes, type: :array, default: -> { [] }
     # How a social login whose (provider, sub) is not linked yet may link to
