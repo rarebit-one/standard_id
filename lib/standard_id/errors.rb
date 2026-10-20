@@ -93,6 +93,21 @@ module StandardId
     def http_status = :too_many_requests
   end
 
+  # The OTP resend cooldown (`passwordless.retry_delay`) refused a start: a code
+  # for this target was issued less than retry_delay seconds ago and is still
+  # usable, so nothing new was sent. A subclass of InvalidRequestError so every
+  # existing rescue keeps working; Otp.issue reports it as `error_code:
+  # :cooldown` so a host can show its own "a code is already on its way" copy
+  # and tell it apart from a send failure. `retry_after` is the seconds left.
+  class RetryDelayError < InvalidRequestError
+    attr_reader :retry_after
+
+    def initialize(message = "Please wait before requesting another code", retry_after: nil)
+      super(message)
+      @retry_after = retry_after
+    end
+  end
+
   class InvalidClientError < OAuthError
     def oauth_error_code = :invalid_client
     def http_status = :unauthorized
