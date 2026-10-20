@@ -32,14 +32,23 @@ module StandardId
 
         validate_username!(username)
         run_username_validator!(username)
-        enforce_retry_delay!(username)
-        emit_code_requested(username)
-        challenge = create_challenge!(
-          username,
-          code_length: code_length,
-          expires_in: expires_in,
-          metadata: metadata
-        )
+        enforce_start_rate_limits!(username)
+        # Cooldown check and challenge creation in ONE transaction, serialised
+        # per target (see #lock_target!), so two concurrent starts for the same
+        # address cannot both pass the check and both issue a code — which
+        # invalidated the first code the moment the second was created and
+        # left the user holding a dead one (fundbright delivery-ops#345).
+        challenge = ActiveRecord::Base.transaction do
+          lock_target!(username)
+          enforce_retry_delay!(username)
+          emit_code_requested(username)
+          create_challenge!(
+            username,
+            code_length: code_length,
+            expires_in: expires_in,
+            metadata: metadata
+          )
+        end
         # skip_sender is forwarded into the event payload so subscribers that
         # deliver on PASSWORDLESS_CODE_GENERATED (e.g. PasswordlessDeliverySubscriber)
         # can honor a per-call manual-delivery request. Without this,
@@ -51,6 +60,42 @@ module StandardId
       end
 
       protected
+
+      # Per-target and per-IP ceilings on starts (rate_limits.otp_start_per_*),
+      # counted here rather than on a controller so they hold whichever way a
+      # host reaches the strategy. The target key carries the realm and
+      # channel, so an authentication code and a verification code for the
+      # same address are separate budgets, as they are separate challenges.
+      def enforce_start_rate_limits!(username)
+        limits = StandardId.config.rate_limits
+        target = username.to_s.strip.downcase
+        StandardId::RateLimiter.hit!(
+          "standard_id:otp-start:target:#{@realm}:#{connection_type}:#{target}",
+          limit: limits.otp_start_per_target, window: 15.minutes
+        )
+
+        ip = request.respond_to?(:remote_ip) ? request.remote_ip : nil
+        return if ip.blank?
+
+        StandardId::RateLimiter.hit!(
+          "standard_id:otp-start:ip:#{StandardId::Utils::IpNormalizer.normalize(ip)}",
+          limit: limits.otp_start_per_ip, window: 1.hour
+        )
+      end
+
+      # Serialise concurrent starts for one (realm, channel, target) for the
+      # rest of the enclosing transaction. On PostgreSQL this is a transaction-
+      # scoped advisory lock, released at commit or rollback, so a second start
+      # waits for the first to finish and then sees the challenge it created.
+      # Other adapters get no cross-process lock: the retry-delay check there
+      # stays what it was, a read followed by a write.
+      def lock_target!(username)
+        connection = StandardId::CodeChallenge.connection
+        return unless connection.adapter_name.match?(/postg/i)
+
+        key = "standard_id:otp:#{@realm}:#{connection_type}:#{username}"
+        connection.execute("SELECT pg_advisory_xact_lock(hashtext(#{connection.quote(key)}))")
+      end
 
       # Reject a resend that arrives within passwordless.retry_delay seconds of
       # the most recent still-active code for this target. A soft cooldown that

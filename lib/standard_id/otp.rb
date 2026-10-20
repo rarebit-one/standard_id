@@ -132,6 +132,10 @@ module StandardId
             skip_sender: delivery_sym == :manual,
             delivery: delivery_sym
           )
+        rescue StandardId::RateLimitExceededError => e
+          # A lib-level start limit (rate_limits.otp_start_per_*) tripped.
+          # Distinct code so a caller can answer 429 rather than 400.
+          return failure_issue_result(:rate_limited, e.message)
         rescue StandardId::InvalidRequestError => e
           # Validation failures from the strategy (invalid email/phone format,
           # custom username_validator rejections, etc.) are surfaced as a

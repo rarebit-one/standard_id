@@ -245,12 +245,17 @@ StandardId.configure do |config|
   # refresh_token: (nil for an access token) and request:. Falsy — or an
   # exception, which is logged — renders {"active": false}.
   config.oauth.introspection_liveness = ->(payload:) {
-    profile = GlobalID::Locator.locate(payload[:gid]) if payload[:gid].present?
+    next true if payload[:gid].blank?   # a token with no host row to check (client_credentials)
+
+    profile = GlobalID::Locator.locate(payload[:gid])
     profile.present? && profile.active?
+  rescue ActiveRecord::RecordNotFound  # the row was deleted: inactive, and no log line needed
+    false
   }
 
-  # Extra claims echoed on an ACTIVE response, beyond the RFC 7662 members.
-  # Absent claims are omitted; the standard members cannot be overridden.
+  # Extra claims echoed VERBATIM on an ACTIVE response, beyond the RFC 7662
+  # members — list scalar claims. Absent claims are omitted; the standard
+  # members cannot be overridden.
   config.oauth.introspection_claims = %w[profile_type gid]
 end
 ```
@@ -1733,6 +1738,26 @@ bundle exec rspec spec/controllers/
   requests that omit `code_challenge` for a PKCE-required client are
   rejected with `invalid_request`.
 - Rate limiting on authentication endpoints
+
+## OTP Start Limits
+
+The engine's controllers throttle their own OTP endpoints (`rate_limits.api_passwordless_start_*`,
+`login_per_*`, `verification_start_*`). A host that drives the passwordless strategy from its own
+controllers, an operation or a job (`generate_passwordless_otp`, `StandardId::Otp.issue`) never
+passes those, so two limits are enforced inside the strategy itself, on the same store:
+
+```ruby
+StandardId.configure do |config|
+  config.rate_limits.otp_start_per_target = 5   # per (realm, channel, address), per 15 minutes; 0 = off
+  config.rate_limits.otp_start_per_ip     = 0   # per hour; off by default — pick a ceiling that fits CGNAT/office traffic
+end
+```
+
+A tripped limit raises `StandardId::RateLimitExceededError` (an `InvalidRequestError` that the API
+error handler renders as `429 rate_limit_exceeded`, the web login page shows as a flash, and
+`Otp.issue` returns as a failed result with `error_code: :rate_limited`). The 30-second resend
+cooldown (`passwordless.retry_delay`) and the challenge insert run in one transaction, serialised per
+address with a PostgreSQL advisory lock, so two concurrent starts cannot both issue a code.
 
 ## Missing Migrations
 
