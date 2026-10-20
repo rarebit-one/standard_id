@@ -110,5 +110,51 @@ RSpec.describe "Passwordless OTP start rate limits", type: :model do
       expect { start!("user@example.com") }.to raise_error(StandardId::InvalidRequestError, /wait \d+ seconds?/)
       expect(StandardId::CodeChallenge.where(target: "user@example.com").count).to eq(1)
     end
+
+    it "holds a transaction (and so the lock) across the cooldown check and the insert" do
+      depth_at_check = nil
+      depth_at_insert = nil
+      allow(strategy).to receive(:enforce_retry_delay!).and_wrap_original do |m, *args|
+        depth_at_check = ActiveRecord::Base.connection.open_transactions
+        m.call(*args)
+      end
+      allow(StandardId::CodeChallenge).to receive(:create!).and_wrap_original do |m, *args, **kwargs|
+        depth_at_insert = ActiveRecord::Base.connection.open_transactions
+        m.call(*args, **kwargs)
+      end
+      outer = ActiveRecord::Base.connection.open_transactions
+
+      start!("user@example.com")
+
+      expect(depth_at_check).to eq(outer + 1)
+      expect(depth_at_insert).to be >= outer + 1
+    end
+
+    it "normalises the lock key like the rate-limit key" do
+      connection = StandardId::CodeChallenge.connection
+      allow(connection).to receive(:adapter_name).and_return("PostgreSQL")
+      allow(connection).to receive(:execute).and_call_original
+      allow(connection).to receive(:execute).with(/pg_advisory_xact_lock/).and_return(nil)
+
+      start!("User@Example.com")
+
+      expect(connection).to have_received(:execute)
+        .with("SELECT pg_advisory_xact_lock(hashtext('standard_id:otp:authentication:email:user@example.com'))")
+    end
+
+    it "publishes PASSWORDLESS_CODE_REQUESTED only once the challenge is committed, before CODE_GENERATED" do
+      order = []
+      StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_REQUESTED) do |_|
+        order << [:requested, ActiveRecord::Base.connection.open_transactions, StandardId::CodeChallenge.where(target: "user@example.com").count]
+      end
+      StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) { |_| order << [:generated] }
+      outer = ActiveRecord::Base.connection.open_transactions
+
+      start!("user@example.com")
+
+      expect(order.map(&:first)).to eq(%i[requested generated])
+      expect(order.first[1]).to eq(outer)
+      expect(order.first[2]).to eq(1)
+    end
   end
 end

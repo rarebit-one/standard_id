@@ -221,6 +221,26 @@ RSpec.describe StandardId::AccountStatus do
       "standard_id.#{StandardId::Events::SESSION_CREATING}"
     ).size
   end
+  describe ".deactivated?" do
+    it "is false for nil and for an object that does not include the concern" do
+      expect(StandardId::AccountStatus.deactivated?(nil)).to be false
+      expect(StandardId::AccountStatus.deactivated?(Object.new)).to be false
+    end
+  end
+
+  describe "config.inactive_account_status = :active" do
+    it "is refused at include time rather than collapsing the enum" do
+      allow(StandardId.config).to receive(:inactive_account_status).and_return(:active)
+
+      expect {
+        Class.new(ApplicationRecord) do
+          self.table_name = "accounts"
+          include StandardId::AccountStatus
+        end
+      }.to raise_error(StandardId::ConfigurationError, "inactive_account_status cannot be :active")
+    end
+  end
+
   describe "with a renamed deactivated status (config.inactive_account_status = :suspended)" do
     let(:suspendable_class) do
       allow(StandardId.config).to receive(:inactive_account_status).and_return(:suspended)

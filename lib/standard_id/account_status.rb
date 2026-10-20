@@ -13,8 +13,13 @@ module StandardId
     end
 
     # The configured enum key for a deactivated account (`config.inactive_account_status`).
+    # `:active` is refused: the enum would collapse to one key and every
+    # account would read as deactivated.
     def self.inactive_status
-      StandardId.config.inactive_account_status.to_s.presence&.to_sym || :inactive
+      status = StandardId.config.inactive_account_status.to_s.presence&.to_sym || :inactive
+      raise StandardId::ConfigurationError, "inactive_account_status cannot be :active" if status == :active
+
+      status
     end
 
     included do
