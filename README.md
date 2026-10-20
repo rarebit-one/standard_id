@@ -364,6 +364,46 @@ R.assert!(requested: %w[mcp mcp:admin], audience: "companion_kit") # => raises I
 
 An **unconfigured** audience fails **open** — `filter` and `assert!` pass the requested scopes through unchanged — so an app that does not model per-audience vocabularies sees no behaviour change; narrowing only bites once an audience has an explicit vocabulary.
 
+### Serving a Protected Resource (RFC 9728)
+
+A resource server — an MCP endpoint, a service API — needs three things: the bearer
+check, a 401/403 that tells the client where the authorization server is, and the
+RFC 9728 metadata document that 401 points at. The gem provides all three.
+
+```ruby
+# config/initializers/standard_id.rb
+StandardId.configure do |config|
+  config.oauth.audience_scopes = { "mcp" => %w[mcp mcp:read] }
+  config.oauth.protected_resources = {
+    "mcp" => { path: "/mcp" }   # scopes_supported defaults to audience_scopes["mcp"]
+  }
+end
+
+# config/routes.rb
+standard_id_protected_resource_routes   # /.well-known/oauth-protected-resource(/mcp)
+
+# app/controllers/mcp/base_controller.rb
+class Mcp::BaseController < ActionController::API
+  include StandardId::ResourceServer
+  protected_resource "mcp", scopes: %w[mcp]
+end
+```
+
+`protected_resource` verifies the access token, requires its `aud` to carry the
+audience (with the audience → profile-type binding when configured) and one of
+`scopes:` when given. A missing, expired, revoked or invalid token, or a deactivated
+or locked account, is `401 invalid_token`; a token for another audience or without a
+required scope is `403 insufficient_scope`. Every refusal carries
+`WWW-Authenticate: Bearer realm="mcp", error=…, resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`,
+which is how an MCP client discovers the authorization server and starts the
+authorization-code + PKCE flow. The document itself is built by
+`StandardId::Oauth::ProtectedResourceDocument` from the entry: `path` (required, or
+an absolute URL on another origin), `scopes_supported`, `authorization_servers`
+(default `[issuer]`), `bearer_methods_supported` (default `["header"]`) and any other
+RFC 9728 member; callables receive `{ origin:, audience:, issuer:, request: }` and
+`nil` removes a member. Rate limiting and resolving the token's claims to a profile
+stay in the host controller.
+
 ### Social Login Setup
 
 Need the account ready before the token is minted — a profile the requested
