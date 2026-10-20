@@ -37,6 +37,10 @@ StandardId::ApiEngine.routes.draw do
       get "jwks.json", to: "jwks#show", as: :jwks
       get "openid-configuration", to: "openid_configuration#show", as: :openid_configuration
       get "oauth-authorization-server", to: "oauth_authorization_server#show", as: :oauth_authorization_server
+      # RFC 9728. The host also draws this at the origin root with
+      # standard_id_protected_resource_routes, which is the URL the challenge names.
+      get "oauth-protected-resource(/*resource_path)", to: "oauth_protected_resource#show",
+        as: :oauth_protected_resource, format: false
     end
   end
 end

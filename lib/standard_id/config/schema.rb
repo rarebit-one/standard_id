@@ -435,6 +435,21 @@ StandardId::ConfigSchema.define do
     # `invalid_target` rather than issued without an audience.
     field :resource_audiences, type: :hash, default: -> { {} }
 
+    # RFC 9728 protected resources this host serves, keyed by the audience
+    # their tokens carry. `path` is required (where the resource lives, or an
+    # absolute URL on another origin); `scopes_supported` defaults to
+    # `audience_scopes[audience]`, `authorization_servers` to `[issuer]`,
+    # `bearer_methods_supported` to `["header"]`; any other RFC 9728 member is
+    # emitted as given (callables receive `{ origin:, audience:, issuer:,
+    # request: }`; nil removes a member). `root: true` picks the resource the
+    # bare /.well-known/oauth-protected-resource serves when several exist.
+    #
+    #   c.oauth.protected_resources = { "mcp" => { path: "/mcp", scopes_supported: %w[mcp mcp:read] } }
+    #
+    # Served by `standard_id_protected_resource_routes` in the host's routes
+    # file; consumed by StandardId::ResourceServer for the 401/403 challenge.
+    field :protected_resources, type: :hash, default: -> { {} }
+
     # JWT signing configuration (for asymmetric algorithms)
     # If nil, uses HS256 with Rails.application.secret_key_base
     field :signing_key, type: :any, default: nil

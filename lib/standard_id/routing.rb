@@ -99,6 +99,27 @@ module StandardId
       end
     end
 
+    # Draw the RFC 9728 protected-resource metadata at the ORIGIN ROOT:
+    #
+    #   /.well-known/oauth-protected-resource            (the default resource)
+    #   /.well-known/oauth-protected-resource/<path>     (RFC 9728 §3.1, per resource)
+    #
+    # One glob route; which resource a path names is decided per request from
+    # `config.oauth.protected_resources`, so adding a resource is a config
+    # change, not a routes change. The second form is the exact URL the
+    # `WWW-Authenticate resource_metadata` challenge from
+    # StandardId::ResourceServer carries.
+    #
+    #   # config/routes.rb
+    #   standard_id_well_known_routes at: "/api"
+    #   standard_id_protected_resource_routes
+    def standard_id_protected_resource_routes
+      get ".well-known/oauth-protected-resource(/*resource_path)",
+        to: "standard_id/api/well_known/oauth_protected_resource#show",
+        as: :standard_id_root_oauth_protected_resource,
+        format: false
+    end
+
     # @return [Hash] the WELL_KNOWN_DOCUMENTS entries `only:`/`except:` select
     def self.selected_documents(only: nil, except: nil)
       if only.present? && except.present?

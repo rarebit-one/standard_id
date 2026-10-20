@@ -4,6 +4,7 @@ Rails.application.routes.draw do
   # file. `at:` is the ApiEngine mount path below; it both builds the RFC 8414
   # §3.1 path-inserted variants and tells the resolver where endpoints live.
   standard_id_well_known_routes at: "/api"
+  standard_id_protected_resource_routes
 
   mount StandardId::WebEngine => "/", as: :standard_id_web
 
@@ -17,6 +18,7 @@ Rails.application.routes.draw do
 
     namespace :v1 do
       get :protected, to: "protected#show"
+      get :mcp, to: "mcp#show"
     end
   end
 
