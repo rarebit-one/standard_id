@@ -468,6 +468,24 @@ StandardId::ConfigSchema.define do
     # immediately.
     field :introspection_enabled, type: :boolean, default: false
 
+    # A host-side liveness check for `/oauth/introspect`, run after the gem's
+    # own checks pass (signature, expiry, refresh-token row, parent session,
+    # bound ClientApplication) and before the active response is rendered. A
+    # callable taking any subset of `payload:` (the decoded claims, string or
+    # symbol keys), `refresh_token:` (the persisted StandardId::RefreshToken,
+    # nil for an access token) and `request:`. A falsy return renders
+    # `{"active": false}`, nothing else. For claims the host mints that point
+    # at its own rows — a profile `gid`, a tenant — whose liveness only the
+    # host can judge. An exception is logged and counts as inactive: a check
+    # that cannot answer must not say yes.
+    field :introspection_liveness, type: :any, default: nil
+
+    # Extra claim names copied from the token into an ACTIVE introspection
+    # response, beyond the RFC 7662 members the gem always returns — e.g.
+    # `%w[profile_type gid]`. A claim the token lacks is omitted; the standard
+    # members (`active`, `sub`, `aud`, …) cannot be overridden.
+    field :introspection_claims, type: :array, default: -> { [] }
+
     # Grant types the token endpoint refuses even though the engine implements
     # them. Values are the `grant_type` strings: "authorization_code",
     # "refresh_token", "client_credentials", "password", "passwordless_otp".

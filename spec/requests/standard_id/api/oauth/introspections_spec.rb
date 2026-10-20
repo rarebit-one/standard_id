@@ -250,6 +250,101 @@ RSpec.describe "StandardId::Api::Oauth::IntrospectionsController", type: :reques
       end
     end
 
+    describe "config.oauth.introspection_liveness (the host's own check)" do
+      def with_liveness(callable)
+        allow(StandardId.config.oauth).to receive(:introspection_liveness).and_return(callable)
+      end
+
+      it "renders the bare inactive response when the host says no" do
+        with_liveness(->(payload:) { payload[:sub].to_s != account.id.to_s })
+
+        post path, params: credentials_params.merge(token: issue_token)
+
+        expect(response.parsed_body).to eq({ "active" => false })
+      end
+
+      it "renders the active response when the host says yes" do
+        with_liveness(->(payload:) { payload[:sub].to_s == account.id.to_s })
+
+        post path, params: credentials_params.merge(token: issue_token)
+
+        expect(response.parsed_body["active"]).to be true
+      end
+
+      it "passes only the keywords the callable accepts: payload, refresh_token (nil for an access token) and request" do
+        seen = nil
+        with_liveness(->(payload:, refresh_token:, request:) { seen = [payload, refresh_token, request]; true })
+
+        post path, params: credentials_params.merge(token: issue_token)
+
+        expect(seen[0][:client_id]).to eq(credential.client_id)
+        expect(seen[1]).to be_nil
+        expect(seen[2]).to be_a(ActionDispatch::Request)
+      end
+
+      it "hands a persisted refresh token to the callable" do
+        jti = SecureRandom.uuid
+        persisted = StandardId::RefreshToken.create!(
+          account: account, token_digest: StandardId::RefreshToken.digest_for(jti), expires_at: 30.days.from_now
+        )
+        seen = nil
+        with_liveness(->(refresh_token:) { seen = refresh_token; true })
+
+        post path, params: credentials_params.merge(token: issue_token(jti: jti))
+
+        expect(seen).to eq(persisted)
+      end
+
+      it "treats an exception as inactive and logs it, rather than saying yes or 500ing" do
+        logger = instance_double(Logger, error: nil)
+        allow(StandardId.config).to receive(:logger).and_return(logger)
+        with_liveness(->(payload:) { raise "host row lookup exploded" })
+
+        post path, params: credentials_params.merge(token: issue_token)
+
+        expect(response.parsed_body).to eq({ "active" => false })
+        expect(logger).to have_received(:error).with(/introspection_liveness raised: RuntimeError: host row lookup exploded/)
+      end
+
+      it "runs after the gem's own checks: a dead token never reaches the host" do
+        calls = 0
+        with_liveness(->(payload:) { calls += 1; true })
+
+        post path, params: credentials_params.merge(token: issue_token(expires_at: 1.hour.ago))
+
+        expect(response.parsed_body).to eq({ "active" => false })
+        expect(calls).to eq(0)
+      end
+    end
+
+    describe "config.oauth.introspection_claims (extra members on an active response)" do
+      before do
+        allow(StandardId.config.oauth).to receive(:introspection_claims).and_return(%w[profile_type gid active sub])
+      end
+
+      it "copies the named claims from the token and omits the ones it lacks" do
+        post path, params: credentials_params.merge(token: issue_token(profile_type: "PlatformProfile"))
+
+        body = response.parsed_body
+        expect(body["profile_type"]).to eq("PlatformProfile")
+        expect(body).not_to have_key("gid")
+      end
+
+      it "never lets a named claim override a standard member" do
+        # `active` is named in introspection_claims above and the token carries
+        # it as false; the gem's own verdict must still win.
+        post path, params: credentials_params.merge(token: issue_token(active: false))
+
+        expect(response.parsed_body["active"]).to be true
+      end
+
+      it "adds nothing to an inactive response" do
+        post path, params: credentials_params.merge(token: issue_token(expires_at: 1.hour.ago, profile_type: "PlatformProfile"))
+
+        expect(response.parsed_body).to eq({ "active" => false })
+      end
+    end
+
     # This is the documented, unavoidable limit. It is asserted rather than
     # merely written down, so nobody "fixes" the docs to claim otherwise.
     describe "the honest limit: access tokens are stateless" do

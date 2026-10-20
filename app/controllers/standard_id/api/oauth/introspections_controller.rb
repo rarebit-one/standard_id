@@ -108,6 +108,9 @@ module StandardId
           # ...and whose ClientApplication is gone or deactivated, which the
           # refresh grant refuses too (#validate_client_application_liveness!).
           return render_inactive if persisted && !persisted.client_application_live?
+          # ...and whatever the host knows that the gem cannot (a claim that
+          # points at a host row which has since been deactivated).
+          return render_inactive unless host_liveness?(payload, persisted)
 
           render json: active_response(payload, persisted), status: :ok
         end
@@ -158,10 +161,27 @@ module StandardId
           nil
         end
 
+        # `config.oauth.introspection_liveness`, when set. Called with the
+        # subset of payload:/refresh_token:/request: its signature accepts.
+        # Anything but a truthy answer — including an exception, which is
+        # logged — is inactive: a check that cannot answer must not say yes.
+        def host_liveness?(payload, persisted)
+          callable = StandardId.config.oauth.introspection_liveness
+          return true unless callable.respond_to?(:call)
+
+          context = { payload: payload, refresh_token: persisted, request: request }
+          !!callable.call(**StandardId::Utils::CallableParameterFilter.filter(callable, context))
+        rescue StandardError => e
+          StandardId.config.logger&.error("[StandardId] oauth.introspection_liveness raised: #{e.class}: #{e.message}")
+          false
+        end
+
         # RFC 7662 §2.2. `.compact` so absent claims are omitted rather than
-        # emitted as null.
+        # emitted as null. Host-configured extra claims
+        # (`config.oauth.introspection_claims`) come first so the standard
+        # members always win.
         def active_response(payload, persisted)
-          {
+          extra_claims(payload).merge(
             active: true,
             token_type: persisted ? "refresh_token" : "Bearer",
             sub: payload[:sub],
@@ -172,7 +192,15 @@ module StandardId
             jti: payload[:jti],
             client_id: payload[:client_id],
             scope: payload[:scope]
-          }.compact
+          ).compact
+        end
+
+        def extra_claims(payload)
+          names = Array(StandardId.config.oauth.introspection_claims).map(&:to_s)
+          return {} if names.empty?
+
+          claims = payload.to_h.with_indifferent_access
+          names.to_h { |name| [name.to_sym, claims[name]] }.compact
         end
 
         def render_inactive
