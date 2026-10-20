@@ -37,6 +37,8 @@ module StandardId
       # Keys `config.oauth.dynamic_registration_attributes` may pin.
       PINNABLE_ATTRIBUTES = %w[scopes metadata access_token_lifetime authorization_code_lifetime require_consent description].freeze
       REGISTRATION_ACCESS_TOKEN_BYTES = 32
+      # A self-registered client gets a handful of callbacks, not a list.
+      MAX_REDIRECT_URIS = 10
 
       # Minimal result object mirroring the gem's `result.success?` /
       # `result.value` convention. `client_secret` is the one-time plaintext for
@@ -88,18 +90,23 @@ module StandardId
         client
       end
 
+      # Everything, the owner resolver included, runs inside one transaction:
+      # a host whose resolver creates a per-registration owner row must not be
+      # left with that row when the client itself is refused.
       def call
-        attrs = mapped_attributes
+        validate_redirect_uris!
         registration_access_token = nil
-        if StandardId::ClientApplication.registration_management_column?
-          registration_access_token = SecureRandom.urlsafe_base64(REGISTRATION_ACCESS_TOKEN_BYTES)
-          attrs[:registration_access_token_digest] =
-            StandardId::ClientApplication.digest_registration_access_token(registration_access_token)
-        end
-        client = StandardId::ClientApplication.new(attrs)
-
         secret_plaintext = nil
+        client = nil
+
         StandardId::ClientApplication.transaction do
+          attrs = mapped_attributes
+          if StandardId::ClientApplication.registration_management_column?
+            registration_access_token = SecureRandom.urlsafe_base64(REGISTRATION_ACCESS_TOKEN_BYTES)
+            attrs[:registration_access_token_digest] =
+              StandardId::ClientApplication.digest_registration_access_token(registration_access_token)
+          end
+          client = StandardId::ClientApplication.new(attrs)
           client.save!
           if client.confidential?
             secret_plaintext = SecureRandom.hex(32)
@@ -117,6 +124,7 @@ module StandardId
       end
 
       def update(client)
+        validate_redirect_uris!
         if metadata[:client_id].present? && metadata[:client_id].to_s != client.client_id
           raise StandardId::InvalidClientMetadataError, "client_id does not match the client being updated"
         end
@@ -191,7 +199,34 @@ module StandardId
       # the model and let its redirect-uri validation surface an invalid_redirect_uri
       # error — keeping a single source of truth for URI rules.
       def redirect_uris
-        Array(metadata[:redirect_uris]).map { |u| u.to_s.strip }.reject(&:blank?).join(" ")
+        redirect_uri_list.join(" ")
+      end
+
+      def redirect_uri_list
+        value = metadata[:redirect_uris]
+        list = value.is_a?(Array) ? value : value.to_s.split(/\s+/)
+        list.map { |u| u.to_s.strip }.reject(&:blank?)
+      end
+
+      # What the model does not enforce for a client an operator registers by
+      # hand, but a self-registering client must meet: https, or http only on a
+      # loopback host (RFC 8252 §7.3, for native apps on an ephemeral port), and
+      # a bounded list. Absent or empty is left to the model's presence check.
+      def validate_redirect_uris!
+        list = redirect_uri_list
+        return if list.empty?
+
+        if list.size > MAX_REDIRECT_URIS
+          raise StandardId::InvalidRedirectUriError, "redirect_uris must not contain more than #{MAX_REDIRECT_URIS} entries"
+        end
+
+        list.each do |uri|
+          parsed = StandardId::ClientApplication.parse_redirect_uri(uri)
+          next if parsed && (parsed.scheme == "https" || StandardId::ClientApplication.loopback_redirect_uri?(parsed))
+
+          raise StandardId::InvalidRedirectUriError,
+            "redirect_uri #{uri.inspect} must use https (http is allowed only for loopback hosts)"
+        end
       end
 
       def client_name

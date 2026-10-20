@@ -159,6 +159,36 @@ RSpec.describe StandardId::Oauth::ClientRegistration do
     end
   end
 
+  describe "redirect URI rules for self-registered clients" do
+    it "refuses a non-loopback http redirect_uri with invalid_redirect_uri" do
+      expect { described_class.call(redirect_uris: ["http://example.com/cb"]) }
+        .to raise_error(StandardId::InvalidRedirectUriError, /https/)
+    end
+
+    it "accepts https and loopback http" do
+      client = described_class.call(redirect_uris: ["https://app.example.com/cb", "http://127.0.0.1:8080/cb", "http://localhost/cb"]).client
+      expect(client.redirect_uris_array.size).to eq(3)
+    end
+
+    it "caps the list" do
+      uris = (1..11).map { |i| "https://app.example.com/cb#{i}" }
+      expect { described_class.call(redirect_uris: uris) }
+        .to raise_error(StandardId::InvalidRedirectUriError, /more than 10/)
+    end
+
+    it "does not leave the owner behind when the client is refused" do
+      created = 0
+      allow(StandardId.config.oauth).to receive(:dynamic_registration_owner).and_return(-> {
+        created += 1
+        Account.create!(name: "Per-registration owner #{created}", email: "owner-#{SecureRandom.hex(4)}@example.com")
+      })
+
+      expect { described_class.call(redirect_uris: []) }.to raise_error(StandardId::InvalidRedirectUriError)
+      expect(Account.where("name LIKE 'Per-registration owner%'")).to be_empty
+      expect(created).to eq(1)
+    end
+  end
+
   describe "pinned attributes (oauth.dynamic_registration_attributes)" do
     def pin(value)
       allow(StandardId.config.oauth).to receive(:dynamic_registration_attributes).and_return(value)

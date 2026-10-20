@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-10-20
+
+### Fixed
+
+- **Dynamic registration refuses non-https redirect URIs** (`invalid_redirect_uri`): https, or http only on a loopback host (RFC 8252 §7.3), and at most 10 entries — the rules every consumer's own registration operation enforced and the gem's model (which also serves operator-registered clients) does not. Applies to RFC 7592 updates too.
+- **A refused registration no longer leaves an owner row behind**: the `dynamic_registration_owner` callable now runs inside the registration transaction, so a host creating a per-registration owner record gets it rolled back when the client is invalid.
+- **`StandardId::ResourceServer`'s scope check defers to the auth layer**: with no session (the action skipped `verify_access_token!`, e.g. a 405 responder) it no longer raises `NotAuthenticatedError` itself, matching `AudienceVerification`.
+
 ## [0.49.0] - 2026-10-20
 
 ### Added

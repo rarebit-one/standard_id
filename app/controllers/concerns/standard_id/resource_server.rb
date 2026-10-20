@@ -81,8 +81,12 @@ module StandardId
         raise(StandardId::ConfigurationError, "#{self.class.name} includes StandardId::ResourceServer but never called protected_resource")
     end
 
+    # Like verify_audience!: without a session there is nothing to check, and
+    # either the auth layer is answering the 401 or the action skipped
+    # verify_access_token! on purpose (a 405 responder, say).
     def verify_protected_resource_scopes!
       return if _protected_resource_scopes.empty?
+      return unless current_session
 
       require_scopes!(*_protected_resource_scopes)
     end
