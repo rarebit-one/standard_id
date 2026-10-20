@@ -13,6 +13,10 @@ StandardId.configure do |c|
   # include StandardId::AccountAssociations (see post-install checklist).
   # Default: "User"
   c.account_class_name = "User"
+  # The enum key StandardId::AccountStatus uses for a deactivated account
+  # (default :inactive). Set it to the value your status column already
+  # carries, e.g. :suspended, to adopt the concern without renaming it.
+  # c.inactive_account_status = :inactive
 
   # JWT "iss" claim — typically your application's canonical base URL. When
   # set, tokens embed it and verification enforces it. Strongly recommended

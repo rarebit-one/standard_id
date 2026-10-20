@@ -43,6 +43,17 @@ StandardId::ConfigSchema.define do
     field :inertia_component_namespace, type: :string, default: "standard_id"
     field :alias_current_user, type: :boolean, default: false
 
+    # The enum key `StandardId::AccountStatus` declares for a deactivated
+    # account, and so its stored value and predicate: `:inactive` (default)
+    # gives `inactive?` / status "inactive"; `:suspended` gives `suspended?` /
+    # status "suspended". For a host whose status column already carries a
+    # different value and whose code reads that predicate everywhere, so it can
+    # adopt the concern (and the sign-in / token / live-session guard it
+    # installs) without renaming a database enum value under running
+    # processes. `inactive?` stays available as an alias. Read when the concern
+    # is included, so set it in the initializer, before the account model loads.
+    field :inactive_account_status, type: :symbol, default: :inactive
+
     # Opt the gem's own associations out of an app-wide
     # `strict_loading_by_default = true`.
     #

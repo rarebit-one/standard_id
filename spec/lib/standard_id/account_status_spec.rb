@@ -221,4 +221,85 @@ RSpec.describe StandardId::AccountStatus do
       "standard_id.#{StandardId::Events::SESSION_CREATING}"
     ).size
   end
+  describe "with a renamed deactivated status (config.inactive_account_status = :suspended)" do
+    let(:suspendable_class) do
+      allow(StandardId.config).to receive(:inactive_account_status).and_return(:suspended)
+      Class.new(ApplicationRecord) do
+        self.table_name = "accounts"
+        # What the ACCOUNT_DEACTIVATED subscriber reaches for; declared by hand
+        # because AccountAssociations would derive the FK from this class's name.
+        has_many :sessions, class_name: "StandardId::Session", foreign_key: :account_id, inverse_of: false
+        include StandardId::AccountStatus
+        validates :email, :name, presence: true
+
+        def self.name = "SuspendableAccount"
+      end
+    end
+    let(:suspendable) do
+      suspendable_class.create!(name: "Suspendable", email: "suspendable-#{SecureRandom.hex(4)}@example.com")
+    end
+
+    it "declares the host's word as the enum key and value, with inactive? as an alias" do
+      expect(suspendable_class.statuses).to eq({ "active" => "active", "suspended" => "suspended" })
+      expect(suspendable).to respond_to(:suspended?)
+      expect(suspendable.suspended?).to be false
+      expect(suspendable.inactive?).to be false
+    end
+
+    it "deactivate! writes that value and activate! clears it" do
+      suspendable.deactivate!
+      expect(suspendable.reload.status).to eq("suspended")
+      expect(suspendable.suspended?).to be true
+      expect(suspendable.inactive?).to be true
+      expect(suspendable.deactivated_at).to be_within(1.second).of(Time.current)
+
+      suspendable.activate!
+      expect(suspendable.reload.status).to eq("active")
+    end
+
+    it "emits ACCOUNT_DEACTIVATED / ACCOUNT_ACTIVATED around the renamed status" do
+      received = []
+      StandardId::Events.subscribe(StandardId::Events::ACCOUNT_DEACTIVATED, StandardId::Events::ACCOUNT_ACTIVATED) do |event|
+        received << [event.name, event[:previous_status]]
+      end
+
+      suspendable.deactivate!
+      suspendable.activate!
+
+      expect(received.map(&:last)).to eq(%w[active suspended])
+      expect(received.map(&:first)).to eq([
+        "standard_id.#{StandardId::Events::ACCOUNT_DEACTIVATED}", "standard_id.#{StandardId::Events::ACCOUNT_ACTIVATED}"
+      ])
+    end
+
+    it "the sign-in / token guard refuses the account with the host's word" do
+      suspendable.deactivate!
+
+      expect {
+        StandardId::Events.publish(StandardId::Events::OAUTH_TOKEN_ISSUING, account: suspendable)
+      }.to raise_error(StandardId::AccountDeactivatedError, "Account is suspended")
+      expect {
+        StandardId::Events.publish(StandardId::Events::SESSION_CREATING, account: suspendable)
+      }.to raise_error(StandardId::AccountDeactivatedError, "Account is suspended")
+    end
+
+    it "leaves the default-keyed model untouched" do
+      suspendable_class
+      expect(Account.statuses).to eq({ "active" => "active", "inactive" => "inactive" })
+      expect(account.inactive?).to be false
+    end
+  end
+
+  describe "without the timestamp columns" do
+    it "activate! and deactivate! write only the status" do
+      allow(account).to receive(:has_attribute?).and_call_original
+      allow(account).to receive(:has_attribute?).with(:deactivated_at).and_return(false)
+      allow(account).to receive(:has_attribute?).with(:activated_at).and_return(false)
+
+      expect(account).to receive(:update!).with(status: :inactive).and_call_original
+      account.deactivate!
+      expect(account).to receive(:update!).with(status: :active).and_call_original
+      account.activate!
+    end
+  end
 end

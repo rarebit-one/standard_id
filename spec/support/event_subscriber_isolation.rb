@@ -39,6 +39,17 @@ end
 RSpec.configure do |config|
   config.include StandardIdEventsTestHelper
 
+  # Load the dummy account model BEFORE any example runs. Outside CI the dummy
+  # app does not eager-load, so `Account` (and with it the `included` blocks of
+  # AccountStatus / AccountLocking, which subscribe the enforcement guards
+  # behind their one-shot flags) is loaded by whichever example touches it
+  # first. If that example has already swapped the notifier via
+  # `clear_event_subscribers!`, the guards subscribe to the throwaway Fanout,
+  # the flags stay true, and enforcement is silently disarmed for the rest of
+  # the process — seed-dependent (e.g. `--seed 6` with account_status_spec +
+  # account_status_subscriber_spec), and invisible in CI where eager_load is on.
+  config.before(:suite) { Account }
+
   config.around(:each) do |example|
     saved_notifier = ActiveSupport::Notifications.notifier
     example.run
