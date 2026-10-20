@@ -28,7 +28,9 @@ module StandardId
 
           response.headers["Cache-Control"] = "public, max-age=3600"
           render json: StandardId::Oauth::ProtectedResourceDocument.build(
-            audience: audience, origin: request.base_url, request: request
+            audience: audience,
+            origin: StandardId::Oauth::ProtectedResourceDocument.origin_for(audience, request: request),
+            request: request
           )
         end
 

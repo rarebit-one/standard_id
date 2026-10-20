@@ -909,6 +909,9 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `oauth.token.issued` | `access_token_id`, `grant_type`, `client_id`, `account`, `expires_in` | After tokens are generated |
 |  | `oauth.token.refreshed` | `old_token_id`, `new_token_id`, `client_id`, `account` | After a refresh token is redeemed |
 |  | `oauth.code.consumed` | `authorization_code`, `client_id`, `account` | After an authorization code is exchanged |
+|  | `oauth.client.registered` | `client_application`, `client_id`, `client_name`, `client_type`, `redirect_uris`, `scope`, `owner_type`, `owner_id`, `client_metadata` | After a dynamic registration (RFC 7591) commits. Never fails the registration: a raising subscriber is logged |
+|  | `oauth.client.updated` | same as `registered` | After an RFC 7592 update commits |
+|  | `oauth.client.deregistered` | same, without `client_metadata` | After an RFC 7592 deregistration commits |
 | Passwordless | `passwordless.code.requested` | `identifier`, `channel` (email/sms), `realm` | After the challenge row is committed, before `code.generated` / delivery. Subscribers should not raise: the previous code is already invalidated by then |
 |  | `passwordless.code.generated` | `code_challenge`, `identifier`, `channel`, `expires_at` | After an OTP is created |
 |  | `passwordless.code.sent` | `identifier`, `channel`, `realm`, `delivery_status` | After an OTP is handed to delivery (not for `Otp.issue(delivery: :manual)`). `delivery_status`: `"sent"` (built-in mailer enqueued it), `"failed"` (built-in mailer was responsible but did not enqueue), `"delegated"` (a host `PASSWORDLESS_CODE_GENERATED` subscriber delivers — the engine can't confirm it) |

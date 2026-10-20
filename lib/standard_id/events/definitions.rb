@@ -46,6 +46,9 @@ module StandardId
       OAUTH_REFRESH_TOKEN_REUSE_DETECTED = "oauth.refresh_token.reuse_detected"
       OAUTH_REFRESH_TOKEN_REUSE_GRACED = "oauth.refresh_token.reuse_graced"
       OAUTH_AUDIENCE_MISMATCH = "oauth.audience.mismatch"
+      OAUTH_CLIENT_REGISTERED = "oauth.client.registered"
+      OAUTH_CLIENT_UPDATED = "oauth.client.updated"
+      OAUTH_CLIENT_DEREGISTERED = "oauth.client.deregistered"
 
       PASSWORDLESS_CODE_REQUESTED = "passwordless.code.requested"
       PASSWORDLESS_CODE_GENERATED = "passwordless.code.generated"
@@ -122,7 +125,10 @@ module StandardId
         OAUTH_TOKEN_REVOKED,
         OAUTH_REFRESH_TOKEN_REUSE_DETECTED,
         OAUTH_REFRESH_TOKEN_REUSE_GRACED,
-        OAUTH_AUDIENCE_MISMATCH
+        OAUTH_AUDIENCE_MISMATCH,
+        OAUTH_CLIENT_REGISTERED,
+        OAUTH_CLIENT_UPDATED,
+        OAUTH_CLIENT_DEREGISTERED
       ].freeze
 
       PASSWORDLESS_EVENTS = [
@@ -184,6 +190,9 @@ module StandardId
         OAUTH_TOKEN_REVOKED,
         OAUTH_REFRESH_TOKEN_REUSE_DETECTED,
         OAUTH_AUDIENCE_MISMATCH,
+        OAUTH_CLIENT_REGISTERED,
+        OAUTH_CLIENT_UPDATED,
+        OAUTH_CLIENT_DEREGISTERED,
         # Passwordless
         PASSWORDLESS_CODE_FAILED,
         PASSWORDLESS_ACCOUNT_CREATED,

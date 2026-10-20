@@ -303,4 +303,50 @@ RSpec.describe StandardId::Oauth::ClientRegistration do
       expect(StandardId::AuthorizationCode.exists?(code.id)).to be(false)
     end
   end
+
+  describe "lifecycle events" do
+    def capture(*names)
+      events = []
+      subs = names.map { |n| StandardId::Events.subscribe(n) { |e| events << e } }
+      yield
+      events
+    ensure
+      StandardId::Events.unsubscribe(subs)
+    end
+
+    it "publishes registered, updated and deregistered after each change, with the owner by type and id" do
+      client = nil
+      events = capture(StandardId::Events::OAUTH_CLIENT_REGISTERED, StandardId::Events::OAUTH_CLIENT_UPDATED,
+        StandardId::Events::OAUTH_CLIENT_DEREGISTERED) do
+        client = described_class.call(client_name: "Acme", redirect_uris: ["https://app.example.com/cb"]).client
+        described_class.update(client, client_name: "Acme 2", redirect_uris: ["https://app.example.com/cb2"])
+        described_class.deregister(client)
+      end
+
+      expect(events.map(&:short_name)).to eq(%w[oauth.client.registered oauth.client.updated oauth.client.deregistered])
+      registered, updated, deregistered = events.map(&:payload)
+      expect(registered).to include(client_id: client.client_id, client_name: "Acme", client_type: "public",
+        redirect_uris: ["https://app.example.com/cb"], owner_type: "Account", owner_id: owner.id)
+      expect(registered[:client_metadata]).to include(client_name: "Acme")
+      expect(updated).to include(client_name: "Acme 2", redirect_uris: ["https://app.example.com/cb2"])
+      expect(deregistered).to include(client_id: client.client_id)
+      expect(deregistered).not_to have_key(:client_metadata)
+    end
+
+    it "publishes nothing for a refused registration" do
+      events = capture(StandardId::Events::OAUTH_CLIENT_REGISTERED) do
+        expect { described_class.call(redirect_uris: ["http://example.com/cb"]) }.to raise_error(StandardId::InvalidRedirectUriError)
+      end
+      expect(events).to be_empty
+    end
+
+    it "does not fail a committed registration when a subscriber raises" do
+      sub = StandardId::Events.subscribe(StandardId::Events::OAUTH_CLIENT_REGISTERED) { raise "audit down" }
+      result = described_class.call(redirect_uris: ["https://app.example.com/cb"])
+      expect(result.client).to be_persisted
+      expect(result.registration_access_token).to be_present
+    ensure
+      StandardId::Events.unsubscribe(sub)
+    end
+  end
 end

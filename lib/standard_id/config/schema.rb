@@ -461,6 +461,10 @@ StandardId::ConfigSchema.define do
     # emitted as given (callables receive `{ origin:, audience:, issuer:,
     # request: }`; nil removes a member). `root: true` picks the resource the
     # bare /.well-known/oauth-protected-resource serves when several exist.
+    # `origin: ->(request:) { ... }` builds `resource` and the metadata URL on
+    # a public origin other than `request.base_url` (a rewriting proxy);
+    # `audience: :resource` says tokens for the resource carry its absolute URL
+    # as `aud` rather than the key (or a String names that `aud`).
     #
     #   c.oauth.protected_resources = { "mcp" => { path: "/mcp", scopes_supported: %w[mcp mcp:read] } }
     #

@@ -134,4 +134,41 @@ RSpec.describe StandardId::Oauth::ProtectedResourceDocument do
       expect(value).to eq(%(Bearer realm="mcp", error="invalid_token", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp"))
     end
   end
+
+  describe "origin: and audience: members" do
+    let(:request) { instance_double(ActionDispatch::Request, base_url: "http://internal:3000") }
+
+    it "builds on the request origin by default and on the entry's origin callable when it answers" do
+      configure("mcp" => { path: "/mcp" })
+      expect(described_class.origin_for("mcp", request: request)).to eq("http://internal:3000")
+
+      configure("mcp" => { path: "/mcp", origin: ->(request:) { "https://public.example.com/" } })
+      expect(described_class.origin_for("mcp", request: request)).to eq("https://public.example.com")
+
+      configure("mcp" => { path: "/mcp", origin: -> { nil } })
+      expect(described_class.origin_for("mcp", request: request)).to eq("http://internal:3000")
+    end
+
+    it "answers the key as the token audience by default, the resource URL for :resource, or the named String" do
+      configure("mcp" => { path: "/mcp" })
+      expect(described_class.token_audience(audience: "mcp", origin: origin)).to eq("mcp")
+      expect(described_class.token_audience(audience: "unconfigured", origin: origin)).to eq("unconfigured")
+
+      configure("mcp" => { path: "/mcp/", audience: :resource })
+      expect(described_class.token_audience(audience: "mcp", origin: origin)).to eq("https://app.example.com/mcp")
+
+      configure("mcp" => { path: "/mcp", audience: "https://fixed.example.com/mcp" })
+      expect(described_class.token_audience(audience: "mcp", origin: origin)).to eq("https://fixed.example.com/mcp")
+
+      configure("mcp" => { path: "/mcp", audience: 42 })
+      expect { described_class.token_audience(audience: "mcp", origin: origin) }.to raise_error(StandardId::ConfigurationError, /:resource or a String/)
+    end
+
+    it "keeps both members out of the document" do
+      configure("mcp" => { path: "/mcp", audience: :resource, origin: ->(request:) { "https://public.example.com" } })
+      doc = described_class.build(audience: "mcp", origin: "https://public.example.com")
+      expect(doc.keys).not_to include(:audience, :origin)
+      expect(doc[:resource]).to eq("https://public.example.com/mcp")
+    end
+  end
 end
