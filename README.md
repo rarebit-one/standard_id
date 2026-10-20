@@ -1754,8 +1754,10 @@ end
 ```
 
 A tripped limit raises `StandardId::RateLimitExceededError` (an `InvalidRequestError` that the API
-error handler renders as `429 rate_limit_exceeded`, the web login page shows as a flash, and
-`Otp.issue` returns as a failed result with `error_code: :rate_limited`). The 30-second resend
+error handler renders as `429 rate_limit_exceeded` with `Retry-After`, the web login page shows as a
+flash, and `Otp.issue` returns as a failed result with `error_code: :rate_limited`). The per-target
+default matches the API's `api_passwordless_start_per_target`; if you raise that (or `login_per_email`)
+raise `otp_start_per_target` with it, or it becomes the binding limit. The 30-second resend
 cooldown (`passwordless.retry_delay`) and the challenge insert run in one transaction, serialised per
 address with a PostgreSQL advisory lock, so two concurrent starts cannot both issue a code.
 

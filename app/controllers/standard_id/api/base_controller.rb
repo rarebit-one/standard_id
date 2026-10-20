@@ -91,6 +91,11 @@ module StandardId
       end
 
       def handle_oauth_error(error)
+        # A lib-level rate limit (StandardId::RateLimiter) knows its window;
+        # say so, as the controller-level limits do.
+        if error.respond_to?(:retry_after) && error.retry_after.to_i.positive?
+          response.set_header("Retry-After", error.retry_after.to_i.to_s)
+        end
         render json: {
           error: error.oauth_error_code,
           error_description: error.message

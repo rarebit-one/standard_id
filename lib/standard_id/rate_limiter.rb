@@ -29,7 +29,7 @@ module StandardId
       count = STORE.increment(key, 1, expires_in: window)
       return if count.nil? || count.to_i <= limit.to_i
 
-      raise StandardId::RateLimitExceededError
+      raise StandardId::RateLimitExceededError.new(retry_after: window.to_i)
     end
   end
 end

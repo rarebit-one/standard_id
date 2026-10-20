@@ -41,7 +41,6 @@ module StandardId
         challenge = ActiveRecord::Base.transaction do
           lock_target!(username)
           enforce_retry_delay!(username)
-          emit_code_requested(username)
           create_challenge!(
             username,
             code_length: code_length,
@@ -49,6 +48,10 @@ module StandardId
             metadata: metadata
           )
         end
+        # Published once the row is committed: a subscriber that writes must
+        # not have its work rolled back with a failed insert, nor hold the
+        # per-target lock for its whole runtime. Still before CODE_GENERATED.
+        emit_code_requested(username)
         # skip_sender is forwarded into the event payload so subscribers that
         # deliver on PASSWORDLESS_CODE_GENERATED (e.g. PasswordlessDeliverySubscriber)
         # can honor a per-call manual-delivery request. Without this,
@@ -88,12 +91,14 @@ module StandardId
       # scoped advisory lock, released at commit or rollback, so a second start
       # waits for the first to finish and then sees the challenge it created.
       # Other adapters get no cross-process lock: the retry-delay check there
-      # stays what it was, a read followed by a write.
+      # stays what it was, a read followed by a write. Keyed on the normalised
+      # target (as the rate limit is), so "User@x" and "user@x" contend for one
+      # lock even when a caller skipped the web login's own downcasing.
       def lock_target!(username)
         connection = StandardId::CodeChallenge.connection
         return unless connection.adapter_name.match?(/postg/i)
 
-        key = "standard_id:otp:#{@realm}:#{connection_type}:#{username}"
+        key = "standard_id:otp:#{@realm}:#{connection_type}:#{username.to_s.strip.downcase}"
         connection.execute("SELECT pg_advisory_xact_lock(hashtext(#{connection.quote(key)}))")
       end
 

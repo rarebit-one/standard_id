@@ -15,7 +15,9 @@ RSpec.describe StandardId::RateLimiter do
     3.times { expect { described_class.hit!("k", limit: 3, window: 1.minute) }.not_to raise_error }
 
     expect { described_class.hit!("k", limit: 3, window: 1.minute) }
-      .to raise_error(StandardId::RateLimitExceededError, "Too many requests. Please try again later.")
+      .to raise_error(StandardId::RateLimitExceededError, "Too many requests. Please try again later.") { |e|
+        expect(e.retry_after).to eq(60)
+      }
   end
 
   it "counts keys independently" do

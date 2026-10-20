@@ -710,7 +710,10 @@ StandardId::ConfigSchema.define do
     #
     # The per-target limit defaults to the API's per-target value, so a path
     # that already runs the controller limit sees no change (the controller
-    # trips first, with its Retry-After). The per-IP limit defaults OFF: the
+    # trips first, with its Retry-After). A host that RAISES a controller
+    # per-target limit (api_passwordless_start_per_target, login_per_email)
+    # must raise this one too, or it becomes the binding limit. The per-IP
+    # limit defaults OFF: the
     # right ceiling depends on how many real users share one address (CGNAT,
     # an office), and a wrong default would bounce them. 0 disables either.
     field :otp_start_per_target, type: :integer, default: 5     # per 15 minutes

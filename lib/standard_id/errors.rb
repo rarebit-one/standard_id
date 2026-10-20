@@ -80,8 +80,12 @@ module StandardId
   # API error handler renders it as 429 `rate_limit_exceeded`, the same shape
   # the controller-level limits produce.
   class RateLimitExceededError < InvalidRequestError
-    def initialize(message = "Too many requests. Please try again later.")
-      super
+    # Seconds until the window that tripped resets, for a Retry-After header.
+    attr_reader :retry_after
+
+    def initialize(message = "Too many requests. Please try again later.", retry_after: nil)
+      super(message)
+      @retry_after = retry_after
     end
 
     def oauth_error_code = :rate_limit_exceeded
