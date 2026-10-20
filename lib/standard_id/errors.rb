@@ -191,6 +191,27 @@ module StandardId
   # Lifecycle hook errors
   class AuthenticationDenied < StandardError; end
 
+  # Raised by a host hook (`config.social.before_account`,
+  # `config.social.before_mint`) to refuse a request with the host's own
+  # response: the API engine renders `body` as JSON with `status` (and any
+  # `headers`) verbatim, after the refusing flow has cleaned up as for any
+  # other refusal. For a refusal the host's clients must be able to tell apart
+  # from an OAuth error — a region block, a pending deletion — in the host's
+  # error envelope.
+  #
+  #   raise StandardId::RequestRefused.new(status: :forbidden,
+  #     body: { error: { code: "REGION_BLOCKED", message: "..." } })
+  class RequestRefused < StandardError
+    attr_reader :status, :body, :headers
+
+    def initialize(status:, body:, headers: {}, message: nil)
+      @status = status
+      @body = body
+      @headers = headers.to_h
+      super(message || "Request refused (#{status})")
+    end
+  end
+
   # Raised when `config.login_method_policy` refuses an authentication method
   # for an account (e.g. "staff must sign in with the org IdP"). See
   # StandardId::LoginMethodPolicy.
