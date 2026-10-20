@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-10-20
+
 ### Added
 
 - **Dynamic client registration pins what the client may not choose, and RFC 7592 manages it.** `c.oauth.dynamic_registration_attributes` (Hash or callable `(metadata:, request:)`) pins `scopes`, `metadata` (e.g. `"audience" => "mcp"`, which `/authorize` now reads), `access_token_lifetime`, `authorization_code_lifetime`, `require_consent` and `description` on every registered client; with no `scopes` pinned, a pinned audience's `audience_scopes` vocabulary is the client's scope. `c.oauth.dynamic_registration_auth_methods` allowlists `token_endpoint_auth_method`. `dynamic_registration_owner` may now take `(metadata:, request:)`. Migration **`20261020120000`** adds `registration_access_token_digest` to client applications; once run, registration returns a one-time `registration_access_token` + `registration_client_uri`, and `GET`/`PUT`/`DELETE /oauth/register/:client_id` (RFC 7592) read, update (client-shaped members only) and deregister (deactivate + revoke refresh tokens) the client, authenticated by that token and throttled separately (`c.rate_limits.dynamic_registration_management_per_ip`, 60/hour). **`StandardId::PurgeStaleDynamicClientsJob`** (also in `CleanupAllJob`, `standard_id:cleanup:dynamic_clients`, and scheduled daily by the install generator) deletes deregistered clients and never-authorized ones after a grace window. Replaces the per-app `RegisterDynamicClient` operation (and sidekick's RFC 7592 update/delete/purge) every consumer carried.

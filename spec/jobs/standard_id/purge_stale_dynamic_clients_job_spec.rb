@@ -52,6 +52,8 @@ RSpec.describe StandardId::PurgeStaleDynamicClientsJob, type: :job do
     expect(StandardId::ClientApplication.exists?(stale.id)).to be(false)
     expect(StandardId::ClientApplication.exists?(deregistered.id)).to be(false)
     expect(token.reload.revoked_at).to be_present
+    expect(StandardId::ClientGrant.where(client_id: deregistered.client_id)).to be_empty
+    expect(StandardId::ClientGrant.where(client_id: granted.client_id)).to exist
     [fresh, granted, in_flight, refreshed, static, consumed, dead_refresh, consent_free, just_deregistered].each do |kept|
       expect(StandardId::ClientApplication.exists?(kept.id)).to be(true), "expected #{kept.name} to be kept"
     end

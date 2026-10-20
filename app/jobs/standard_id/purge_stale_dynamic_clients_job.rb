@@ -38,6 +38,9 @@ module StandardId
           if StandardId::RefreshToken.client_binding_column?
             client.refresh_tokens.where(revoked_at: nil).update_all(revoked_at: Time.current)
           end
+          # Grants are keyed by the client_id string with no FK, so they would
+          # otherwise outlive the client as orphans.
+          StandardId::ClientGrant.where(client_id: client.client_id).delete_all
           # The dependent-destroy cascade lazy-loads the client's secrets and
           # codes, which a host running strict_loading_by_default would refuse.
           client.strict_loading!(false)
