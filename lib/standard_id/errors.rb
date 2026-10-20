@@ -161,6 +161,13 @@ module StandardId
     def oauth_error_code = :invalid_scope
   end
 
+  # RFC 8707 §2: the `resource` parameter names something this server does not
+  # issue tokens for. Raised by StandardId::Oauth::AudienceResolver when
+  # `oauth.resource_audiences` is configured and the resource is not in it.
+  class InvalidTargetError < OAuthError
+    def oauth_error_code = :invalid_target
+  end
+
   class UnauthorizedClientError < OAuthError
     def oauth_error_code = :unauthorized_client
   end

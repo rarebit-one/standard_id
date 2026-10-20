@@ -115,6 +115,20 @@ RSpec.describe "StandardId API Authorization", type: :request do
             expect(issued_audience).to eq("mcp")
           end
 
+          it "refuses an unmapped resource with invalid_target once resource_audiences is configured" do
+            allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp" => "mcp")
+            http_get "/api/authorize", params: valid_params.except(:audience).merge(resource: "https://elsewhere.example.com")
+            expect(response).to have_http_status(:bad_request)
+            expect(json_body["error"]).to eq("invalid_target")
+          end
+
+          it "ignores resource when no mapping is configured and falls back to the client default" do
+            client.update!(metadata: { "audience" => "companion_kit" })
+            http_get "/api/authorize", params: valid_params.except(:audience).merge(resource: "https://app.example.com/mcp")
+            expect(response).to have_http_status(:found)
+            expect(issued_audience).to eq("companion_kit")
+          end
+
           it "defaults to the client's registered metadata audience" do
             client.update!(metadata: { "audience" => "companion_kit" })
             http_get "/api/authorize", params: valid_params.except(:audience)

@@ -13,9 +13,12 @@ module StandardId
     #      today, so nothing changes for them).
     #   3. The `resource` parameter (RFC 8707), mapped through
     #      `config.oauth.resource_audiences` ({ "https://app.example/mcp" =>
-    #      "mcp" }); compared with the trailing slash removed. An unmapped
-    #      resource resolves to nil, which the token endpoint's audience
-    #      validation then judges like any absent audience.
+    #      "mcp" }); compared with the trailing slash removed. With no mapping
+    #      configured the parameter is ignored (MCP clients send it on every
+    #      request, and a host relying on the client default below must still
+    #      get that default). With a mapping, an unmapped resource is refused
+    #      with `invalid_target` (RFC 8707 §2), never silently issued without
+    #      an audience.
     #   4. The client's registered default, `metadata["audience"]` — the
     #      convention every dynamic-registration operation in the estate
     #      stamps, and the reason each app carried an authorize shim.
@@ -32,24 +35,41 @@ module StandardId
         if custom.respond_to?(:call)
           context = { client: client, audience: requested, resource: resource, request: request }
           answer = custom.call(**StandardId::Utils::CallableParameterFilter.filter(custom, context))
-          return answer.to_s if answer.present?
+          return coerce_hook_answer(answer) unless answer.nil?
         end
 
         return requested.to_s if requested
-        return from_resource(resource) if resource
+        return from_resource(resource) if resource && resource_mapping.any?
 
         client_default(client)
       end
 
+      # @raise [StandardId::InvalidTargetError] when a mapping is configured
+      #   and this resource is not in it
       def from_resource(resource)
-        mapping = StandardId.config.oauth.resource_audiences || {}
-        return nil if mapping.empty?
-
         key = normalize_resource(resource)
-        mapping.each do |candidate, audience|
+        resource_mapping.each do |candidate, audience|
           return audience.to_s if normalize_resource(candidate) == key
         end
-        nil
+
+        raise StandardId::InvalidTargetError, "The resource parameter is not a resource this server issues tokens for"
+      end
+
+      def resource_mapping
+        StandardId.config.oauth.resource_audiences || {}
+      end
+
+      # The hook's contract is "nil falls through, anything else is the
+      # audience". A String or Symbol is it; a blank string is treated as "no
+      # audience" (the hook decided, and decided none). Anything else is a
+      # programming error worth failing loudly on rather than stringifying.
+      def coerce_hook_answer(answer)
+        case answer
+        when String, Symbol then answer.to_s.presence
+        else
+          raise StandardId::ConfigurationError,
+            "StandardId config: `oauth.audience_resolver` must return a String, Symbol or nil, got #{answer.class}"
+        end
       end
 
       def client_default(client)

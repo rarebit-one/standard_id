@@ -45,6 +45,16 @@ module StandardId
           signature: "(account:, client:, request:, audience:)",
           kind: :keyword,
           keywords: %i[account client request audience]
+        },
+        "oauth.audience_resolver" => {
+          signature: "(client:, audience:, resource:, request:)",
+          kind: :keyword,
+          keywords: %i[client audience resource request]
+        },
+        "oauth.audience_scope_resolver" => {
+          signature: "(audience:, client:, configured_scopes:)",
+          kind: :keyword,
+          keywords: %i[audience client configured_scopes]
         }
       }.freeze
 

@@ -430,7 +430,9 @@ StandardId::ConfigSchema.define do
 
     # RFC 8707: resource indicator → audience, e.g.
     # { "https://app.example.com/mcp" => "mcp" }. Matched with the trailing
-    # slash removed. An unmapped resource resolves to no audience.
+    # slash removed. Empty (the default) means the `resource` parameter is
+    # ignored; once set, a resource outside the map is refused with
+    # `invalid_target` rather than issued without an audience.
     field :resource_audiences, type: :hash, default: -> { {} }
 
     # JWT signing configuration (for asymmetric algorithms)

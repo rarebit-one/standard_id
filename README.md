@@ -1284,7 +1284,14 @@ the token as `aud`, and `config.oauth.audience_scopes` is enforced for it at
 `/authorize` (a scope outside the audience's vocabulary is `invalid_scope`). So a
 dynamically registered MCP client whose registration stamps
 `metadata: { "audience" => "mcp" }` gets `aud=mcp` with no audience-injecting shim
-in front of the endpoint.
+in front of the endpoint. The `resource` parameter is ignored until
+`resource_audiences` is set; once it is, an unmapped resource is `invalid_target`
+(RFC 8707 §2).
+
+A client-supplied `audience` still outranks the registered default, so
+`audience_scopes` enforcement is only as strong as `config.oauth.allowed_audiences`
+at the token endpoint. A host that wants the registered default to be the only
+answer sets `audience_resolver` to `->(client:) { client.metadata["audience"] }`.
 
 ```ruby
 StandardId.configure do |config|
