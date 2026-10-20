@@ -39,8 +39,15 @@ namespace :standard_id do
       )
     end
 
+    desc "Delete dynamically registered clients that were deregistered, or never authorized, more than GRACE_DAYS ago (default 7)"
+    task dynamic_clients: :environment do
+      StandardId::PurgeStaleDynamicClientsJob.perform_now(
+        stale_after_seconds: StandardId::RakeHelpers.grace_period_seconds
+      )
+    end
+
     desc "Run all StandardId cleanup jobs with GRACE_DAYS (default 7)"
-    task all: [:sessions, :refresh_tokens, :authorization_codes, :code_challenges]
+    task all: [:sessions, :refresh_tokens, :authorization_codes, :code_challenges, :dynamic_clients]
   end
 end
 

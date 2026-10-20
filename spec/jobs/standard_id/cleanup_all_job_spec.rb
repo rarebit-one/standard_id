@@ -6,11 +6,12 @@ RSpec.describe StandardId::CleanupAllJob, type: :job do
       StandardId::CleanupExpiredSessionsJob,
       StandardId::CleanupExpiredRefreshTokensJob,
       StandardId::CleanupExpiredAuthorizationCodesJob,
-      StandardId::CleanupExpiredCodeChallengesJob
+      StandardId::CleanupExpiredCodeChallengesJob,
+      StandardId::PurgeStaleDynamicClientsJob
     ]
   end
 
-  it "runs all four cleanup jobs inline" do
+  it "runs all five cleanup jobs inline" do
     expect(described_class.jobs).to eq(jobs)
     jobs.each { |job| expect(job).to receive(:perform_now).with(no_args).ordered }
 

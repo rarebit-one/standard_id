@@ -51,6 +51,16 @@ module StandardId
           kind: :keyword,
           keywords: %i[client audience resource request]
         },
+        "oauth.dynamic_registration_owner" => {
+          signature: "(metadata:, request:)",
+          kind: :keyword,
+          keywords: %i[metadata request]
+        },
+        "oauth.dynamic_registration_attributes" => {
+          signature: "(metadata:, request:)",
+          kind: :keyword,
+          keywords: %i[metadata request]
+        },
         "oauth.audience_scope_resolver" => {
           signature: "(audience:, client:, configured_scopes:)",
           kind: :keyword,

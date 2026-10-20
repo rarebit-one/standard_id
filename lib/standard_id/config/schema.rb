@@ -624,6 +624,36 @@ StandardId::ConfigSchema.define do
     #   "client_secret_post"  — confidential, secret in the request body
     field :dynamic_registration_default_auth_method, type: :string, default: "none"
 
+    # Server-pinned attributes for every dynamically registered client — what
+    # a self-registering MCP client may NOT choose for itself. A Hash, or a
+    # callable taking any subset of `metadata:` (the RFC 7591 document) and
+    # `request:` and returning one. Keys (any other raises ConfigurationError):
+    #
+    #   scopes                      String or Array; the client's scope, whatever it asked for
+    #   metadata                    Hash merged into ClientApplication#metadata
+    #                               ("audience" => "mcp" is what AudienceResolver reads)
+    #   access_token_lifetime       seconds
+    #   authorization_code_lifetime seconds
+    #   require_consent             default true
+    #   description                 String
+    #
+    # When `scopes` is not pinned but `metadata["audience"]` is, and that
+    # audience has an `audience_scopes` vocabulary, the client's scope is that
+    # vocabulary. Otherwise the requested scope (or "openid profile email").
+    #
+    #   c.oauth.dynamic_registration_attributes = {
+    #     scopes: %w[mcp mcp:read],
+    #     metadata: { "audience" => "mcp", "dcr" => true },
+    #     access_token_lifetime: 3600
+    #   }
+    field :dynamic_registration_attributes, type: :any, default: -> { {} }
+
+    # token_endpoint_auth_method values dynamic registration accepts. Narrow it
+    # to %w[none] to register public (PKCE) clients only, and advertise the
+    # same list as token_endpoint_auth_methods_supported.
+    field :dynamic_registration_auth_methods, type: :array,
+      default: -> { %w[none client_secret_basic client_secret_post] }
+
     # RFC 6749 §4.1.3 strictness at the token endpoint.
     #
     # The spec is unambiguous: if `redirect_uri` was included in the
@@ -787,6 +817,10 @@ StandardId::ConfigSchema.define do
     # Dynamic client registration (RFC 7591) — throttle the open registration
     # endpoint by IP so an enabled deployment can't be flooded with client rows.
     field :dynamic_registration_per_ip, type: :integer, default: 10      # per hour
+    # RFC 7592 management (GET/PUT/DELETE /oauth/register/:client_id) — its
+    # own counter, so management traffic behind a shared NAT does not compete
+    # with registrations, while still slowing token guessing.
+    field :dynamic_registration_management_per_ip, type: :integer, default: 60 # per hour
 
     # Token introspection (RFC 7662) — throttle by IP so the endpoint cannot be
     # used to bulk-classify stolen tokens. Note the limit renders the ordinary

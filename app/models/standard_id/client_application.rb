@@ -55,6 +55,9 @@ module StandardId
     # they drift (update_columns, a data fix) must read the same from a query
     # as from the instance — the refresh grant and introspection rely on it.
     scope :live, -> { where(active: true, deactivated_at: nil) }
+    # Clients created through RFC 7591 dynamic registration (migration
+    # 20261020120000): the ones RFC 7592 can manage and the purge may reap.
+    scope :dynamically_registered, -> { where.not(registration_access_token_digest: nil) }
     scope :confidential, -> { where(client_type: "confidential") }
     scope :public_clients, -> { where(client_type: "public") }
     scope :for_owner, ->(owner) { where(owner: owner) }
@@ -189,6 +192,41 @@ module StandardId
       parsed
     rescue URI::InvalidURIError
       nil
+    end
+
+    # Whether the host has run migration 20261020120000. Until then the gem
+    # neither issues registration access tokens nor serves RFC 7592.
+    def self.registration_management_column?
+      column_names.include?("registration_access_token_digest")
+    rescue ActiveRecord::ActiveRecordError
+      false
+    end
+
+    # Keyed with secret_key_base like AuthorizationCode.hash_for, so a leaked
+    # table does not yield usable management credentials.
+    def self.digest_registration_access_token(token)
+      Digest::SHA256.hexdigest("#{token}:#{Rails.configuration.secret_key_base}")
+    end
+
+    def dynamically_registered?
+      self.class.registration_management_column? && registration_access_token_digest.present?
+    end
+
+    # Constant-time check of an RFC 7592 registration access token.
+    def authenticate_registration_access_token(token)
+      return false unless dynamically_registered? && token.present?
+
+      ActiveSupport::SecurityUtils.secure_compare(
+        self.class.digest_registration_access_token(token.to_s),
+        registration_access_token_digest.to_s
+      )
+    end
+
+    # The RFC 7591 token_endpoint_auth_method a client information response
+    # reports. Public clients are "none"; both confidential methods are
+    # accepted at the token endpoint, so client_secret_basic stands for either.
+    def token_endpoint_auth_method
+      public? ? "none" : "client_secret_basic"
     end
 
     def confidential?
