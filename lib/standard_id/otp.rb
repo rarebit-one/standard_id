@@ -74,7 +74,10 @@ module StandardId
     # - success?: true/false
     # - challenge: the created CodeChallenge (nil on failure)
     # - code: raw OTP code — only populated when delivery: :manual
-    # - error_code: machine-readable symbol on failure
+    # - error_code: machine-readable symbol on failure — :invalid_request
+    #   (bad target, username_validator rejection), :cooldown (a usable code
+    #   was issued less than passwordless.retry_delay seconds ago; nothing new
+    #   was sent), :rate_limited (rate_limits.otp_start_per_* tripped)
     # - error_message: human-readable message on failure
     IssueResult = Data.define(:success?, :challenge, :code, :error_code, :error_message) do
       # Parallel naming with VerificationService::Result, which exposes the
@@ -132,6 +135,11 @@ module StandardId
             skip_sender: delivery_sym == :manual,
             delivery: delivery_sym
           )
+        rescue StandardId::RetryDelayError => e
+          # The resend cooldown (passwordless.retry_delay): a usable code was
+          # issued moments ago and nothing new was sent. Distinct code so a
+          # caller can say "it's on its way" rather than report a failure.
+          return failure_issue_result(:cooldown, e.message)
         rescue StandardId::RateLimitExceededError => e
           # A lib-level start limit (rate_limits.otp_start_per_*) tripped.
           # Distinct code so a caller can answer 429 rather than 400.

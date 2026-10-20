@@ -13,6 +13,21 @@ RSpec.describe StandardId::Otp do
   end
 
   describe ".issue" do
+    context "within the resend cooldown (passwordless.retry_delay)" do
+      before { allow(StandardId::Passwordless).to receive(:retry_delay).and_return(30) }
+
+      it "returns a failed result with error_code :cooldown and the wait in the message" do
+        described_class.issue(realm: "verification", target: "cool@example.com", delivery: :manual)
+
+        result = described_class.issue(realm: "verification", target: "cool@example.com", delivery: :manual)
+
+        expect(result.success?).to be false
+        expect(result.error_code).to eq(:cooldown)
+        expect(result.error_message).to match(/wait \d+ seconds? before requesting another code/)
+        expect(StandardId::CodeChallenge.where(target: "cool@example.com").count).to eq(1)
+      end
+    end
+
     context "delivery: :manual" do
       it "creates a challenge in the requested realm and returns the raw code" do
         result = described_class.issue(

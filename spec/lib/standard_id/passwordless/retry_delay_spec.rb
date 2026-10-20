@@ -16,7 +16,10 @@ RSpec.describe "Passwordless retry_delay cooldown", type: :model do
 
       expect {
         strategy.start!(connection: "email", username: username)
-      }.to raise_error(StandardId::InvalidRequestError, /wait \d+ seconds? before requesting another code/)
+      }.to raise_error(StandardId::RetryDelayError, /wait \d+ seconds? before requesting another code/) { |e|
+        expect(e).to be_a(StandardId::InvalidRequestError)
+        expect(e.retry_after).to be_between(1, 30)
+      }
     end
 
     it "does not consume the already-issued challenge when rejecting" do

@@ -121,8 +121,10 @@ module StandardId
         return if elapsed >= delay
 
         wait = (delay - elapsed).ceil
-        raise StandardId::InvalidRequestError,
-          "Please wait #{wait} #{'second'.pluralize(wait)} before requesting another code"
+        raise StandardId::RetryDelayError.new(
+          "Please wait #{wait} #{'second'.pluralize(wait)} before requesting another code",
+          retry_after: wait
+        )
       end
 
       def create_challenge!(username, code_length: nil, expires_in: nil, metadata: {})
