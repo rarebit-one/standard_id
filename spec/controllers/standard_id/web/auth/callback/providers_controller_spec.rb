@@ -36,6 +36,24 @@ RSpec.describe StandardId::Web::Auth::Callback::ProvidersController, type: :cont
       expect(response.body).to include("code=abc123")
     end
 
+    it "keeps every relayed key intact in the redirect, not HTML-escaped" do
+      setup_oauth_session(state: state_token, redirect_uri: redirect_uri)
+      post :mobile_callback, params: { provider: "apple", state: state_token, code: "abc123", id_token: "tok" }
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).not_to include("&amp;")
+      expect(response.body).to include("code=abc123\\u0026id_token=tok\\u0026state=#{state_token}")
+    end
+
+    it "relays Apple's cancel error to the app" do
+      setup_oauth_session(state: state_token, redirect_uri: redirect_uri)
+      post :mobile_callback, params: { provider: "apple", state: state_token, error: "user_cancelled_authorize" }
+
+      expect(response).to have_http_status(:ok)
+      expect(response.body).to include("error=user_cancelled_authorize")
+      expect(response.body).not_to include("code=")
+    end
+
     it "rejects disallowed redirect URIs" do
       bad_redirect_uri = "https://example.com"
       setup_oauth_session(state: state_token, redirect_uri: bad_redirect_uri)

@@ -210,8 +210,11 @@ module StandardId
             redirect_to StandardId::WebEngine.routes.url_helpers.login_path(redirect_uri: redirect_uri), alert: error_message
           end
 
+          # `error` is relayed so the app can tell a cancel from a failure: Apple
+          # posts `error=user_cancelled_authorize` (with the state) when the user
+          # backs out, and no code.
           def mobile_relay_params
-            params.permit(:code, :state, :user, :userIdentifier, :id_token, :identity_token, :nonce).to_h.compact
+            params.permit(:code, :state, :user, :userIdentifier, :id_token, :identity_token, :nonce, :error).to_h.compact
           end
 
           def build_mobile_redirect(destination, extra_params)

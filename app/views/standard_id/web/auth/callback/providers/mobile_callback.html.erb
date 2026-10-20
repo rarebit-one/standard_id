@@ -34,7 +34,10 @@
     </style>
     <script>
       document.addEventListener("DOMContentLoaded", function () {
-        var target = "<%= j @mobile_redirect_url %>";
+        <%# to_json, not j(): ERB HTML-escapes the j() output, so every "&" in the
+            query became "&amp;" and each key after the first arrived as "amp;<key>".
+            to_json emits a JS string literal with & < > as \u escapes. %>
+        var target = <%= raw @mobile_redirect_url.to_json %>;
         if (target) {
           window.location.replace(target);
         }
