@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`StandardId::TokenMinter.mint(account:, audience:, grant_type:, scopes:, client_id:, claims:, expires_in:, refresh_token:, request:)`**: mint a token for an account the host already authenticated, through the same pipeline as `/oauth/token` (`Oauth::DirectMintFlow`, not reachable from the endpoint): audience validation, audience → profile binding, `scope_claims` / `claim_resolvers` / `custom_claims`, the AccountStatus / AccountLocking guards, `OAUTH_TOKEN_ISSUING` / `OAUTH_TOKEN_ISSUED`, optional refresh token (bound to `client_id`'s application) and session persistence when a request is passed. Replaces the hand-rolled `JwtService.encode` mint sites that re-derive the initializer's claim resolvers (sidekick-web has nine).
+- **`c.social.before_mint`** (callable): runs on the API social callback after the account is found or created and before the token is minted, with any subset of `account:`, `provider:`, `social_info:`, `provider_tokens:`, `params:`, `request:`. Raising refuses the sign-in through the callback's existing cleanup. Replaces the host subclass of `Api::Oauth::Callback::ProvidersController` that reordered those steps by copying the method body (sidekick-web, re-synced on 6 of the last 10 bumps).
+
 ## [0.48.1] - 2026-10-20
 
 ### Added

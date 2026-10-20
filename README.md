@@ -278,6 +278,39 @@ It honours the current scope, returns `nil` (never raises) for a blank,
 unknown, mismatched, or malformed-digest token, and has an instance-level
 counterpart, `session.authenticate_token(token)`.
 
+### Minting Tokens Outside the Token Endpoint
+
+`StandardId::TokenMinter` mints a token for an account the host has already
+authenticated by its own means — an operator console, a service-to-service
+credential, a self-service "mint me a token" tool — through the same pipeline
+`/oauth/token` uses, so it carries the same claims, obeys the same audience →
+profile binding and account-status guards, and publishes the same
+`OAUTH_TOKEN_ISSUING` / `OAUTH_TOKEN_ISSUED` events:
+
+```ruby
+result = StandardId::TokenMinter.mint(
+  account: account,
+  audience: "harness",
+  scopes: "profile permissions",
+  grant_type: "harness.mint",          # free-form; lands in the JWT and the audit event
+  claims: { permissions: profile.harness_scopes },  # host extras; reserved keys are dropped
+  expires_in: 60.minutes,
+  refresh_token: false                  # true also persists and returns a refresh token
+)
+result.access_token
+result.jti                              # what OAUTH_TOKEN_ISSUED carried
+```
+
+`scope_claims` / `claim_resolvers` and `custom_claims` run exactly as for the
+endpoint (the resolvers see `client:` as the `ClientApplication` named by
+`client_id:`, or nil, and `request:` as nil for a sessionless mint). Pass
+`request:` to let `session.session_type_resolver` materialise a session;
+without it the mint is sessionless, like `client_credentials`. A refreshable
+token needs `client_id:` (the refresh grant matches on it) and, under a
+`login_method_policy`, `auth_method:` / `auth_provider:` so the refresh is not
+judged as `:unspecified`. `expires_in:` must be positive. The grant is not
+reachable from `/oauth/token`.
+
 ### Custom Token Claims
 
 You can add additional JWT claims for any token issued through the OAuth token endpoint by mapping scopes to claim names and providing callbacks to resolve each claim. Scopes listed in `oauth.scope_claims` are evaluated against the requested token scopes; when a scope matches, every claim listed for that scope is resolved via the callable defined in `oauth.claim_resolvers`.
@@ -332,6 +365,29 @@ R.assert!(requested: %w[mcp mcp:admin], audience: "companion_kit") # => raises I
 An **unconfigured** audience fails **open** — `filter` and `assert!` pass the requested scopes through unchanged — so an app that does not model per-audience vocabularies sees no behaviour change; narrowing only bites once an audience has an explicit vocabulary.
 
 ### Social Login Setup
+
+Need the account ready before the token is minted — a profile the requested
+audience is bound to, a region check, a first-touch record? Set
+`config.social.before_mint`; it runs on the API callback after the account is
+found or created and before `SocialFlow` mints, and a raise refuses the
+sign-in through the callback's normal cleanup (nothing minted, staged link
+dropped, a just-created account removed):
+
+```ruby
+config.social.before_mint = ->(account:, audience:, params:) {
+  DeviceUserProfiles::Ensure.call(account:, region: params["region"]) if audience == "companion_kit"
+}
+```
+
+The hook receives any subset of `account:`, `provider:`, `social_info:`,
+`provider_tokens:`, `audience:`, `scopes:`, `params:` (the forwarded request
+params; the reserved OAuth ones such as `audience` and `scope` are stripped,
+which is why those two arrive as their own keywords) and `request:`. It runs
+before the login-method policy and the audience → profile binding, so if either
+refuses the sign-in on an account that already existed, what the hook wrote
+stays: make it idempotent. It covers the API callback only; the WebEngine's
+social callback does not run it.
+
 
 The `social.google_*` and `social.apple_*` fields are declared by the **provider
 plugin gems**, not by `standard_id` itself — add `standard_id-google` and/or
