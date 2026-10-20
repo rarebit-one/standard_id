@@ -229,6 +229,35 @@ a wrong hint must not change the outcome.
 `ServiceSession`s are never touched by `/oauth/revoke` under either setting —
 machine credentials have their own lifecycle.
 
+### Token Introspection (RFC 7662)
+
+`POST /oauth/introspect` is off by default (`config.oauth.introspection_enabled`);
+once on, confidential clients can ask whether a token is live. The gem checks
+the signature and expiry, and for a refresh token also its row, its parent
+session and the `ClientApplication` it is bound to. Two settings let the host
+add what only it knows:
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.introspection_enabled = true
+
+  # Run after the gem's checks pass. Takes any subset of payload:,
+  # refresh_token: (nil for an access token) and request:. Falsy — or an
+  # exception, which is logged — renders {"active": false}.
+  config.oauth.introspection_liveness = ->(payload:) {
+    profile = GlobalID::Locator.locate(payload[:gid]) if payload[:gid].present?
+    profile.present? && profile.active?
+  }
+
+  # Extra claims echoed on an ACTIVE response, beyond the RFC 7662 members.
+  # Absent claims are omitted; the standard members cannot be overridden.
+  config.oauth.introspection_claims = %w[profile_type gid]
+end
+```
+
+Access tokens are stateless, so a revoked session's access token still
+introspects as active until its `exp`; keep `access_token_lifetime` short.
+
 ### Authenticating Opaque Session Tokens
 
 `Session.by_token` is a **lookup**, not authentication: it matches the SHA256

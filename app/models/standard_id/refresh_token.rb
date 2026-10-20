@@ -43,14 +43,14 @@ module StandardId
     # or deleted. An unbound token (NULL, or the column not yet migrated) is
     # live by this measure: there is no application whose fate it shares.
     #
-    # Same definition as ClientApplication#active? (`active` AND no
-    # `deactivated_at`), not the `active` scope alone, so this and the refresh
-    # grant can never disagree about a row whose two fields drifted apart.
+    # `ClientApplication.live` is the scope form of #active? (`active` AND no
+    # `deactivated_at`), so this and the refresh grant can never disagree
+    # about a row whose two fields drifted apart.
     def client_application_live?
       return true unless self.class.client_binding_column?
       return true if client_application_id.nil?
 
-      StandardId::ClientApplication.where(id: client_application_id, active: true, deactivated_at: nil).exists?
+      StandardId::ClientApplication.live.exists?(id: client_application_id)
     end
 
     def expired?

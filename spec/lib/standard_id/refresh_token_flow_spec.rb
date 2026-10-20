@@ -624,6 +624,17 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
         successor = StandardId::RefreshToken.find_by!(previous_token_id: record.id)
         expect(successor.client_application_id).to be_nil
       end
+
+      # The documented edge: a free-form client_id that collides with a
+      # registered application's client_id is treated as that application.
+      it "treats a colliding client_id as the registered application it names" do
+        colliding = StandardId::ClientApplication.create!(
+          owner: account, name: "Collides", client_id: "google", redirect_uris: "https://app.example.com/cb"
+        )
+        colliding.deactivate!
+
+        expect_refusal(described_class.new({ client_id: "google", refresh_token: "rtok" }, request))
+      end
     end
   end
 end

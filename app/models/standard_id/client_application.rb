@@ -50,6 +50,11 @@ module StandardId
 
     # Scopes
     scope :active, -> { where(active: true) }
+    # The scope form of #active?: `active` AND no `deactivated_at`. The two
+    # fields are kept in step by the before_update callback, but a row where
+    # they drift (update_columns, a data fix) must read the same from a query
+    # as from the instance — the refresh grant and introspection rely on it.
+    scope :live, -> { where(active: true, deactivated_at: nil) }
     scope :confidential, -> { where(client_type: "confidential") }
     scope :public_clients, -> { where(client_type: "public") }
     scope :for_owner, ->(owner) { where(owner: owner) }
