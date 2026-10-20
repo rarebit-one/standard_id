@@ -182,6 +182,23 @@ RSpec.describe StandardId::TokenMinter do
     end
   end
 
+  describe "requested_scopes:" do
+    it "reports the scope words by default and the caller's list when given, without touching the token" do
+      default = capture(StandardId::Events::OAUTH_TOKEN_ISSUED) do
+        described_class.mint(account: account, audience: "api", grant_type: "console.mint", scopes: "profile permissions")
+      end
+      expect(default.first[:requested_scopes]).to eq(%w[profile permissions])
+
+      token = nil
+      custom = capture(StandardId::Events::OAUTH_TOKEN_ISSUED) do
+        token = described_class.mint(account: account, audience: "api", grant_type: "console.mint", scopes: "profile permissions",
+          requested_scopes: %w[inference:read]).access_token
+      end
+      expect(custom.first[:requested_scopes]).to eq(%w[inference:read])
+      expect(decode(token)[:scope]).to eq("profile permissions")
+    end
+  end
+
   describe "audit_errors:" do
     def with_raising_issued_subscriber
       sub = StandardId::Events.subscribe(StandardId::Events::OAUTH_TOKEN_ISSUED) { raise "audit down" }
