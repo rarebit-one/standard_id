@@ -763,7 +763,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `oauth.token.issued` | `access_token_id`, `grant_type`, `client_id`, `account`, `expires_in` | After tokens are generated |
 |  | `oauth.token.refreshed` | `old_token_id`, `new_token_id`, `client_id`, `account` | After a refresh token is redeemed |
 |  | `oauth.code.consumed` | `authorization_code`, `client_id`, `account` | After an authorization code is exchanged |
-| Passwordless | `passwordless.code.requested` | `identifier`, `channel` (email/sms) | Before generating an OTP |
+| Passwordless | `passwordless.code.requested` | `identifier`, `channel` (email/sms), `realm` | After the challenge row is committed, before `code.generated` / delivery. Subscribers should not raise: the previous code is already invalidated by then |
 |  | `passwordless.code.generated` | `code_challenge`, `identifier`, `channel`, `expires_at` | After an OTP is created |
 |  | `passwordless.code.sent` | `identifier`, `channel`, `realm`, `delivery_status` | After an OTP is handed to delivery (not for `Otp.issue(delivery: :manual)`). `delivery_status`: `"sent"` (built-in mailer enqueued it), `"failed"` (built-in mailer was responsible but did not enqueue), `"delegated"` (a host `PASSWORDLESS_CODE_GENERATED` subscriber delivers — the engine can't confirm it) |
 |  | `passwordless.code.verified` | `code_challenge`, `account`, `channel` | After OTP verification succeeds |
