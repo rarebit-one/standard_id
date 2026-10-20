@@ -14,25 +14,29 @@ RSpec.describe StandardId::Oauth::AudienceResolver do
   end
 
   describe ".resolve" do
-    it "prefers the explicit audience parameter" do
-      expect(resolve(audience: "https://api.example.com", resource: "https://app.example.com/mcp")).to eq("https://api.example.com")
+    it "prefers the client's registered default over the audience parameter" do
+      expect(resolve(audience: "https://api.example.com", resource: "https://app.example.com/mcp")).to eq("mcp")
     end
 
-    it "maps an RFC 8707 resource through resource_audiences when no audience is given" do
+    it "takes the explicit audience parameter for a client with no registered default" do
+      expect(resolve(client: bare_client, audience: "https://api.example.com", resource: "https://app.example.com/mcp")).to eq("https://api.example.com")
+    end
+
+    it "maps an RFC 8707 resource through resource_audiences for a client with no registered default" do
       allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp" => "mcp-api")
-      expect(resolve(resource: "https://app.example.com/mcp")).to eq("mcp-api")
+      expect(resolve(client: bare_client, resource: "https://app.example.com/mcp")).to eq("mcp-api")
     end
 
     it "ignores a trailing slash on either side of the resource mapping" do
       allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp/" => "mcp-api")
-      expect(resolve(resource: "https://app.example.com/mcp")).to eq("mcp-api")
+      expect(resolve(client: bare_client, resource: "https://app.example.com/mcp")).to eq("mcp-api")
       allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp" => "mcp-api")
-      expect(resolve(resource: "https://app.example.com/mcp/")).to eq("mcp-api")
+      expect(resolve(client: bare_client, resource: "https://app.example.com/mcp/")).to eq("mcp-api")
     end
 
     it "refuses an unmapped resource with invalid_target once a mapping is configured" do
       allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp" => "mcp-api")
-      expect { resolve(resource: "https://elsewhere.example.com") }.to raise_error(StandardId::InvalidTargetError) { |e|
+      expect { resolve(client: bare_client, resource: "https://elsewhere.example.com") }.to raise_error(StandardId::InvalidTargetError) { |e|
         expect(e.oauth_error_code).to eq(:invalid_target)
       }
     end
@@ -72,13 +76,13 @@ RSpec.describe StandardId::Oauth::AudienceResolver do
 
       it "falls through to the defaults when it returns nil" do
         allow(StandardId.config.oauth).to receive(:audience_resolver).and_return(->(**) { nil })
-        expect(resolve(audience: "https://api.example.com")).to eq("https://api.example.com")
+        expect(resolve(client: bare_client, audience: "https://api.example.com")).to eq("https://api.example.com")
         expect(resolve).to eq("mcp")
       end
 
       it "treats a blank answer as 'no audience' rather than falling through" do
         allow(StandardId.config.oauth).to receive(:audience_resolver).and_return(->(**) { "" })
-        expect(resolve(audience: "https://api.example.com")).to be_nil
+        expect(resolve(client: bare_client, audience: "https://api.example.com")).to be_nil
       end
 
       it "accepts a Symbol answer" do

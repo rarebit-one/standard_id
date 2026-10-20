@@ -421,12 +421,28 @@ StandardId::ConfigSchema.define do
     # instead of trusting a client-supplied `audience` alone. Resolution order
     # (StandardId::Oauth::AudienceResolver): this callable when set (any
     # subset of client:, audience:, resource:, request:; a non-nil answer is
-    # final), else the `audience` param, else the RFC 8707 `resource` param
-    # mapped through `resource_audiences`, else the client's registered
-    # default `metadata["audience"]`. The resolved audience is bound to the
+    # final), else the client's registered default `metadata["audience"]`
+    # (server-set, so it outranks the request), else the `audience` param,
+    # else the RFC 8707 `resource` param mapped through `resource_audiences`.
+    # The resolved audience is bound to the
     # authorization code and reaches the token as `aud`; `audience_scopes`
     # (above) is then enforced at /authorize for it.
     field :audience_resolver, type: :any, default: nil
+
+    # Normalise the scope an /authorize request asks for, once the client and
+    # audience are known and before `audience_scopes` is enforced — the place
+    # for what hosts used to do in a shim: collapse a hierarchy ("mcp mcp:read"
+    # → "mcp"), narrow a request to what the chosen audience consumes, append
+    # a default. A callable taking any subset of `scope:` (the raw param),
+    # `audience:` (resolved), `client:` and `request:`; returns the scope as a
+    # String or Array, or nil to leave the request unchanged. The result is
+    # what the code is issued with and what the consent screen shows.
+    #
+    #   c.oauth.authorize_scope_resolver = ->(scope:, audience:) {
+    #     tokens = scope.to_s.split
+    #     audience == "mcp" && tokens.include?("mcp") ? tokens - ["mcp:read"] : nil
+    #   }
+    field :authorize_scope_resolver, type: :any, default: nil
 
     # RFC 8707: resource indicator → audience, e.g.
     # { "https://app.example.com/mcp" => "mcp" }. Matched with the trailing

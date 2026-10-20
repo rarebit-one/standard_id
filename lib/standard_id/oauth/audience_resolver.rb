@@ -9,9 +9,14 @@ module StandardId
     #      subset of `client:`, `audience:` (the raw param), `resource:` (the
     #      RFC 8707 param) and `request:`. A non-nil answer is final; nil
     #      falls through to the defaults below.
-    #   2. The `audience` parameter, when present (what hosts' shims inject
-    #      today, so nothing changes for them).
-    #   3. The `resource` parameter (RFC 8707), mapped through
+    #   2. The client's registered default, `metadata["audience"]` — set by the
+    #      server at registration (`dynamic_registration_attributes`) or by an
+    #      operator, so it is the one input here the client did not choose, and
+    #      it outranks what the request says (0.50.0; before that the
+    #      `audience` parameter came first, which let an openly registered
+    #      client ask for another allowed audience).
+    #   3. The `audience` parameter, when present.
+    #   4. The `resource` parameter (RFC 8707), mapped through
     #      `config.oauth.resource_audiences` ({ "https://app.example/mcp" =>
     #      "mcp" }); compared with the trailing slash removed. With no mapping
     #      configured the parameter is ignored (MCP clients send it on every
@@ -19,9 +24,6 @@ module StandardId
     #      get that default). With a mapping, an unmapped resource is refused
     #      with `invalid_target` (RFC 8707 §2), never silently issued without
     #      an audience.
-    #   4. The client's registered default, `metadata["audience"]` — the
-    #      convention every dynamic-registration operation in the estate
-    #      stamps, and the reason each app carried an authorize shim.
     #
     # Nil when none of these apply: audience stays optional at /authorize.
     module AudienceResolver
@@ -38,10 +40,12 @@ module StandardId
           return coerce_hook_answer(answer) unless answer.nil?
         end
 
+        registered = client_default(client)
+        return registered if registered
         return requested.to_s if requested
         return from_resource(resource) if resource && resource_mapping.any?
 
-        client_default(client)
+        nil
       end
 
       # @raise [StandardId::InvalidTargetError] when a mapping is configured

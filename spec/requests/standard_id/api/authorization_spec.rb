@@ -129,11 +129,22 @@ RSpec.describe "StandardId API Authorization", type: :request do
             expect(issued_audience).to eq("companion_kit")
           end
 
-          it "defaults to the client's registered metadata audience" do
+          it "defaults to the client's registered metadata audience, over anything the request says" do
             client.update!(metadata: { "audience" => "companion_kit" })
-            http_get "/api/authorize", params: valid_params.except(:audience)
+            http_get "/api/authorize", params: valid_params.merge(resource: "https://app.example.com/mcp")
             expect(response).to have_http_status(:found)
             expect(issued_audience).to eq("companion_kit")
+          end
+
+          it "normalises the requested scope through authorize_scope_resolver before binding and enforcing it" do
+            allow(StandardId.config.oauth).to receive(:audience_scopes).and_return("https://api.example.com" => %w[read write])
+            allow(StandardId.config.oauth).to receive(:authorize_scope_resolver).and_return(
+              ->(scope:, audience:) { audience == "https://api.example.com" ? scope.to_s.split - %w[admin] : nil }
+            )
+            http_get "/api/authorize", params: valid_params.merge(scope: "read admin")
+            expect(response).to have_http_status(:found)
+            code = Rack::Utils.parse_query(URI.parse(response.location).query)["code"]
+            expect(StandardId::AuthorizationCode.lookup(code).scope).to eq("read")
           end
 
           it "lets a configured audience_resolver decide" do
