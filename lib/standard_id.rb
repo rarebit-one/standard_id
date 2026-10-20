@@ -69,6 +69,7 @@ require "standard_id/otp"
 require "standard_id/authorization_bypass"
 require "standard_id/utils/ip_normalizer"
 require "standard_id/rate_limit_store"
+require "standard_id/rate_limiter"
 
 require "concurrent/delay"
 

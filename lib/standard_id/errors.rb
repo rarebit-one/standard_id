@@ -74,6 +74,20 @@ module StandardId
     def oauth_error_code = :invalid_request
   end
 
+  # A lib-level rate limit tripped (StandardId::RateLimiter). A subclass of
+  # InvalidRequestError so every path that already turns a refused OTP start
+  # into a flash, a failure result or an OAuth error body keeps doing so; the
+  # API error handler renders it as 429 `rate_limit_exceeded`, the same shape
+  # the controller-level limits produce.
+  class RateLimitExceededError < InvalidRequestError
+    def initialize(message = "Too many requests. Please try again later.")
+      super
+    end
+
+    def oauth_error_code = :rate_limit_exceeded
+    def http_status = :too_many_requests
+  end
+
   class InvalidClientError < OAuthError
     def oauth_error_code = :invalid_client
     def http_status = :unauthorized

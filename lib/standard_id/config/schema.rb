@@ -699,6 +699,23 @@ StandardId::ConfigSchema.define do
     field :api_passwordless_start_per_ip, type: :integer, default: 10    # per hour
     field :api_passwordless_start_per_target, type: :integer, default: 5 # per 15 minutes
 
+    # OTP start limits enforced INSIDE the passwordless strategy
+    # (Passwordless::BaseStrategy#start!), not on a controller — so they hold
+    # for a host that drives `generate_passwordless_otp`, `StandardId::Otp.issue`
+    # or the strategy from its own controllers, operations or jobs, where the
+    # controller-level limits above are never consulted. Counted on the same
+    # store, keyed per (realm, channel, target) and per IP, raising
+    # StandardId::RateLimitExceededError (a 429 through the API error handler,
+    # a flash on the web login page, a failed result from Otp.issue).
+    #
+    # The per-target limit defaults to the API's per-target value, so a path
+    # that already runs the controller limit sees no change (the controller
+    # trips first, with its Retry-After). The per-IP limit defaults OFF: the
+    # right ceiling depends on how many real users share one address (CGNAT,
+    # an office), and a wrong default would bounce them. 0 disables either.
+    field :otp_start_per_target, type: :integer, default: 5     # per 15 minutes
+    field :otp_start_per_ip, type: :integer, default: 0         # per hour; 0 = off
+
     # OAuth token endpoint — requests per IP.
     field :api_token_per_ip, type: :integer, default: 30                 # per 15 minutes
 

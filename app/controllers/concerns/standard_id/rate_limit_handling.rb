@@ -2,7 +2,9 @@ module StandardId
   module RateLimitHandling
     extend ActiveSupport::Concern
 
-    RATE_LIMIT_STORE = StandardId::RateLimitStore.new
+    # The one store object the engine counts on, shared with the lib-level
+    # limits (StandardId::RateLimiter) so `c.cache_store` governs both.
+    RATE_LIMIT_STORE = StandardId::RateLimiter::STORE
 
     # Fallback window for the Retry-After header when the tripped limit's window
     # was not captured on the instance — e.g. a hand-rolled `raise

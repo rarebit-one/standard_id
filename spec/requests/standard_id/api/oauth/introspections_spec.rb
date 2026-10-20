@@ -282,6 +282,18 @@ RSpec.describe "StandardId::Api::Oauth::IntrospectionsController", type: :reques
         expect(seen[2]).to be_a(ActionDispatch::Request)
       end
 
+      it "passes everything to a callable that takes **kwargs, and nothing to one that takes none" do
+        seen = nil
+        with_liveness(->(**context) { seen = context.keys; true })
+        post path, params: credentials_params.merge(token: issue_token)
+        expect(seen).to contain_exactly(:payload, :refresh_token, :request)
+        expect(response.parsed_body["active"]).to be true
+
+        with_liveness(-> { true })
+        post path, params: credentials_params.merge(token: issue_token)
+        expect(response.parsed_body["active"]).to be true
+      end
+
       it "hands a persisted refresh token to the callable" do
         jti = SecureRandom.uuid
         persisted = StandardId::RefreshToken.create!(
@@ -297,7 +309,7 @@ RSpec.describe "StandardId::Api::Oauth::IntrospectionsController", type: :reques
 
       it "treats an exception as inactive and logs it, rather than saying yes or 500ing" do
         logger = instance_double(Logger, error: nil)
-        allow(StandardId.config).to receive(:logger).and_return(logger)
+        allow(StandardId).to receive(:logger).and_return(logger)
         with_liveness(->(payload:) { raise "host row lookup exploded" })
 
         post path, params: credentials_params.merge(token: issue_token)

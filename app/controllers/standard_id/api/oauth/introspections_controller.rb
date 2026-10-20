@@ -172,7 +172,10 @@ module StandardId
           context = { payload: payload, refresh_token: persisted, request: request }
           !!callable.call(**StandardId::Utils::CallableParameterFilter.filter(callable, context))
         rescue StandardError => e
-          StandardId.config.logger&.error("[StandardId] oauth.introspection_liveness raised: #{e.class}: #{e.message}")
+          # StandardId.logger, not config.logger: the latter is nil unless the
+          # host set it, and a broken hook that silently turns every token
+          # inactive would otherwise look like an outage with no signal.
+          StandardId.logger&.error("[StandardId] oauth.introspection_liveness raised: #{e.class}: #{e.message}")
           false
         end
 
