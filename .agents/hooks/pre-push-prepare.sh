@@ -40,8 +40,9 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""')
 # `cd <worktree> && git push` (or `git -C <worktree> push`) the checkout being
 # pushed is not the hook's cwd. Acting on the cwd meant: from a workspace root the
 # hook silently did nothing, and from a main checkout it could rebase the WRONG tree.
-# The resolver below started as a port of sidekick-labs/sidekick-harness
-# (.claude/hooks/lib/resolve-push-root.sh, ai-foundations-brain#745), inlined because
+# The resolver below started as a port of sidekick-labs/sidekick-harness's
+# .claude/hooks/lib/resolve-push-root.sh (ai-foundations-brain#745; that lib was
+# deleted in sidekick-harness#1434, so this file is now the canonical resolver), inlined because
 # estate hooks are vendored as single files; since agent-estate#20 it lexes the
 # command instead of splitting its text. Its tests live in
 # hooks/tests/resolve-push-root.test.sh and hooks/tests/pre-push-prepare.test.sh.
@@ -79,15 +80,19 @@ _seg_is_push() {
 #
 # Fills RPR_SEG[i] (raw text), RPR_MASK[i] and RPR_SEP[i], the separator that
 # ENDS segment i: `&&` `||` `|` `;` `nl` `&` (background) `(` `)` `;;` `eof`.
+# RPR_OFF[i] is the offset in <command> where segment i starts; RPR_CONT lists
+# the offsets of the line continuations (`\<newline>`) dropped from the raw text,
+# so a mask offset maps back onto <command> (_rpr_lease_command).
 # RPR_BAD=1 on an unterminated quote or substitution; RPR_LEAD=1 when the line
 # opens with a subshell/`;;` (a separator with no segment before it).
 _rpr_lex() {
   local LC_ALL=C
-  local s="$1" n i=0 ch nx ctx="" top raw="" mask="" d q line rest re run
+  local s="$1" n i=0 ch nx ctx="" top raw="" mask="" d q line rest re run st=0 pend=0 bs
   local -a hd=()
-  RPR_SEG=(); RPR_MASK=(); RPR_SEP=(); RPR_BAD=0; RPR_LEAD=0
+  RPR_SEG=(); RPR_MASK=(); RPR_SEP=(); RPR_OFF=(); RPR_CONT=(); RPR_BAD=0; RPR_LEAD=0
   n=${#s}
   while (( i < n )); do
+    (( pend )) && { st=$i; pend=0; }   # a segment starts after the separator
     top="${ctx: -1}"
     # consume a run of characters that mean nothing in this context in one step
     # (character-at-a-time is quadratic on a long `gh pr create --body …`)
@@ -119,14 +124,18 @@ _rpr_lex() {
       case "$top$ch" in
         "''"|"a'"|'""'|'``') ctx="${ctx%?}" ;;
         '"`') ctx+='`' ;;
-        '"$') [[ "$nx" == "(" ]] && { ctx+="("; raw+='$('; mask+="xx"; i=$((i + 2)); continue; } ;;
+        '"$')
+          # ${ … } nests like $( … ): its own quotes do not close the "…"
+          # (`"${x:-"; cd ../b;"}"` is one word; agent-estate#23)
+          if [[ "$nx" == "(" ]]; then ctx+="("; raw+='$('; mask+="xx"; i=$((i + 2)); continue; fi
+          if [[ "$nx" == "{" ]]; then ctx+="b"; raw+='${'; mask+="xx"; i=$((i + 2)); continue; fi ;;
       esac
       raw+="$ch"; mask+="x"; i=$((i + 1)); continue
     fi
     # top level, $( … ) or ${ … }: quotes, escapes, substitutions, heredocs
     case "$ch" in
       '\')
-        if [[ "$nx" == $'\n' ]]; then i=$((i + 2)); continue; fi   # continuation
+        if [[ "$nx" == $'\n' ]]; then RPR_CONT+=("$i"); i=$((i + 2)); continue; fi   # continuation
         raw+="$ch$nx"; mask+="xx"; i=$((i + 2)); continue ;;
       "'"|'"'|'`')
         ctx+="$ch"; raw+="$ch"; mask+="x"; i=$((i + 1)); continue ;;
@@ -183,6 +192,17 @@ _rpr_lex() {
       case "$ch" in
         "(") ctx+="(" ;;
         ")") ctx="${ctx%?}" ;;
+        '#')
+          # a comment runs to the end of the line, so a `)` in it closes
+          # nothing (`$(: # )` …); `$#` is not one (agent-estate#23)
+          # A space escaped by an odd run of backslashes (`\ #`) is part of
+          # the word, so that # is not a comment either.
+          bs=0; while [[ "${raw: -$((bs + 2)):1}" == '\' ]] && (( bs + 2 <= ${#raw} )); do bs=$((bs + 1)); done
+          if [[ "${raw: -1}" == [[:space:]\(\;\&\|] ]] && ! { [[ "${raw: -1}" == [[:space:]] ]] && (( bs % 2 )); }; then
+            rest="${s:i}"; line="${rest%%$'\n'*}"
+            raw+="$line"; printf -v run '%*s' "${#line}" ''; mask+="${run// /x}"
+            i=$((i + ${#line})); continue
+          fi ;;
       esac
       raw+="$ch"; mask+="x"; i=$((i + 1)); continue
     fi
@@ -233,11 +253,11 @@ _rpr_emit() {
     else
       case "$1" in '('|')'|';;') RPR_LEAD=1 ;; esac   # e.g. a leading `(`
     fi
-    raw=""; mask=""
+    raw=""; mask=""; pend=1
     return
   fi
-  RPR_SEG+=("$raw"); RPR_MASK+=("$mask"); RPR_SEP+=("$1")
-  raw=""; mask=""
+  RPR_SEG+=("$raw"); RPR_MASK+=("$mask"); RPR_SEP+=("$1"); RPR_OFF+=("$st")
+  raw=""; mask=""; pend=1
 }
 
 # _rpr_word <raw-text> <offset>
@@ -245,12 +265,13 @@ _rpr_emit() {
 # leading `~`/`~/` expanded. RPR_WOK=0 when the value is only known at run time
 # ($VAR, $(…), `…`, a glob * ? [ ], a brace {a,b}, ~user/~+/~-, or an option
 # such as `-P`/`--`): those cannot be followed here, so the target is unknown.
-# RPR_WOK=2 when there is no word at all (a bare `cd`).
+# RPR_WOK=2 when there is no word at all (a bare `cd`). RPR_WHOME=1 when a
+# leading `~` was replaced with the hook's own $HOME (see _rpr_home_moved).
 _rpr_word() {
   local LC_ALL=C
   local s="$1" i="$2" n ch w="" started=0
   n=${#s}
-  RPR_WOK=1
+  RPR_WOK=1; RPR_WHOME=0
   while (( i < n )); do
     ch="${s:i:1}"
     case "$ch" in
@@ -281,7 +302,7 @@ _rpr_word() {
       '~')
         if (( started == 0 )); then
           case "${s:i+1:1}" in
-            ''|' '|$'\t'|'/') w+="$HOME" ;;
+            ''|' '|$'\t'|'/') w+="$HOME"; RPR_WHOME=1 ;;
             *) RPR_WOK=0; w+="$ch" ;;
           esac
         else
@@ -304,6 +325,19 @@ _resolve_dir() {
   (cd "$1" >/dev/null 2>&1 && cd "$2" >/dev/null 2>&1 && pwd)
 }
 
+# _rpr_home_moved <last-segment-index>: 0 when a segment up to and including it
+# may change HOME (an assignment, `unset HOME`, `export "HOME=…"`, `read HOME` …).
+# The hook's own $HOME then no longer says where a bare `cd` or a `~` goes
+# (agent-estate#23). Checked on the raw text, so a quoted assignment counts;
+# reading it as $HOME / ${HOME} does not. Any other mention errs towards unknown.
+_rpr_home_moved() {
+  local k re='(^|[^A-Za-z0-9_${])HOME([+]?=|[[:space:]"'\'';&|)]|$)'
+  for (( k = 0; k <= $1; k++ )); do
+    [[ "${RPR_SEG[k]}" =~ $re ]] && return 0
+  done
+  return 1
+}
+
 # _rpr_kind <mask>: what a simple command does to the shell's directory/flow.
 #   cd       a plain `cd [dir]`
 #   cdish    any other cd/pushd/popd (`if cd x`, `{ cd x`, `pushd x`), or an
@@ -316,7 +350,12 @@ _rpr_kind() {
   if [[ "$m" =~ ^[[:space:]]*cd([[:space:]]|$) ]]; then RPR_KIND=cd
   elif [[ "$m" =~ (^|[[:space:]])(cd|pushd|popd)([[:space:]]|$) ]]; then RPR_KIND=cdish
   # eval/source/. run text this resolver cannot see in the CURRENT shell
-  elif [[ "$m" =~ (^|[[:space:]])(eval|source|\.)([[:space:]]|$) ]]; then RPR_KIND=cdish
+  elif [[ "$m" =~ (^|[[:space:]])(eval|source)([[:space:]]|$) ]]; then RPR_KIND=cdish
+  # `.` only in command position (after assignments, redirections such as
+  # `2>/dev/null` / `> log`, a keyword such as `if`, or a prefix such as
+  # `command -p` / `time -p`): in `git add .` /
+  # `docker build .` it is an argument (agent-estate#23)
+  elif [[ "$m" =~ ^[[:space:]]*(([A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[+]?=[^[:space:]]*|[0-9]*[\<\>\&][\<\>\&]*([[:space:]]*[^[:space:]\<\>\&]+)?|if|then|else|elif|while|until|do|!|\{|(time|command|builtin|exec)([[:space:]]+-[^[:space:]]*)*)[[:space:]]+)*\.([[:space:]]|$) ]]; then RPR_KIND=cdish
   elif [[ "$m" =~ ^[[:space:]]*(if|then|else|elif|fi|while|until|do|done|for|select|case|esac|function|\{|\})([[:space:]]|$) ]]; then RPR_KIND=control
   elif [[ "$m" =~ ^[[:space:]]*(exit|return)([[:space:]]+[0-9]+)?[[:space:]]*$ ]]; then RPR_KIND=exit
   elif [[ "$m" =~ ^[[:space:]]*(true|:)[[:space:]]*$ ]]; then RPR_KIND=true
@@ -353,7 +392,8 @@ _rpr_cd() {
     eff_known=0; RPR_CD=unk; return 0
   fi
   _rpr_word "${RPR_SEG[k]}" "$off"
-  if [[ "$RPR_WOK" == 2 ]]; then RPR_W="$HOME"; RPR_WOK=1; fi   # bare `cd`
+  if [[ "$RPR_WOK" == 2 ]]; then RPR_W="$HOME"; RPR_WOK=1; RPR_WHOME=1; fi   # bare `cd`
+  [[ "$RPR_WHOME" == 1 ]] && _rpr_home_moved "$k" && RPR_WOK=0   # HOME was changed
   if [[ "$RPR_WOK" != 1 ]]; then
     eff_known=0; RPR_CD=unk; return 0
   fi
@@ -560,6 +600,7 @@ resolve_push_root() {
     [[ "$rest" =~ ^[^[:space:]]+[[:space:]]+-C([[:space:]]|$) ]] && return 1
     _rpr_word "${RPR_SEG[p]}" "$off"
     [[ "$RPR_WOK" == 1 ]] || return 1
+    [[ "$RPR_WHOME" == 1 ]] && _rpr_home_moved "$p" && return 1   # `-C ~` after a HOME change
     if [[ "$RPR_W" == /* ]]; then
       from=/
     elif [[ "$eff_known" == 1 ]]; then
@@ -577,6 +618,36 @@ resolve_push_root() {
   toplevel=$(cd "$eff" >/dev/null 2>&1 && git rev-parse --show-toplevel 2>/dev/null) || return 1
   [[ -n "$toplevel" ]] || return 1
   printf '%s' "$toplevel"
+}
+
+# _rpr_lease_command <command>
+# Prints <command> with ` --force-with-lease` inserted after the `push` of its
+# first segment whose MASK is a `git push` (the one resolve_push_root acts on,
+# unless a `gh pr create` precedes it). Never the first textual `git push`: an
+# echoed string or a commit message got it, and the real push went out without
+# one and was rejected (agent-estate#23). Non-zero when there is no push to edit.
+_rpr_lease_command() {
+  # Byte offsets, like _rpr_lex: under a UTF-8 locale ${s:0:j} would count
+  # characters, and a multibyte earlier segment would shift the insertion.
+  local LC_ALL=C
+  local s="$1" k p=-1 m pre off j c
+  _rpr_lex "$s"
+  [[ "$RPR_BAD" == 1 ]] && return 1
+  for (( k = 0; k < ${#RPR_SEG[@]}; k++ )); do
+    if [[ "${RPR_MASK[k]}" =~ $GIT_PUSH_RE ]]; then p=$k; break; fi
+  done
+  (( p >= 0 )) || return 1
+  m="${RPR_MASK[p]}"
+  [[ "$m" =~ $GIT_PUSH_RE ]]
+  # the leftmost match: text before it cannot contain the same match
+  pre="${m%%"${BASH_REMATCH[0]}"*}"
+  off=$(( ${#pre} + ${#BASH_REMATCH[0]} - ${#BASH_REMATCH[4]} ))   # just past `push`
+  # the mask lacks the continuations (`\<newline>`) inside the segment
+  j=$(( RPR_OFF[p] + off ))
+  for c in "${RPR_CONT[@]}"; do
+    (( c >= RPR_OFF[p] && c < j )) && j=$((j + 2))
+  done
+  printf '%s' "${s:0:j} --force-with-lease${s:j}"
 }
 
 # push_root_in_scope <resolved-root>
@@ -718,8 +789,13 @@ if [[ "$REBASE_HAPPENED" == "true" ]]; then
     # The word-boundary regex catches --force, --force-with-lease, and
     # --force-if-includes without false-matching unrelated tokens.
     if [[ ! "$COMMAND" =~ (^|[[:space:]])--force ]]; then
-      # insert after `push`, including the `git -C <dir> push` form (review finding)
-      MODIFIED_COMMAND=$(printf '%s' "$COMMAND" | sed -E "s/(git([[:space:]]+-C[[:space:]]+(\"[^\"]+\"|'[^']+'|[^[:space:]]+))?[[:space:]]+push)([[:space:]]|\$)/\\1 --force-with-lease\\4/")
+      # insert after the `push` of the push segment the resolver acted on,
+      # including the `git -C <dir> push` form (review findings; agent-estate#23)
+      if ! MODIFIED_COMMAND=$(_rpr_lease_command "$COMMAND"); then
+        echo "❌ Rebase changed history, but --force-with-lease could not be placed." >&2
+        echo "   Push with it explicitly: git push --force-with-lease origin $CURRENT_BRANCH" >&2
+        exit 2
+      fi
       echo "🔄 Injecting --force-with-lease (rebase changed history)" >&2
       jq -n --arg cmd "$MODIFIED_COMMAND" '{
         "hookSpecificOutput": {

@@ -100,11 +100,13 @@ fi
 # Read them immediately after the call that sets them; the next call overwrites.
 RET=""
 RETUNRES=0
+RETDANGER=0
 RETCOUNT=0
 
 _expand_path() { # $1 -> RET (expanded), RETUNRES=1 when it cannot be resolved
   local p="$1"
   RETUNRES=0
+  RETDANGER=0
   case "$p" in
     '~')            p="$HOME" ;;
     '~/'*)          p="$HOME/${p#\~/}" ;;
@@ -114,8 +116,214 @@ _expand_path() { # $1 -> RET (expanded), RETUNRES=1 when it cannot be resolved
   esac
   p="${p//\$\{HOME\}/$HOME}"
   p="${p//\$HOME/$HOME}"
+  case "$p" in *'$'*) _subst_vars "$p"; p="$RET" ;; esac
   case "$p" in *'$'*) RETUNRES=1 ;; esac
   RET="$p"
+}
+
+# Variables assigned earlier in the SAME command line (`SP=/tmp/x; cat > "$SP/f"`,
+# `export D=…; cd "$D"`), as two parallel arrays. Agents set a scratch dir this
+# way in almost every call, because shell state does not persist between Bash
+# calls; without this, every such write from a main checkout read as an
+# unresolvable destination and failed closed. Only values that themselves fully
+# resolve are kept, so a `$(…)` or unknown variable still fails closed.
+VAR_K=()
+VAR_V=()
+# Names that are no longer bound but may still hold a path inside a main
+# checkout (their last binding, or a value a skipped/unknown assignment may
+# have given them, resolved into one). Forgetting such a name would fall back
+# to "unresolvable", which is allowed outside a main checkout, so a use of a
+# DANGER name blocks wherever the command runs. Sticky for the whole line.
+VAR_D=()
+NEXT_COND=0   # the next command runs only conditionally (after && / ||)
+NEXT_PIPE=0   # the next command is a pipeline member (a child shell)
+LINE_CTRL=0   # sticky: a compound command keyword has appeared on this line
+LX_TERM=seq   # what ends the command being inspected: seq|and|or|pipe|bg
+
+_var_get() { # $1 name -> RET value, return 1 when unknown
+  local i
+  for ((i = ${#VAR_K[@]} - 1; i >= 0; i--)); do
+    if [[ "${VAR_K[i]}" == "$1" ]]; then RET="${VAR_V[i]}"; return 0; fi
+  done
+  return 1
+}
+
+_var_is_danger() { # $1 name -> 0 when listed in VAR_D
+  local d
+  for d in "${VAR_D[@]}"; do [[ "$d" == "$1" ]] && return 0; done
+  return 1
+}
+
+_mark_danger_if_main() { # $1 name, $2 path (relative = against CURDIR)
+  [[ -z "$2" ]] && return 0
+  local path="$2"
+  [[ "$path" != /* ]] && path="$CURDIR/$path"
+  if _dir_is_main "$path"; then _var_is_danger "$1" || VAR_D+=("$1"); fi
+  return 0
+}
+
+_forget() { # $1 name -> drop its binding (and danger mark) without judging it
+  local i
+  for ((i = 0; i < ${#VAR_K[@]}; i++)); do
+    [[ "${VAR_K[i]}" == "$1" ]] && VAR_K[i]="" && VAR_V[i]=""
+  done
+}
+
+_var_poison() { # $1 name, [$2 a candidate raw value] -> unknown from here on
+  # A name bound earlier on this line and now changed in a way we can't follow
+  # (printf -v, read, a skipped or quoted assignment, …) could hold anything,
+  # including a main-checkout path, so it becomes DANGER outright. _var_set
+  # clears this again when the change turns out to be a definite re-binding.
+  if _var_get "$1"; then _var_is_danger "$1" || VAR_D+=("$1"); fi
+  if [[ -n "${2:-}" ]]; then
+    local cand="$2"
+    if [[ "$cand" == *'$'* ]]; then
+      # Quote loss means this can't be cached as definite, but known variables
+      # in it still say where it may point (D=$ROOT, D=${ROOT%/}).
+      RETDANGER=0; _subst_vars "$cand"; cand="$RET"
+      if [[ "$RETDANGER" == "1" ]]; then _var_is_danger "$1" || VAR_D+=("$1"); cand=""; fi
+    fi
+    case "$cand" in
+      '~'|'~/'*) _expand_path "$cand"; _mark_danger_if_main "$1" "$RET" ;;
+      ''|*'$'*|'~'*|*':~'*) ;;   # can't evaluate: stays plain unresolvable
+      *) _abs_path "$cand" "$CURDIR"; [[ "$RETUNRES" == "1" ]] || _mark_danger_if_main "$1" "$RET" ;;
+    esac
+  fi
+  _forget "$1"
+}
+
+# Variables bash itself writes (BASH_REMATCH after =~, REPLY after read, PWD
+# after cd, PIPESTATUS after every pipeline, …). Their value can change behind
+# any command, so they are never bound.
+_shell_managed() { # $1 name -> 0 when bash may write it implicitly
+  case "$1" in
+    BASH|BASH_*|BASHOPTS|BASHPID|COMP_*|COMPREPLY|READLINE_*|HIST*|PS[0-9]|\
+    REPLY|MAPFILE|OPTARG|OPTIND|OPTERR|PWD|OLDPWD|DIRSTACK|PIPESTATUS|\
+    RANDOM|SRANDOM|SECONDS|LINENO|EPOCHSECONDS|EPOCHREALTIME|FUNCNAME|\
+    GROUPS|HOSTNAME|HOSTTYPE|MACHTYPE|OSTYPE|PPID|UID|EUID|SHELLOPTS|SHLVL|\
+    COPROC|COPROC_*|LINES|COLUMNS|_)
+      return 0 ;;
+  esac
+  return 1
+}
+
+_var_set() { # $1 name, $2 raw value (already lexed: quotes removed)
+  _var_poison "$1"
+  # Never bound, but a main-checkout value still makes it DANGER.
+  _shell_managed "$1" && { _var_poison "$1" "$2"; return 0; }
+  # The lexer has dropped quoting, so `P='$D'` (literal) and `P=$D` (expanded)
+  # look the same here, as do `'~/x'` and `~/x`. Bind only plain literals.
+  case "$2" in *'$'*|'~'*|*':~'*) _var_poison "$1" "$2"; return 0 ;; esac
+  _expand_path "$2"
+  [[ "$RETUNRES" == "1" ]] && return 0
+  VAR_K+=("$1"); VAR_V+=("$RET")
+  # A definite assignment replaces whatever it held, so it is no longer DANGER.
+  local -a keep=() d
+  for d in "${VAR_D[@]}"; do [[ "$d" == "$1" ]] || keep+=("$d"); done
+  VAR_D=("${keep[@]}")
+}
+
+# How an assignment in the command being inspected affects the parent shell:
+# "bind" (it runs here, unconditionally), "skip" (it runs in a child: a
+# pipeline member, a background job, or a prefix like `env X=1`), or "poison"
+# (it may or may not run: after && / ||, or anywhere once a compound command
+# such as if/while/case/{ … } has appeared on the line).
+_assign_mode() { # -> RET
+  if [[ "$NEXT_PIPE" == "1" || "$LX_TERM" == "pipe" || "$LX_TERM" == "bg" ]]; then
+    RET=skip
+  elif [[ "$NEXT_COND" == "1" || "$LINE_CTRL" == "1" ]] || (( DEPTH > 1 )); then
+    RET=poison
+  else
+    RET=bind
+  fi
+}
+
+# Bash has many ways to change a variable besides NAME=value: unset, read,
+# for/select, printf -v, mapfile, getopts, NAME+=, NAME[i]=, a prefix before a
+# special builtin (`D=x export D`), let/(( )), eval, bash -c. Rather than model
+# each, any word that names a bound variable (bare `D`, or `D=…`, `D+=…`,
+# `D[…`) poisons it; only the narrow binding paths below re-bind it.
+_poison_mentions() { # $@ words
+  local wd nm i
+  local -a all=()
+  for wd in "$@"; do
+    all+=("$wd")
+    # An indirect name (`N=D; printf -v "$N"`) mentions D only after expansion.
+    if [[ "$wd" == *'$'* ]]; then _subst_vars "$wd"; [[ "$RET" == "$wd" ]] || all+=("$RET"); fi
+  done
+  for wd in "${all[@]}"; do
+    if [[ "$wd" =~ ^([A-Za-z_][A-Za-z0-9_]*)\+=(.*)$ ]]; then
+      nm="${BASH_REMATCH[1]}"
+      # NAME+=lit: the new value is the old one with lit appended (or just lit
+      # when NAME was unset).
+      if _var_get "$nm"; then _var_poison "$nm" "$RET${BASH_REMATCH[2]}"
+      elif ! _var_is_danger "$nm"; then _var_poison "$nm" "${BASH_REMATCH[2]}"; fi
+    elif [[ "$wd" =~ ^([A-Za-z_][A-Za-z0-9_]*)\[([^]]*)\](\+?)=(.*)$ ]]; then
+      nm="${BASH_REMATCH[1]}"
+      # The subscript is arithmetic and can itself assign (a[D=1]=x).
+      if [[ "${BASH_REMATCH[2]}" == *=* ]]; then _var_clear_all; continue; fi
+      # D[0]=v writes scalar D; treat v as what D may now hold.
+      if _var_get "$nm"; then
+        if [[ -n "${BASH_REMATCH[3]}" ]]; then _var_poison "$nm" "$RET${BASH_REMATCH[4]}"
+        else _var_poison "$nm" "${BASH_REMATCH[4]}"; fi
+      elif _var_is_danger "$nm"; then :
+      else _var_poison "$nm" "${BASH_REMATCH[4]}"; fi
+    elif [[ "$wd" =~ ^([A-Za-z_][A-Za-z0-9_]*)(=|\[|$) ]]; then
+      nm="${BASH_REMATCH[1]}"
+      _var_get "$nm" && _var_poison "$nm"
+    elif [[ "$wd" == -* ]]; then
+      # Attached option argument naming a variable: printf -vD, read -aD,
+      # wait -pD. Only those letters take a name, so `ls -la "$a"` leaves a alone.
+      for ((i = 0; i < ${#VAR_K[@]}; i++)); do
+        nm="${VAR_K[i]}"
+        [[ -n "$nm" && "$wd" =~ ^-[A-Za-z]*[vap]$nm$ ]] && _var_poison "$nm"
+      done
+    fi
+  done
+  return 0
+}
+
+_var_clear_all() { # forget every binding and bind nothing more on this line
+  local i
+  for ((i = 0; i < ${#VAR_K[@]}; i++)); do
+    [[ -n "${VAR_K[i]}" ]] && { _var_is_danger "${VAR_K[i]}" || VAR_D+=("${VAR_K[i]}"); }
+  done
+  VAR_K=(); VAR_V=(); LINE_CTRL=1
+}
+
+_assign() { # $1 NAME=value word, $2 mode
+  case "$2" in
+    bind)   _var_set "${1%%=*}" "${1#*=}" ;;
+    poison) _var_poison "${1%%=*}" "${1#*=}" ;;
+  esac
+}
+
+_subst_vars() { # $1 string -> RET with known $NAME / ${NAME} substituted
+  local s="$1" out="" name pre whole post
+  # Extended forms (${D%/}, ${D/x/y}, ${#D}, ${!D}, ${D:-x}) are not resolved;
+  # they can rewrite a bound path anywhere, so one over a bound or DANGER name
+  # is DANGER (blocks wherever the command runs).
+  local ext='\$\{([#!]?)([A-Za-z_][A-Za-z0-9_]*)([^A-Za-z0-9_}][^}]*)?\}(.*)$' rest="$s" en
+  while [[ "$rest" =~ $ext ]]; do
+    en="${BASH_REMATCH[2]}"
+    if [[ -n "${BASH_REMATCH[1]}${BASH_REMATCH[3]}" ]]; then
+      if _var_get "$en" || _var_is_danger "$en"; then RETDANGER=1; fi
+    fi
+    rest="${BASH_REMATCH[4]}"
+  done
+  local re='^([^$]*)\$(\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))(.*)$'
+  while [[ "$s" =~ $re ]]; do
+    name="${BASH_REMATCH[3]}${BASH_REMATCH[4]}"
+    pre="${BASH_REMATCH[1]}" whole="\$${BASH_REMATCH[2]}" post="${BASH_REMATCH[5]}"
+    if _var_get "$name"; then
+      out="$out$pre$RET"
+    else
+      _var_is_danger "$name" && RETDANGER=1
+      out="$out$pre$whole"
+    fi
+    s="$post"
+  done
+  RET="$out$s"
 }
 
 _abs_path() { # $1 path, $2 base dir -> RET absolute (unresolvable vars flagged)
@@ -126,9 +334,11 @@ _abs_path() { # $1 path, $2 base dir -> RET absolute (unresolvable vars flagged)
 }
 
 _nearest_dir() { # $1 absolute path -> RET nearest existing ancestor directory
-  local p="$1"
+  local p="$1" q
   while [[ -n "$p" && ! -d "$p" ]]; do
-    p="${p%/*}"
+    q="${p%/*}"
+    [[ "$q" == "$p" ]] && { p=""; break; }   # no slash left: never loop
+    p="$q"
   done
   [[ -z "$p" ]] && p="/"
   RET="$p"
@@ -198,6 +408,7 @@ HD=()            # pending heredoc delimiters for the current line
 # would be judged against the wrong repo.
 CURDIR="$PWD"
 DIR_UNRESOLVED=0
+DIR_DANGER=0     # the unresolved cd target was a DANGER variable
 PARSE_ERROR=0
 DEPTH=0
 STEPS=0
@@ -264,7 +475,10 @@ _read_dq() {
       fi
       if [[ "$ch" == '"' ]]; then C=$((C + 1)); RET="$out"; return; fi
       if [[ "$ch" == '$' && "${line:$((C + 1)):1}" == '(' ]]; then
-        C=$((C + 2)); _lex_context ')'; line="${LINES[L]}"; out="$out$CMDSUB"; continue
+        local dq_arith=0; [[ "${line:$((C + 2)):1}" == '(' ]] && dq_arith=1
+        C=$((C + 2)); _lex_context ')'; line="${LINES[L]}"; out="$out$CMDSUB"
+        (( dq_arith )) && _var_clear_all
+        continue
       fi
       if [[ "$ch" == '`' ]]; then
         C=$((C + 1)); _lex_context '`'; line="${LINES[L]}"; out="$out$CMDSUB"; continue
@@ -364,6 +578,14 @@ _check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argum
   fi
   _abs_path "$raw" "$CURDIR"
   local p="$RET"
+  if [[ "$RETDANGER" == "1" ]]; then
+    _block "write to '$raw', whose variable may point into a main checkout" "$CURDIR"
+    return 0
+  fi
+  if [[ "$DIR_DANGER" == "1" && "$raw" != /* ]]; then
+    _block "relative write after cd to a directory that may be a main checkout ('$raw')" "$CURDIR"
+    return 0
+  fi
   if [[ "$RETUNRES" == "1" ]]; then
     # Unresolvable variable in the path. If we are sitting in a main checkout a
     # relative/unknown target may well land in it — fail closed. Elsewhere the
@@ -416,7 +638,7 @@ _inspect_cmd() {
   w=("${IC_WORDS[@]}")
   r=("${IC_REDIRS[@]}")
   local n=${#w[@]}
-  local i=0 x base t j a
+  local i=0 x base t j a prefixed=0 mode
 
   # Redirection targets are writes wherever the command runs.
   for t in "${r[@]}"; do
@@ -425,21 +647,25 @@ _inspect_cmd() {
 
   (( n == 0 )) && return 0
 
+  _poison_mentions "${w[@]}"
+
   # Strip variable assignments and command prefixes (env, sudo, xargs, …).
   while (( i < n )); do
     x="${w[i]}"
     if [[ "$x" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then i=$((i + 1)); continue; fi
     base="${x##*/}"
     case "$base" in
+      then|do|else|elif|if|while|until|'{'|'}')
+        LINE_CTRL=1; i=$((i + 1)); continue ;;
       env|sudo|doas|nohup|command|builtin|exec|nice|ionice|stdbuf|setsid|time|\
-      then|do|else|elif|if|while|until|'!'|'{'|'}'|'('|')')
-        i=$((i + 1)); continue ;;
+      '!'|'('|')')
+        prefixed=1; i=$((i + 1)); continue ;;
       timeout)
-        i=$((i + 1))
+        prefixed=1; i=$((i + 1))
         while (( i < n )) && [[ "${w[i]}" == -* ]]; do i=$((i + 1)); done
         i=$((i + 1)); continue ;;
       xargs)
-        i=$((i + 1))
+        prefixed=1; i=$((i + 1))
         while (( i < n )) && [[ "${w[i]}" == -* ]]; do
           case "${w[i]}" in
             -n|-I|-P|-L|-s|-a|-d|-E) i=$((i + 2)) ;;
@@ -450,14 +676,84 @@ _inspect_cmd() {
     esac
     break
   done
-  (( i >= n )) && return 0
+  # A command made only of assignments sets them in this shell (see
+  # _assign_mode). Prefix assignments (`X=1 cmd`, `env X=1`) are never bound:
+  # bash expands the command's own words before X is set, and X does not
+  # outlive the command.
+  _assign_mode; mode="$RET"
+  (( prefixed )) && mode=skip
+  if (( i >= n )); then
+    for ((j = 0; j < n; j++)); do
+      [[ "${w[j]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && _assign "${w[j]}" "$mode"
+    done
+    return 0
+  fi
 
   local name="${w[i]}"
   base="${name##*/}"
   local -a args
   args=("${w[@]:$((i + 1))}")
 
+  # Prefix assignments before a POSIX special builtin can persist in this
+  # shell (`D=x export D`). Never bind them, but track their danger.
   case "$base" in
+    export|readonly|eval|set|unset|shift|trap|exec|.|:|return|exit|break|continue|times)
+      for ((j = 0; j < i; j++)); do
+        [[ "${w[j]}" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && _var_poison "${w[j]%%=*}" "${w[j]#*=}"
+      done ;;
+  esac
+
+  # Builtins that write a variable no argument names (bash 3.2 has no ;;&).
+  case "$base" in
+    read|select)       _var_get REPLY && _var_poison REPLY ;;
+    mapfile|readarray) _var_get MAPFILE && _var_poison MAPFILE ;;
+    getopts)
+      _var_get OPTARG && _var_poison OPTARG
+      _var_get OPTIND && _var_poison OPTIND ;;
+  esac
+
+  case "$base" in
+    export|declare|typeset|local|readonly)
+      for a in "${args[@]}"; do
+        # declare -n makes a nameref: later writes to it land in another variable.
+        if [[ "$a" =~ ^-[A-Za-z]*n ]]; then _var_clear_all; return 0; fi
+        # `declare "$N=…"`: the target name itself is an expansion.
+        _subst_vars "${a%%=*}"
+        if [[ "$RET" == *'$'* ]]; then _var_clear_all; return 0; fi
+        # Options can transform the stored value (-l lowercases, -u uppercases,
+        # -i evaluates arithmetic, -a/-A make arrays): don't cache the literal.
+        [[ "$a" == [-+]* && "$mode" == bind ]] && mode=poison
+      done
+      # `local` outside a function fails and leaves the old value in place.
+      [[ "$base" == local && "$mode" == bind ]] && mode=poison
+      for a in "${args[@]}"; do
+        [[ "$a" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && _assign "$a" "$mode"
+      done
+      return 0
+      ;;
+    fi|done|esac|for|case|select|function)
+      LINE_CTRL=1
+      ;;
+    printf|read|readarray|mapfile|unset|getopts|let|wait)
+      # These can write a variable named by an argument (printf and wait only
+      # with -v / -p). If an argument still holds an unresolved expansion, the
+      # target is unknown: drop everything.
+      local writes=1
+      if [[ "$base" == printf || "$base" == wait ]]; then
+        writes=0
+        for a in "${args[@]}"; do
+          [[ "$a" == --* ]] && break
+          [[ "$a" =~ ^-[A-Za-z]*[vp] ]] && writes=1
+        done
+      fi
+      (( writes )) && for a in "${args[@]}"; do
+        _subst_vars "$a"
+        if [[ "$RET" == *'$'* ]]; then _var_clear_all; break; fi
+      done
+      ;;
+    source|.)
+      _var_clear_all   # a sourced file can set anything
+      ;;
     cd|pushd)
       local target=""
       for ((j = 0; j < ${#args[@]}; j++)); do
@@ -467,8 +763,9 @@ _inspect_cmd() {
       _abs_path "$target" "$CURDIR"
       if [[ "$RETUNRES" == "1" ]]; then
         DIR_UNRESOLVED=1
+        [[ "$RETDANGER" == "1" ]] && DIR_DANGER=1
       else
-        DIR_UNRESOLVED=0
+        DIR_UNRESOLVED=0; DIR_DANGER=0
         _nearest_dir "$RET"
         CURDIR="$RET"
       fi
@@ -485,9 +782,38 @@ _inspect_cmd() {
       # so its `cd` really does persist.)
       for ((j = 0; j < ${#args[@]}; j++)); do
         if [[ "${args[j]}" == "-c" ]]; then
-          local sdir="$CURDIR" sunres="$DIR_UNRESOLVED"
+          local sdir="$CURDIR" sunres="$DIR_UNRESOLVED" sddanger="$DIR_DANGER"
+          # A new shell does not inherit unexported variables. Rather than
+          # track export state, hide every binding while analysing the child,
+          # so its expansions are unresolved (fail closed) as without bindings.
+          local -a svk=("${VAR_K[@]}") svv=("${VAR_V[@]}")
+          # An exported binding IS inherited: one holding a main-checkout path
+          # must stay dangerous in the child, where it is hidden.
+          local m
+          for ((m = 0; m < ${#VAR_K[@]}; m++)); do
+            [[ -n "${VAR_K[m]}" ]] && _mark_danger_if_main "${VAR_K[m]}" "${VAR_V[m]}"
+          done
+          # Prefix assignments (`D=x bash -c …`, `env D=x bash -c …`) are
+          # exported to the child too.
+          for ((m = 0; m < i; m++)); do
+            if [[ "${w[m]}" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+              local pn="${BASH_REMATCH[1]}" pv="${BASH_REMATCH[2]}"
+              # Known variables in the value count (D=$ROOT bash -c …).
+              RETDANGER=0; _subst_vars "$pv"; pv="$RET"
+              if [[ "$RETDANGER" == "1" ]]; then
+                _var_is_danger "$pn" || VAR_D+=("$pn")
+              else
+                case "$pv" in
+                  *'$'*|'~'*|*':~'*) ;;
+                  *) _mark_danger_if_main "$pn" "$pv" ;;
+                esac
+              fi
+            fi
+          done
+          VAR_K=(); VAR_V=()
           _analyze_text "${args[$((j + 1))]}"
-          CURDIR="$sdir"; DIR_UNRESOLVED="$sunres"
+          VAR_K=("${svk[@]}"); VAR_V=("${svv[@]}")
+          CURDIR="$sdir"; DIR_UNRESOLVED="$sunres"; DIR_DANGER="$sddanger"
           return 0
         fi
       done
@@ -612,12 +938,21 @@ _end_word() {
 
 _end_cmd() {
   _end_word
-  if (( ${#LX_WORDS[@]} > 0 )); then
+  local had=${#LX_WORDS[@]}
+  if (( had > 0 )); then
     IC_WORDS=("${LX_WORDS[@]}")
     IC_REDIRS=("${LX_REDIRS[@]}")
     _inspect_cmd
   fi
   LX_WORDS=(); LX_REDIRS=(); LX_PEND=0
+  # How the NEXT command is entered. An empty command ending at a newline (the
+  # line after a trailing `&&`) leaves that state alone.
+  case "$LX_TERM" in
+    and|or) NEXT_COND=1; NEXT_PIPE=0 ;;
+    pipe)   NEXT_PIPE=1 ;;
+    *)      (( had > 0 )) && { NEXT_COND=0; NEXT_PIPE=0; } ;;
+  esac
+  LX_TERM=seq
 }
 
 # Restore the working directory a subshell context was entered with. A `cd`
@@ -628,6 +963,11 @@ _leave_context() {
   [[ -z "$term" ]] && return 0
   CURDIR="$LX_SAVED_DIR"
   DIR_UNRESOLVED="$LX_SAVED_UNRES"
+  DIR_DANGER="$LX_SAVED_DDANGER"
+  # Assignments in a subshell are scoped to it too.
+  VAR_K=("${LX_SAVED_VK[@]}")
+  VAR_V=("${LX_SAVED_VV[@]}")
+  NEXT_COND="$LX_SAVED_NC"; NEXT_PIPE="$LX_SAVED_NP"; LX_TERM=seq
 }
 
 _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
@@ -638,7 +978,9 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
   local -a LX_WORDS=()
   local -a LX_REDIRS=()
   local LX_CUR="" LX_HAVE=0 LX_PEND=0
-  local LX_SAVED_DIR="$CURDIR" LX_SAVED_UNRES="$DIR_UNRESOLVED"
+  local LX_SAVED_DIR="$CURDIR" LX_SAVED_UNRES="$DIR_UNRESOLVED" LX_SAVED_DDANGER="$DIR_DANGER"
+  local -a LX_SAVED_VK=("${VAR_K[@]}") LX_SAVED_VV=("${VAR_V[@]}")
+  local LX_SAVED_NC="$NEXT_COND" LX_SAVED_NP="$NEXT_PIPE"
   local line ch nx rest run
 
   while :; do
@@ -688,7 +1030,9 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
         C=$((C + 1)); _lex_context '`'; LX_CUR="$LX_CUR$CMDSUB"; LX_HAVE=1 ;;
       '$')
         if [[ "${line:$((C + 1)):1}" == '(' ]]; then
+          local arith=0; [[ "${line:$((C + 2)):1}" == '(' ]] && arith=1
           C=$((C + 2)); _lex_context ')'; LX_CUR="$LX_CUR$CMDSUB"; LX_HAVE=1
+          (( arith )) && _var_clear_all   # $((D=0)) assigns in this shell
         else
           LX_CUR="$LX_CUR$ch"; LX_HAVE=1; C=$((C + 1))
         fi ;;
@@ -704,6 +1048,7 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
         _end_cmd; C=$((C + 1))
         [[ "${line:C:1}" == ";" ]] && C=$((C + 1)) ;;
       '|')
+        if [[ "${line:$((C + 1)):1}" == "|" ]]; then LX_TERM=or; else LX_TERM=pipe; fi
         _end_cmd; C=$((C + 1))
         case "${line:C:1}" in '|'|'&') C=$((C + 1)) ;; esac ;;
       '&')
@@ -712,11 +1057,20 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
           [[ "${line:C:1}" == ">" ]] && C=$((C + 1))
           LX_PEND=1
         else
+          if [[ "${line:$((C + 1)):1}" == "&" ]]; then LX_TERM=and; else LX_TERM=bg; fi
           _end_cmd; C=$((C + 1))
           [[ "${line:C:1}" == "&" ]] && C=$((C + 1))
         fi ;;
       '(')
-        _end_cmd; C=$((C + 1)); _lex_context ')' ;;
+        _end_cmd
+        # `((…))` is arithmetic in THIS shell, not a subshell: it can assign
+        # (D=0, D++). The context below restores bindings on exit like a
+        # subshell would, so drop them all again once it returns.
+        if [[ "${line:$((C + 1)):1}" == '(' ]]; then
+          C=$((C + 1)); _lex_context ')'; _var_clear_all
+        else
+          C=$((C + 1)); _lex_context ')'
+        fi ;;
       ')')
         if [[ "$term" == ')' ]]; then C=$((C + 1)); _end_cmd; _leave_context; return; fi
         _end_cmd; C=$((C + 1)) ;;
