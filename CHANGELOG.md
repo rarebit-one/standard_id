@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`TokenMinter.mint(requested_scopes:)`**: what `OAUTH_TOKEN_ISSUED` reports as `requested_scopes` for a direct mint, for a caller whose audit trail records the permissions it granted (carried in a host claim such as `permissions`) rather than the OAuth scope words. Default unchanged (the scope words); the token is never affected. Lets sidekick-web move its staff/test mint sites onto `TokenMinter` without its `auth.oauth.token.issued` audit rows losing the grant (rarebit-sre#478).
+- **`TokenMinter.mint(requested_scopes:)`**: what `OAUTH_TOKEN_ISSUED` reports as `requested_scopes` for a direct mint, for a caller whose audit trail records the permissions it granted (carried in a host claim such as `permissions`) rather than the OAuth scope words. Default unchanged (the scope words); an Array or space-delimited String; the token is never affected. Lets sidekick-web move its staff/test mint sites onto `TokenMinter` without its `auth.oauth.token.issued` audit rows losing the grant (rarebit-sre#478).
 
 ## [0.51.0] - 2026-10-20
 

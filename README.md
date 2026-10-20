@@ -925,7 +925,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `oauth.authorization.granted` | `authorization_code`, `client_id`, `account`, `scope` | After an authorization code is created |
 |  | `oauth.authorization.denied` | `client_id`, `account`, `reason` | When a user denies authorization |
 |  | `oauth.token.issuing` | `grant_type`, `client_id`, `account`, `scope` | Before generating access/refresh tokens |
-|  | `oauth.token.issued` | `access_token_id`, `grant_type`, `client_id`, `account`, `expires_in` | After tokens are generated |
+|  | `oauth.token.issued` | `access_token_id`, `grant_type`, `client_id`, `account`, `expires_in` | After tokens are generated. For a `TokenMinter` mint, `requested_scopes` may be caller-supplied (`requested_scopes:`) rather than the token's `scope` |
 |  | `oauth.token.refreshed` | `old_token_id`, `new_token_id`, `client_id`, `account` | After a refresh token is redeemed |
 |  | `oauth.code.consumed` | `authorization_code`, `client_id`, `account` | After an authorization code is exchanged |
 |  | `oauth.client.registered` | `client_application`, `client_id`, `client_name`, `client_type`, `redirect_uris`, `scope`, `owner_type`, `owner_id`, `client_metadata` | After a dynamic registration (RFC 7591) commits. Never fails the registration: a raising subscriber is logged |
