@@ -31,9 +31,19 @@ module StandardId
     # Everything here is a pure function of config and an origin so it can be
     # used from the controller, from StandardId::ResourceServer, and from tests
     # without a request.
+    #
+    # The origin is the request's (`request.base_url`), on purpose: RFC 9728
+    # §3.3 requires `resource` to equal the identifier the client used, and the
+    # challenge must name a URL on the host the client is talking to. That
+    # makes the document only as trustworthy as the `Host` header, so a host
+    # must pin it (`config.hosts`, or the proxy) — the same requirement every
+    # request-derived URL in a Rails app has, stated here because this one is
+    # served with `Cache-Control: public`.
     module ProtectedResourceDocument
       WELL_KNOWN_PATH = "/.well-known/oauth-protected-resource".freeze
-      RESERVED_KEYS = %w[path root].freeze
+      # `resource` is computed, never configured: RFC 9728 §3.3 requires it to
+      # match the URL the client used, which is the request origin plus `path`.
+      RESERVED_KEYS = %w[path root resource].freeze
 
       module_function
 
@@ -73,19 +83,33 @@ module StandardId
 
       # Absolute URL of the resource (RFC 9728 `resource`).
       def resource_url(audience:, origin:)
-        path = configured.dig(audience.to_s, "path")
-        raise StandardId::ConfigurationError, "oauth.protected_resources[#{audience.inspect}] has no :path" if path.blank?
-        return path.to_s.chomp("/") if absolute?(path)
+        path = path_for!(audience)
+        return path.chomp("/") if absolute?(path)
 
         "#{origin.to_s.chomp('/')}#{normalize_path(path)}"
       end
 
       # Absolute URL of this resource's metadata document — the value the
-      # `resource_metadata` challenge parameter carries.
+      # `resource_metadata` challenge parameter carries. Raises for an
+      # unconfigured audience rather than naming a bare URL that would serve
+      # another resource's document (or nothing).
       def metadata_url(audience:, origin:)
-        path = configured.dig(audience.to_s, "path")
-        suffix = absolute?(path) ? normalize_path(URI.parse(path.to_s).path) : normalize_path(path)
+        path = path_for!(audience)
+        suffix = absolute?(path) ? normalize_path(URI.parse(path).path) : normalize_path(path)
         "#{origin.to_s.chomp('/')}#{WELL_KNOWN_PATH}#{suffix}"
+      end
+
+      # @return [String] the configured path
+      # @raise [StandardId::ConfigurationError] when the audience is not
+      #   configured or its entry has no path
+      def path_for!(audience)
+        entry = configured[audience.to_s]
+        raise StandardId::ConfigurationError, "oauth.protected_resources has no entry for #{audience.inspect}" if entry.nil?
+
+        path = entry["path"].to_s
+        raise StandardId::ConfigurationError, "oauth.protected_resources[#{audience.inspect}] has no :path" if path.blank?
+
+        path
       end
 
       # @return [Hash] the RFC 9728 document for `audience`

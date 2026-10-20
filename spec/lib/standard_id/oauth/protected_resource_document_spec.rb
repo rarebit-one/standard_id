@@ -53,6 +53,13 @@ RSpec.describe StandardId::Oauth::ProtectedResourceDocument do
     it "raises a ConfigurationError for an entry without a path" do
       configure("mcp" => { scopes_supported: %w[mcp] })
       expect { described_class.resource_url(audience: "mcp", origin: origin) }.to raise_error(StandardId::ConfigurationError, /path/)
+      expect { described_class.metadata_url(audience: "mcp", origin: origin) }.to raise_error(StandardId::ConfigurationError, /path/)
+    end
+
+    it "raises a ConfigurationError for an unconfigured audience rather than naming a bare URL" do
+      configure("mcp" => { path: "/mcp" })
+      expect { described_class.metadata_url(audience: "kit", origin: origin) }.to raise_error(StandardId::ConfigurationError, /no entry/)
+      expect { described_class.challenge(audience: "kit", origin: origin) }.to raise_error(StandardId::ConfigurationError, /no entry/)
     end
   end
 
@@ -92,6 +99,11 @@ RSpec.describe StandardId::Oauth::ProtectedResourceDocument do
       expect(doc).not_to have_key(:bearer_methods_supported)
     end
 
+    it "never lets the entry override the computed resource (RFC 9728 §3.3)" do
+      configure("mcp" => { path: "/mcp", resource: "https://attacker.example" })
+      expect(described_class.build(audience: "mcp", origin: origin)[:resource]).to eq("https://app.example.com/mcp")
+    end
+
     it "raises for an unconfigured audience" do
       configure({})
       expect { described_class.build(audience: "mcp", origin: origin) }.to raise_error(StandardId::ConfigurationError, /no entry/)
@@ -104,6 +116,17 @@ RSpec.describe StandardId::Oauth::ProtectedResourceDocument do
     it "names the realm, error, description, scope and the metadata document" do
       value = described_class.challenge(audience: "mcp", origin: origin, error: "insufficient_scope", error_description: "Needs mcp", scope: %w[mcp mcp:read])
       expect(value).to eq(%(Bearer realm="mcp", error="insufficient_scope", error_description="Needs mcp", scope="mcp mcp:read", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp"))
+    end
+
+    it "omits the error code when asked to (the no-credential form of RFC 6750 §3.1)" do
+      value = described_class.challenge(audience: "mcp", origin: origin, error: nil)
+      expect(value).to eq(%(Bearer realm="mcp", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp"))
+    end
+
+    it "serves the metadata of a resource on another origin from this origin" do
+      configure("mcp" => { path: "https://mcp.example.net/v1" })
+      value = described_class.challenge(audience: "mcp", origin: origin, error: nil)
+      expect(value).to include(%(resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/v1"))
     end
 
     it "drops a description that would break the quoted-string, rather than emit it broken" do

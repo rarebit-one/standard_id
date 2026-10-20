@@ -93,7 +93,17 @@ module StandardId
 
     # The description never carries operator- or user-authored text: it goes
     # into a quoted header and to an unauthenticated caller.
+    #
+    # RFC 6750 §3.1: when the request carried no credential at all, the
+    # challenge names the realm and the metadata document but no error code —
+    # that is the form an MCP client sees first, before it has any token.
     def render_protected_resource_unauthorized(error = nil)
+      if request.authorization.blank?
+        set_protected_resource_challenge!(error: nil)
+        render json: { error: "invalid_token", error_description: "An access token is required" }, status: :unauthorized
+        return
+      end
+
       description = case error
       when StandardId::AccountDeactivatedError then "The account is deactivated"
       when StandardId::AccountLockedError then "The account is locked"
