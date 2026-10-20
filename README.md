@@ -1367,9 +1367,9 @@ redirect_to "/api/authorize?" + {
 
 **Which audience is the token for?** `/authorize` resolves it server-side
 (`StandardId::Oauth::AudienceResolver`), in this order: `config.oauth.audience_resolver`
-when set; the `audience` parameter; the RFC 8707 `resource` parameter mapped through
-`config.oauth.resource_audiences`; the client's registered default
-`metadata["audience"]`. The result is bound to the authorization code and reaches
+when set; the client's registered default `metadata["audience"]` (server-set, so it
+outranks the request); the `audience` parameter; the RFC 8707 `resource` parameter
+mapped through `config.oauth.resource_audiences`. The result is bound to the authorization code and reaches
 the token as `aud`, and `config.oauth.audience_scopes` is enforced for it at
 `/authorize` (a scope outside the audience's vocabulary is `invalid_scope`). So a
 dynamically registered MCP client whose registration stamps
@@ -1378,10 +1378,28 @@ in front of the endpoint. The `resource` parameter is ignored until
 `resource_audiences` is set; once it is, an unmapped resource is `invalid_target`
 (RFC 8707 §2).
 
-A client-supplied `audience` still outranks the registered default, so
-`audience_scopes` enforcement is only as strong as `config.oauth.allowed_audiences`
-at the token endpoint. A host that wants the registered default to be the only
-answer sets `audience_resolver` to `->(client:) { client.metadata["audience"] }`.
+For a client with no registered default, a client-supplied `audience` is taken as
+is, so `audience_scopes` enforcement for such clients is only as strong as
+`config.oauth.allowed_audiences` at the token endpoint.
+
+**Which scope?** `config.oauth.authorize_scope_resolver` normalises the requested
+scope once the client and audience are known and before `audience_scopes` is
+enforced — collapse a hierarchy, narrow to what the audience consumes, append a
+default — and its answer is what the code is issued with and the consent screen
+shows:
+
+```ruby
+config.oauth.authorize_scope_resolver = ->(scope:, audience:) {
+  tokens = scope.to_s.split
+  next nil unless audience == "mcp" && tokens.include?("mcp")   # nil leaves the request as is
+
+  tokens - ["mcp:read"]   # "mcp" already implies read; an Array or a String is fine
+}
+```
+
+It runs again when a consent resumes, so make it idempotent (its own output must
+come back unchanged); it also decides what the consent screen shows and what the
+grant records.
 
 ```ruby
 StandardId.configure do |config|

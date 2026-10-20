@@ -16,6 +16,7 @@ RSpec.describe StandardId::Config::CallableValidator do
       oauth.custom_claims
       oauth.claim_resolvers
       oauth.audience_resolver
+      oauth.authorize_scope_resolver
       oauth.audience_scope_resolver
     ].freeze
   end
@@ -141,6 +142,14 @@ RSpec.describe StandardId::Config::CallableValidator do
           StandardId::ConfigurationError,
           /`oauth.audience_resolver`.*\[:account\]/
         )
+      end
+
+      it "validates authorize_scope_resolver keywords" do
+        StandardId.config.oauth.authorize_scope_resolver = ->(scope:, audience:) { nil }
+        expect { described_class.validate! }.not_to raise_error
+
+        StandardId.config.oauth.authorize_scope_resolver = ->(scope:, account:) { nil }
+        expect { described_class.validate! }.to raise_error(StandardId::ConfigurationError, /`oauth.authorize_scope_resolver`.*\[:account\]/)
       end
 
       it "validates audience_scope_resolver keywords" do

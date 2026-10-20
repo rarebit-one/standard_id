@@ -92,8 +92,19 @@ module StandardId
         params[:state]
       end
 
+      # The requested scope, normalised by `oauth.authorize_scope_resolver`
+      # when set (a host that collapses a scope hierarchy, or narrows a
+      # request to what the chosen audience consumes, does it here instead of
+      # in a shim in front of this endpoint). Resolved once, after the client
+      # and audience are known; nil from the hook leaves the request as is.
       def scope
-        params[:scope]
+        return @scope if defined?(@scope)
+
+        @scope = resolve_scope(params[:scope])
+      end
+
+      def resolve_scope(requested)
+        StandardId::Oauth::AuthorizeScopeResolver.resolve(scope: requested, audience: audience, client: @client, request: request)
       end
 
       # Resolved once, after the client is known (see AudienceResolver): the

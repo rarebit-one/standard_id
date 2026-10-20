@@ -61,6 +61,11 @@ module StandardId
           kind: :keyword,
           keywords: %i[metadata request]
         },
+        "oauth.authorize_scope_resolver" => {
+          signature: "(scope:, audience:, client:, request:)",
+          kind: :keyword,
+          keywords: %i[scope audience client request]
+        },
         "oauth.audience_scope_resolver" => {
           signature: "(audience:, client:, configured_scopes:)",
           kind: :keyword,

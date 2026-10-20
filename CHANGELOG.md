@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`AudienceResolver`: the client's registered `metadata["audience"]` now outranks the `audience` parameter.** The registered default is set by the server (`dynamic_registration_attributes`) or an operator; letting the request's `audience` beat it meant an openly registered client could ask `/authorize` for another allowed audience, which every consumer's shim had prevented by stripping the parameter. New order: `audience_resolver` hook → registered default → `audience` param → RFC 8707 `resource`. Hosts that set `audience_resolver` to return the registered default are unaffected; a client with no registered default behaves as before.
+
+### Added
+
+- **`c.oauth.authorize_scope_resolver`**: normalise the requested scope at `/authorize` once the client and audience are known and before `audience_scopes` is enforced — collapse a hierarchy, narrow to what the audience consumes, append a default. Callable `(scope:, audience:, client:, request:)` returning a String, Array or nil (unchanged); the answer is what the code is issued with and what consent shows. Validated at boot.
+
 ## [0.49.1] - 2026-10-20
 
 ### Fixed
