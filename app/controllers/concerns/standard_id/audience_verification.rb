@@ -75,9 +75,13 @@ module StandardId
       # Declare the allowed audiences for this controller.
       # The token's `aud` claim must include at least one of these values.
       #
-      # @param audiences [Array<String>] allowed JWT `aud` claim values
+      # An audience known only per request (a resource identified by its own
+      # absolute URL behind a host-dependent origin) may be given as a
+      # zero-argument callable, evaluated on the controller instance.
+      #
+      # @param audiences [Array<String, Proc>] allowed JWT `aud` claim values
       def verify_audience(*audiences)
-        self._required_audiences = audiences.flatten.map(&:to_s)
+        self._required_audiences = audiences.flatten.map { |a| a.respond_to?(:call) ? a : a.to_s }
       end
     end
 
@@ -97,17 +101,24 @@ module StandardId
       # layer handle 401 — don't mask it with a 403.
       return unless current_session
 
+      required = required_audiences
       token_audiences = Array(current_session.aud)
-      matched = (token_audiences & _required_audiences).first
+      matched = (token_audiences & required).first
 
       if matched.nil?
         raise StandardId::InvalidAudienceError.new(
-          required: _required_audiences,
+          required: required,
           actual: token_audiences
         )
       end
 
       enforce_audience_profile_binding!(matched, token_audiences)
+    end
+
+    # `_required_audiences` with any callable entries evaluated for this request.
+    def required_audiences
+      _required_audiences.flat_map { |a| a.respond_to?(:call) ? Array(instance_exec(&a)) : [a] }
+        .map(&:to_s).reject(&:blank?).uniq
     end
 
     # Enforce `audience_profile_types[matched]` against the current account.
@@ -133,7 +144,7 @@ module StandardId
         audience: matched_audience,
         expected_profile_types: expected_types,
         actual_profile_type: actual_type,
-        required: _required_audiences,
+        required: required_audiences,
         actual: token_audiences
       )
       emit_audience_mismatch(error)

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Dynamic-client lifecycle events**: `oauth.client.registered`, `oauth.client.updated` and `oauth.client.deregistered` (`StandardId::Events::OAUTH_CLIENT_*`, in `OAUTH_EVENTS` and `SECURITY_EVENTS`), published by `Oauth::ClientRegistration` once the change has committed, with the client, its registered metadata, the owner by `owner_type` / `owner_id` (never the record, so no lazy load under strict loading) and, on registration and update, the RFC 7591 document as sent. A raising subscriber is logged and never fails the registration, whose one-time secrets are already committed. Consumers can move their registration audit off the owner row's `after_create_commit` and gain update/deregistration rows.
+- **`protected_resources` entries can say what `aud` their tokens carry and which origin they live on.** `audience: :resource` binds the resource's tokens to its absolute URL (`resource`, RFC 8707 style) instead of the key, or a String names that `aud`; `origin: ->(request:) { ... }` builds `resource`, the metadata URL and the challenge's `resource_metadata` on a public origin other than `request.base_url` (a rewriting proxy). The key stays the resource's name for `protected_resource`, `audience_scopes` and the realm. `StandardId::ResourceServer` checks the per-request audience, so a host whose audience is a URL (jumpdrive-web) can serve its RFC 9728 document from the gem. `verify_audience` accepts a zero-argument callable for an audience known only per request.
+
 ## [0.50.0] - 2026-10-20
 
 ### Changed

@@ -70,7 +70,9 @@ module StandardId
       def protected_resource(audience, scopes: nil)
         self._protected_resource_audience = audience.to_s
         self._protected_resource_scopes = Array(scopes).flat_map { |s| s.to_s.split }.reject(&:blank?).uniq
-        verify_audience audience.to_s
+        # Per request: with `audience: :resource` the `aud` is the resource's
+        # absolute URL, which depends on the origin.
+        verify_audience -> { protected_resource_token_audience }
       end
     end
 
@@ -91,8 +93,20 @@ module StandardId
       require_scopes!(*_protected_resource_scopes)
     end
 
+    # The `aud` a token for this resource must carry (the audience itself,
+    # unless its `protected_resources` entry says otherwise).
+    def protected_resource_token_audience
+      StandardId::Oauth::ProtectedResourceDocument.token_audience(
+        audience: protected_resource_audience, origin: protected_resource_origin
+      )
+    end
+
+    def protected_resource_origin
+      StandardId::Oauth::ProtectedResourceDocument.origin_for(protected_resource_audience, request: request)
+    end
+
     def protected_resource_metadata_url
-      StandardId::Oauth::ProtectedResourceDocument.metadata_url(audience: protected_resource_audience, origin: request.base_url)
+      StandardId::Oauth::ProtectedResourceDocument.metadata_url(audience: protected_resource_audience, origin: protected_resource_origin)
     end
 
     # The description never carries operator- or user-authored text: it goes
@@ -133,7 +147,7 @@ module StandardId
       response.set_header(
         "WWW-Authenticate",
         StandardId::Oauth::ProtectedResourceDocument.challenge(
-          audience: protected_resource_audience, origin: request.base_url,
+          audience: protected_resource_audience, origin: protected_resource_origin,
           error: error, error_description: error_description, scope: scope
         )
       )

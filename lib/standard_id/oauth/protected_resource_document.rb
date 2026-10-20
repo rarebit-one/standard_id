@@ -20,6 +20,19 @@ module StandardId
     # origin. Any member may be a callable taking one Hash
     # `{ origin:, audience:, issuer:, request: }`; a nil value removes the member.
     #
+    # Two members configure the resource rather than the document:
+    #
+    #   origin:   ->(request:) { ENV.fetch("PUBLIC_URL") { request.base_url } }
+    #             the origin `resource` and the metadata URL are built on, for a
+    #             host behind a proxy that rewrites `request.base_url`
+    #             (default: the request's origin)
+    #   audience: :resource
+    #             tokens for this resource carry its absolute URL (`resource`)
+    #             as `aud`, RFC 8707 style, instead of the key; or a String
+    #             naming that `aud`. The key stays the resource's name: what
+    #             `protected_resource` and `audience_scopes` refer to, and the
+    #             challenge realm.
+    #
     # The document for a resource is served at
     # `<origin>/.well-known/oauth-protected-resource<path>` (RFC 9728 §3.1,
     # the path-inserted form that is the exact URL the challenge names) by
@@ -43,7 +56,7 @@ module StandardId
       WELL_KNOWN_PATH = "/.well-known/oauth-protected-resource".freeze
       # `resource` is computed, never configured: RFC 9728 §3.3 requires it to
       # match the URL the client used, which is the request origin plus `path`.
-      RESERVED_KEYS = %w[path root resource].freeze
+      RESERVED_KEYS = %w[path root resource origin audience].freeze
 
       module_function
 
@@ -79,6 +92,35 @@ module StandardId
 
         all.each { |audience, entry| return audience if entry["root"] }
         nil
+      end
+
+      # The origin `audience`'s documents and challenges are built on: the
+      # entry's `origin` callable when it returns one, else the request's.
+      def origin_for(audience, request:)
+        configured_origin = configured.dig(audience.to_s, "origin")
+        resolved = if configured_origin.respond_to?(:call)
+          args = StandardId::Utils::CallableParameterFilter.filter(configured_origin, { request: request })
+          configured_origin.call(**args)
+        else
+          configured_origin
+        end
+        (resolved.presence || request&.base_url).to_s.chomp("/")
+      end
+
+      # The `aud` tokens for `audience` carry: the key itself (also for an
+      # audience with no entry, as before entries could say otherwise), the
+      # resource's absolute URL (`audience: :resource`), or the String the
+      # entry names.
+      # @raise [StandardId::ConfigurationError] for an `audience` member of any
+      #   other shape
+      def token_audience(audience:, origin:)
+        value = configured.dig(audience.to_s, "audience")
+        return audience.to_s if value.nil?
+        return resource_url(audience: audience, origin: origin) if value.to_s == "resource"
+        return value if value.is_a?(String) && value.present?
+
+        raise StandardId::ConfigurationError,
+          "oauth.protected_resources[#{audience.inspect}][:audience] must be :resource or a String (got #{value.inspect})"
       end
 
       # Absolute URL of the resource (RFC 9728 `resource`).

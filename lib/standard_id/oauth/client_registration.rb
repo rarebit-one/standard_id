@@ -87,7 +87,32 @@ module StandardId
             client.refresh_tokens.where(revoked_at: nil).update_all(revoked_at: now)
           end
         end
+        publish_lifecycle_event(StandardId::Events::OAUTH_CLIENT_DEREGISTERED, client)
         client
+      end
+
+      # OAUTH_CLIENT_REGISTERED / _UPDATED / _DEREGISTERED, after the change has
+      # committed. The owner is identified by type and id rather than published
+      # as a record: on update and deregister it is not loaded, and a host
+      # running strict_loading_by_default would refuse the lazy read. Never
+      # raises: the change is already committed, and a registration whose
+      # one-time secret and registration access token never reach the client
+      # because an audit subscriber failed is worse than a missing audit row.
+      def self.publish_lifecycle_event(event, client, client_metadata: nil)
+        payload = {
+          client_application: client,
+          client_id: client.client_id,
+          client_name: client.name,
+          client_type: client.client_type,
+          redirect_uris: client.redirect_uris_array,
+          scope: client.scopes,
+          owner_type: client.owner_type,
+          owner_id: client.owner_id
+        }
+        payload[:client_metadata] = client_metadata unless client_metadata.nil?
+        StandardId::Events.publish(event, payload)
+      rescue StandardError => e
+        StandardId.logger&.warn("[StandardId] failed to publish #{event}: #{e.class}: #{e.message}")
       end
 
       # Everything, the owner resolver included, runs inside one transaction:
@@ -117,6 +142,7 @@ module StandardId
           end
         end
 
+        self.class.publish_lifecycle_event(StandardId::Events::OAUTH_CLIENT_REGISTERED, client, client_metadata: metadata)
         Result.new(client: client, client_secret: secret_plaintext, token_endpoint_auth_method: auth_method,
           registration_access_token: registration_access_token)
       rescue ActiveRecord::RecordInvalid => e
@@ -144,6 +170,7 @@ module StandardId
         attrs[:scopes] = scope unless pinned.key?("scopes") || metadata[:scope].blank?
 
         client.update!(attrs)
+        self.class.publish_lifecycle_event(StandardId::Events::OAUTH_CLIENT_UPDATED, client, client_metadata: metadata)
         Result.new(client: client, token_endpoint_auth_method: client.token_endpoint_auth_method)
       rescue ActiveRecord::RecordInvalid => e
         raise_for(e.record)
