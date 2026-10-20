@@ -106,6 +106,7 @@ module StandardId
           redirect_uri: params[:redirect_uri],
           scope: params[:scope],
           audience: params[:audience],
+          resource: params[:resource],
           state: params[:state],
           code_challenge: params[:code_challenge],
           code_challenge_method: params[:code_challenge_method],

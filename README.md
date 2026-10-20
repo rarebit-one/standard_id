@@ -1275,6 +1275,25 @@ redirect_to "/api/authorize?" + {
 }.to_query
 ```
 
+**Which audience is the token for?** `/authorize` resolves it server-side
+(`StandardId::Oauth::AudienceResolver`), in this order: `config.oauth.audience_resolver`
+when set; the `audience` parameter; the RFC 8707 `resource` parameter mapped through
+`config.oauth.resource_audiences`; the client's registered default
+`metadata["audience"]`. The result is bound to the authorization code and reaches
+the token as `aud`, and `config.oauth.audience_scopes` is enforced for it at
+`/authorize` (a scope outside the audience's vocabulary is `invalid_scope`). So a
+dynamically registered MCP client whose registration stamps
+`metadata: { "audience" => "mcp" }` gets `aud=mcp` with no audience-injecting shim
+in front of the endpoint.
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.resource_audiences = { "https://app.example.com/mcp" => "mcp" }   # RFC 8707
+  # or decide yourself:
+  config.oauth.audience_resolver = ->(client:, resource:) { client.metadata["audience"] || (resource && "mcp") }
+end
+```
+
 ### Social Login
 
 ```ruby

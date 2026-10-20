@@ -96,6 +96,55 @@ RSpec.describe "StandardId API Authorization", type: :request do
           expect(response.location).to start_with("https://example.com/callback")
         end
 
+        describe "audience resolution (StandardId::Oauth::AudienceResolver)" do
+          def issued_audience
+            code = Rack::Utils.parse_query(URI.parse(response.location).query)["code"]
+            StandardId::AuthorizationCode.lookup(code).audience
+          end
+
+          it "binds the explicit audience parameter to the code" do
+            http_get "/api/authorize", params: valid_params
+            expect(response).to have_http_status(:found)
+            expect(issued_audience).to eq("https://api.example.com")
+          end
+
+          it "maps an RFC 8707 resource parameter through resource_audiences" do
+            allow(StandardId.config.oauth).to receive(:resource_audiences).and_return("https://app.example.com/mcp" => "mcp")
+            http_get "/api/authorize", params: valid_params.except(:audience).merge(resource: "https://app.example.com/mcp/")
+            expect(response).to have_http_status(:found)
+            expect(issued_audience).to eq("mcp")
+          end
+
+          it "defaults to the client's registered metadata audience" do
+            client.update!(metadata: { "audience" => "companion_kit" })
+            http_get "/api/authorize", params: valid_params.except(:audience)
+            expect(response).to have_http_status(:found)
+            expect(issued_audience).to eq("companion_kit")
+          end
+
+          it "lets a configured audience_resolver decide" do
+            allow(StandardId.config.oauth).to receive(:audience_resolver).and_return(->(client:) { "for-#{client.client_id}" })
+            http_get "/api/authorize", params: valid_params
+            expect(response).to have_http_status(:found)
+            expect(issued_audience).to eq("for-test_client_123")
+          end
+
+          it "refuses a scope outside the resolved audience's vocabulary with invalid_scope" do
+            allow(StandardId.config.oauth).to receive(:audience_scopes).and_return("https://api.example.com" => %w[read])
+            http_get "/api/authorize", params: valid_params.merge(scope: "read write")
+            expect(response).to have_http_status(:bad_request)
+            expect(json_body["error"]).to eq("invalid_scope")
+            expect(json_body["error_description"]).to include("write")
+          end
+
+          it "passes an unconfigured audience through unchanged" do
+            allow(StandardId.config.oauth).to receive(:audience_scopes).and_return("other" => %w[read])
+            http_get "/api/authorize", params: valid_params.merge(scope: "read write")
+            expect(response).to have_http_status(:found)
+            expect(response.location).to include("code=")
+          end
+        end
+
         it "validates client_id exists" do
           http_get "/api/authorize", params: valid_params.merge(client_id: "invalid_client")
           expect(response).to have_http_status(:unauthorized)

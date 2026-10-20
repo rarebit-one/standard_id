@@ -22,6 +22,7 @@ module StandardId
       def execute
         validate_params!
         authenticate_client!
+        enforce_audience_scopes!
         generate_authorization_response
       end
 
@@ -95,8 +96,27 @@ module StandardId
         params[:scope]
       end
 
+      # Resolved once, after the client is known (see AudienceResolver): the
+      # `audience` param, the RFC 8707 `resource`, or the client's registered
+      # default. Bound to the authorization code and carried to the token.
       def audience
-        params[:audience]
+        return @audience if defined?(@audience)
+
+        @audience = StandardId::Oauth::AudienceResolver.resolve(client: @client, params: params, request: request)
+      end
+
+      def resource
+        params[:resource]
+      end
+
+      # `oauth.audience_scopes` is the vocabulary an audience may be asked for;
+      # until now it was only ever consulted by hosts' own shims. A request for
+      # a scope outside it is refused here, at /authorize, before anything is
+      # issued. Unconfigured audiences (or no scope) pass through.
+      def enforce_audience_scopes!
+        return if audience.blank? || scope.blank?
+
+        StandardId::Oauth::AudienceScopeResolver.assert!(requested: scope, audience: audience, client: @client)
       end
     end
   end

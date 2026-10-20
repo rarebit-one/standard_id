@@ -2,7 +2,7 @@ module StandardId
   module Oauth
     class ImplicitAuthorizationFlow < AuthorizationFlow
       expect_params :client_id
-      permit_params :audience, :scope, :state, :redirect_uri, :nonce, :connection, :prompt, :organization, :invitation
+      permit_params :audience, :resource, :scope, :state, :redirect_uri, :nonce, :connection, :prompt, :organization, :invitation
 
       private
 

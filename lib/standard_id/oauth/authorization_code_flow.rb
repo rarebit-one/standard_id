@@ -2,7 +2,9 @@ module StandardId
   module Oauth
     class AuthorizationCodeFlow < TokenGrantFlow
       expect_params :client_id, :code
-      permit_params :client_secret, :redirect_uri, :code_verifier
+      # `resource` (RFC 8707) is accepted so a client that repeats it at the
+      # token endpoint is not refused; the audience was bound at /authorize.
+      permit_params :client_secret, :redirect_uri, :code_verifier, :resource
 
       def authenticate!
         @client = StandardId::ClientApplication.find_by(client_id: params[:client_id])
