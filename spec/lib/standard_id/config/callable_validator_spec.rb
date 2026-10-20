@@ -180,6 +180,14 @@ RSpec.describe StandardId::Config::CallableValidator do
         expect { described_class.validate! }.not_to raise_error
       end
 
+      it "accepts profile:, which the grant flows pass (the bound profile)" do
+        StandardId.config.oauth.claim_resolvers = {
+          "gid" => ->(account:, profile: nil) { profile&.id }
+        }
+        StandardId.config.oauth.custom_claims = ->(account:, profile: nil) { {} }
+        expect { described_class.validate! }.not_to raise_error
+      end
+
       it "raises when a resolver uses an unknown keyword" do
         StandardId.config.oauth.claim_resolvers = {
           "role" => ->(account:, tenant:) { nil }

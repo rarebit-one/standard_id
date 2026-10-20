@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`claim_resolvers` and `custom_claims` may declare `profile:`.** The grant flows (and `TokenMinter`) have always passed the bound profile as `profile:` in the resolver context, but the boot-time `Config::CallableValidator` rejected the keyword, so a resolver could not actually use it — including the explicit `TokenMinter.mint(profile:)` added in 0.51.0.
+
 ## [0.51.1] - 2026-10-20
 
 ### Added
