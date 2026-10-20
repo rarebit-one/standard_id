@@ -164,6 +164,18 @@ RSpec.describe StandardId::TokenMinter do
         .to raise_error(StandardId::InvalidGrantError, /not of a type bound/)
     end
 
+    it "checks ownership through account.profiles for a profile without account_id" do
+      bare_class = Struct.new(:id, :profileable_type, keyword_init: true)
+      owned = bare_class.new(id: 7, profileable_type: "PlatformProfile")
+      stranger = bare_class.new(id: 8, profileable_type: "PlatformProfile")
+      profiles = [owned]
+      account.define_singleton_method(:profiles) { profiles }
+
+      expect(described_class.mint(account: account, audience: "harness", grant_type: "harness.mint", profile: owned).access_token).to be_present
+      expect { described_class.mint(account: account, audience: "harness", grant_type: "harness.mint", profile: stranger) }
+        .to raise_error(StandardId::InvalidGrantError, /does not belong/)
+    end
+
     it "accepts any of the account's profiles for an audience with no binding" do
       result = described_class.mint(account: account, audience: "api", grant_type: "console.mint", profile: staff)
       expect(result.access_token).to be_present
@@ -198,9 +210,30 @@ RSpec.describe StandardId::TokenMinter do
         .to raise_error(StandardId::AccountDeactivatedError)
     end
 
-    it "refuses an unknown mode" do
+    it "refuses an unknown or nil mode with ArgumentError" do
       expect { described_class.mint(account: account, audience: "api", grant_type: "console.mint", audit_errors: :ignore) }
         .to raise_error(ArgumentError, /audit_errors/)
+      expect { described_class.mint(account: account, audience: "api", grant_type: "console.mint", audit_errors: nil) }
+        .to raise_error(ArgumentError, /audit_errors/)
+    end
+
+    it "leaves audit_error nil on a clean mint" do
+      expect(described_class.mint(account: account, audience: "api", grant_type: "console.mint", audit_errors: :report).audit_error).to be_nil
+    end
+
+    it "returns the committed refresh token alongside the error" do
+      with_raising_issued_subscriber do
+        result = described_class.mint(account: account, audience: "api", grant_type: "console.mint", audit_errors: :report,
+          refresh_token: true, client_id: "console")
+        expect(result.refresh_token).to be_present
+        expect(result.audit_error).to be_present
+        expect(StandardId::RefreshToken.where(account: account).count).to eq(1)
+      end
+    end
+
+    it "keeps Result constructible without audit_error" do
+      result = StandardId::TokenMinter::Result.new(access_token: "a", refresh_token: nil, token_type: "Bearer", expires_in: 60, scope: nil, jti: "j")
+      expect(result.audit_error).to be_nil
     end
   end
 

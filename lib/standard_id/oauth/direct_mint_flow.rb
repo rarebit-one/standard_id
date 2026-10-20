@@ -19,7 +19,7 @@ module StandardId
         refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise)
         super({ audience: audience }, request || NullRequest.new)
         @profile = profile
-        @audit_errors = audit_errors.to_sym
+        @audit_errors = audit_errors.to_s.to_sym
         unless AUDIT_ERROR_MODES.include?(@audit_errors)
           raise ArgumentError, "audit_errors must be one of #{AUDIT_ERROR_MODES.join(', ')} (got #{audit_errors.inspect})"
         end
@@ -67,7 +67,9 @@ module StandardId
       # is legitimate there, and AmbiguousProfileError would refuse it). It
       # must still be the account's, active, and of the bound type when the
       # audience has a binding — the guarantees the lookup gives. Resolvers
-      # receive it as `profile:` either way.
+      # receive it as `profile:` either way. config.oauth.audience_profile_resolver
+      # is NOT consulted: the host chose the profile, so any extra gate that
+      # resolver applies is the caller's to apply before minting.
       def enforce_audience_profile_binding!
         return super if @profile.nil?
 
@@ -83,18 +85,14 @@ module StandardId
           raise StandardId::InvalidGrantError, "profile is not active"
         end
 
-        bound = Array(audience).reject(&:blank?).select { |a| StandardId::Oauth::AudienceProfileResolver.configured_for?(a) }
-        if bound.length > 1
-          raise StandardId::InvalidGrantError,
-            "Cannot bind a single token to multiple profile-bound audiences: #{bound.join(', ')}"
-        end
-        return if bound.empty?
+        bound = profile_bound_audience
+        return if bound.nil?
 
-        types = StandardId::Oauth::AudienceProfileResolver.profile_types_for(bound.first)
+        types = StandardId::Oauth::AudienceProfileResolver.profile_types_for(bound)
         return if types.include?(StandardId::Oauth::AudienceProfileResolver.profile_type_for(@profile))
 
         raise StandardId::InvalidGrantError,
-          "profile is not of a type bound to audience #{bound.first.inspect} (expected #{types.join(', ')})"
+          "profile is not of a type bound to audience #{bound.inspect} (expected #{types.join(', ')})"
       end
 
       def profile_belongs_to_account?(profile)
@@ -116,7 +114,10 @@ module StandardId
           super
         rescue StandardError => e
           @audit_error = e
-          StandardId.config.logger&.warn("[StandardId] OAUTH_TOKEN_ISSUED subscriber raised for #{grant_type}: #{e.class}: #{e.message}")
+          StandardId.config.logger&.error(
+            "[StandardId] OAUTH_TOKEN_ISSUED subscriber raised for #{grant_type} (token still issued): " \
+            "#{e.class}: #{e.message} at #{e.backtrace&.first}"
+          )
         end
       end
 

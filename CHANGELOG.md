@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TokenMinter` follow-ups from #400: `Result#audit_error` is optional when building a `Result` by hand (host stubs keep working); `audit_errors: nil` raises `ArgumentError` like any unknown mode; a reported audit error is logged at `error` with its first backtrace line; an explicit `profile:` documents that `oauth.audience_profile_resolver` is not consulted; the bound-audience rule lives in one place (`TokenGrantFlow#profile_bound_audience`).
 - **`StandardId::RequestRefused`** (`status:`, `body:`, `headers:`): raised from a host hook, the API engine renders the host's own JSON response verbatim after the usual refusal cleanup — for refusals a client must tell apart from an OAuth error (a region block, a pending deletion) in the host's error envelope.
 - **`c.social.before_account`**: runs on the API social callback once the provider has vouched for the user and before the account is found or created, with `provider:`, `social_info:`, `provider_tokens:`, `params:` and `request:`. Raising refuses with no account row and no account events.
 - **`c.social.completion_before_mint`** (default false): the API social callback publishes `SOCIAL_AUTH_COMPLETED` after `before_mint` and before the mint, then reloads the account, for a host whose completion subscriber creates what the mint depends on (an invitation's profile). With these three and `before_mint`, sidekick-web can delete its subclass of `Api::Oauth::Callback::ProvidersController` (rarebit-sre#478).

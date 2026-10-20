@@ -83,6 +83,18 @@ module StandardId
           ) { resolve_bound_profile!(account, audience) }
         end
 
+        # The type name a profile is matched on: `profileable_type`, else
+        # `type`, else its class name.
+        def profile_type_for(profile)
+          if profile.respond_to?(:profileable_type)
+            profile.profileable_type.to_s
+          elsif profile.respond_to?(:type)
+            profile.type.to_s
+          else
+            profile.class.name.to_s
+          end
+        end
+
         private
 
         def resolve_bound_profile!(account, audience)
@@ -161,20 +173,6 @@ module StandardId
               expected_profile_types: types,
               profile_ids: active_matches.map { |p| p.respond_to?(:id) ? p.id : nil }.compact
             )
-          end
-        end
-
-        public
-
-        # The type name a profile is matched on: `profileable_type`, else
-        # `type`, else its class name.
-        def profile_type_for(profile)
-          if profile.respond_to?(:profileable_type)
-            profile.profileable_type.to_s
-          elsif profile.respond_to?(:type)
-            profile.type.to_s
-          else
-            profile.class.name.to_s
           end
         end
       end
