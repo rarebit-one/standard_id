@@ -436,7 +436,11 @@ end
 `authorization_code_lifetime`, `require_consent`, `description`. With no `scopes`
 pinned, a pinned `metadata["audience"]` that has an `audience_scopes` vocabulary
 gives the client that vocabulary. Every registered client is PKCE/S256 and
-consent-gated.
+consent-gated unless you pin `require_consent: false`; do that knowingly, because a
+consent-free client never records a `ClientGrant`, so the stale-client purge below
+cannot tell an abandoned registration from one in daily use and reaps such clients
+only once they deregister themselves. The per-IP registration limit is then the only
+defence against bot-created rows.
 
 Once migration `20261020120000` has run, the registration response also carries
 `registration_client_uri` and a one-time `registration_access_token` (stored as a
