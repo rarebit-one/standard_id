@@ -28,6 +28,8 @@ module StandardId
 
       class_option :skip_initializer, type: :boolean, default: false,
         desc: "Do not write config/initializers/standard_id.rb"
+      class_option :with_reference, type: :boolean, default: false,
+        desc: "Write the annotated initializer (every common setting with its default) instead of the minimal one"
       class_option :skip_routes, type: :boolean, default: false,
         desc: "Do not append engine mount lines to config/routes.rb"
       class_option :skip_migrations, type: :boolean, default: false,
@@ -51,7 +53,8 @@ module StandardId
       def create_initializer_file
         return say_status("skip", "config/initializers/standard_id.rb (--skip-initializer)", :yellow) if options[:skip_initializer]
 
-        template "standard_id.rb", "config/initializers/standard_id.rb"
+        source = options[:with_reference] ? "standard_id_reference.rb" : "standard_id.rb"
+        template source, "config/initializers/standard_id.rb"
       end
 
       def mount_engines

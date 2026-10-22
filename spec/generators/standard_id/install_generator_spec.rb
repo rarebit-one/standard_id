@@ -41,7 +41,7 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
   end
 
   describe "happy path" do
-    it "creates the initializer with the new section structure" do
+    it "creates a minimal initializer holding only what an app must set" do
       run_generator
 
       expect(File).to exist(initializer_path)
@@ -49,11 +49,33 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
 
       expect(content).to include("StandardId.configure do |c|")
       expect(content).to include("c.account_class_name = \"User\"")
-      # Section headers we care about
+      expect(content).to include("# c.preset :inertia_web")
+      expect(content).to include("# c.issuer =")
+      expect(content).to include("--with-reference")
+      expect(content.lines.size).to be < 40
+      expect(content).not_to include("# Web engine feature toggles")
+    end
+
+    it "--with-reference writes the annotated initializer instead" do
+      run_generator(["--with-reference"])
+
+      content = File.read(initializer_path)
+
+      expect(content).to include("StandardId.configure do |c|")
+      expect(content).to include("c.account_class_name = \"User\"")
       expect(content).to include("# Required")
       expect(content).to include("# Web engine feature toggles")
       expect(content).to include("# Passwordless (OTP)")
       expect(content).to include("# Lifecycle hooks")
+    end
+
+    it "keeps both templates to one live setting, account_class_name" do
+      %w[standard_id.rb standard_id_reference.rb].each do |name|
+        source = File.read(File.expand_path("../../../lib/generators/standard_id/install/templates/#{name}", __dir__))
+        live = source.lines.grep(/^\s*c\.[a-z_.]+\s*=/).map(&:strip)
+
+        expect(live).to eq(['c.account_class_name = "User"']), "#{name} sets more than account_class_name: #{live}"
+      end
     end
 
     it "appends engine mount lines inside the routes block" do

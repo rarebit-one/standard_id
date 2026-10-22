@@ -19,6 +19,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`RequestHelpers#bearer_headers_for(account, **jwt_options)`:** `build_jwt` plus
   `bearer_auth_header` in one call.
 
+### Changed
+
+- **`rails g standard_id:install` writes a minimal initializer.** It holds only
+  `account_class_name`, plus commented `issuer` and `c.preset :inertia_web` lines,
+  instead of 578 lines of commented defaults that apps then kept verbatim (one
+  estate app's initializer carried 506 comment lines). `--with-reference` writes
+  the annotated initializer as before. Existing initializers are not touched.
+
 ## [0.52.0] - 2026-10-22
 
 ### Added

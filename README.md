@@ -63,6 +63,13 @@ $ bundle install
 rails generate standard_id:install
 ```
 
+This writes a short `config/initializers/standard_id.rb` holding only what an
+app must decide (`account_class_name`, plus commented `issuer` and
+`c.preset :inertia_web` lines). Add a setting only when you change it from the
+default. `--with-reference` writes the annotated initializer instead, with every
+commonly changed setting and its default commented out; it is a reference to
+read, not a file to keep whole.
+
 ### 2. Configure Your Account Model
 
 ```ruby
