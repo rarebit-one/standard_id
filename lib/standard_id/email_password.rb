@@ -86,31 +86,40 @@ module StandardId
         password_credential
       end
 
-      # The first verification of a sign-up's address, by code or by reset
-      # link: marks it verified and runs `c.email_password.after_email_verified`.
-      # A no-op when the address is already verified, so the hook runs once.
+      # The first verification of an address, by code or by reset link: marks
+      # it verified and, for a sign-up made through Registration (+run_hook+),
+      # runs `c.email_password.after_email_verified`. A no-op when the address
+      # is already verified, so the hook runs once.
       #
       # Call it inside a transaction. If the hook raises, the address stays
       # unverified and the next verification retries it; and
       # IDENTIFIER_VERIFICATION_SUCCEEDED waits for the commit, so subscribers
       # never see a verification that was rolled back.
-      def complete_verification!(identifier, name: nil, request: nil)
+      def complete_verification!(identifier, name: nil, request: nil, run_hook: true)
         identifier.lock!
         return if identifier.verified?
 
         identifier.verify!(defer_event: true)
         hook = config.after_email_verified
-        call_hook(hook, account: identifier.account, name: name, request: request) if hook.respond_to?(:call)
+        return unless run_hook && hook.respond_to?(:call)
+
+        call_hook(hook, account: identifier.account, name: name, request: request)
+      end
+
+      # The latest verification code sent to +email+: the mark of a sign-up
+      # made through Registration (as PurgeUnverifiedEmailSignupsJob reads
+      # it), nil for any other account, such as a Web::SignupForm sign-up.
+      def signup_challenge(email)
+        StandardId::CodeChallenge
+          .where(realm: config.verification_realm, channel: "email", target: normalize_email(email))
+          .order(created_at: :desc)
+          .first
       end
 
       # The name given at sign-up for +email+, carried on its latest
       # verification code.
       def signup_name(email)
-        StandardId::CodeChallenge
-          .where(realm: config.verification_realm, channel: "email", target: normalize_email(email))
-          .order(created_at: :desc)
-          .pick(:metadata)
-          &.dig("name")
+        signup_challenge(email)&.metadata&.dig("name")
       end
 
       # Field messages for +password+ (empty when acceptable): PasswordStrength

@@ -21,11 +21,13 @@ module StandardId
     end
 
     # +defer_event+ holds IDENTIFIER_VERIFICATION_SUCCEEDED until the
-    # enclosing transaction commits, and drops it if that rolls back.
+    # enclosing transaction commits, and drops it if that rolls back. The
+    # verification has committed by the time it fires, so a failing
+    # subscriber is logged rather than raised.
     def verify!(defer_event: false)
       update!(verified_at: Time.current)
       if defer_event
-        ActiveRecord.after_all_transactions_commit { emit_verification_succeeded }
+        ActiveRecord.after_all_transactions_commit { emit_verification_succeeded_after_commit }
       else
         emit_verification_succeeded
       end
@@ -66,6 +68,18 @@ module StandardId
         identifier: self,
         account: account,
         verified_at: verified_at
+      )
+    end
+
+    def emit_verification_succeeded_after_commit
+      emit_verification_succeeded
+    rescue StandardError => e
+      logger = StandardId.logger
+      return unless logger.respond_to?(:error)
+
+      logger.error(
+        "[StandardId::Identifier] Failed to publish IDENTIFIER_VERIFICATION_SUCCEEDED " \
+        "for identifier #{id}: #{e.class}: #{e.message}"
       )
     end
 
