@@ -70,14 +70,18 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
       end
 
       it "publishes one SESSION_REVOKED per session with reason password_reset" do
-        StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Chrome/91.0")
-        StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Firefox/89.0")
-        reasons = []
-        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) { |event| reasons << event[:reason] }
+        sessions = [
+          StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Chrome/91.0"),
+          StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Firefox/89.0")
+        ]
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) { |event| events << event }
 
         http_patch "/reset_password/confirm", params: { token: valid_token, password: new_password, password_confirmation: new_password }
 
-        expect(reasons).to eq(%w[password_reset password_reset])
+        expect(events.map { |e| e[:session].id }).to match_array(sessions.map(&:id))
+        expect(events.map { |e| e[:reason] }).to all(eq("password_reset"))
+        expect(events.map { |e| e[:account] }).to all(eq(account))
       ensure
         StandardId::Events.unsubscribe(subscription)
       end
@@ -93,6 +97,8 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
 
       it "still completes the reset when a reset_completed subscriber raises" do
         subscription = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { raise "subscriber boom" }
+        allow(StandardId.logger).to receive(:error).and_call_original
+        expect(StandardId.logger).to receive(:error).with(/CREDENTIAL_PASSWORD_RESET_COMPLETED.*subscriber boom/)
 
         http_patch "/reset_password/confirm", params: { token: valid_token, password: new_password, password_confirmation: new_password }
 
