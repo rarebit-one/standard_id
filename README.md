@@ -1943,6 +1943,38 @@ Notes:
 
 ## Testing
 
+### Signing in from your app's request specs
+
+```ruby
+# spec/rails_helper.rb
+require "standard_id/testing"
+
+RSpec.configure do |config|
+  config.include StandardId::Testing::RequestHelpers, type: :request
+end
+```
+
+```ruby
+sign_in_as(account)                    # a real BrowserSession, via the session_token cookie
+sign_in_as(account, scope: :platform)  # also grants standard_id_scopes (current_scope_names)
+get "/dashboard"
+
+get "/api/orders", headers: bearer_headers_for(account, scope: "orders.read")
+```
+
+`sign_in_as` creates a real `BrowserSession` and writes the same encrypted
+`session_token` cookie a real sign-in writes, so `current_account`,
+`require_browser_session!`, expiry and revocation behave exactly as in
+production. It adds nothing to your app: the cookies are built with your app's
+own encrypted cookie jar, so there is no test-only route. `scope:` writes the
+Rails session cookie and so needs the cookie session store (the Rails default);
+with another store it raises `ArgumentError`, and you sign in through your own
+scoped login request instead. It replaces controller stubbing
+(`stub_web_authentication`, `allow_any_instance_of(...).to receive(:current_user)`)
+and per-app `/test/set-session` routes.
+
+### This gem's own suite
+
 StandardId includes comprehensive test coverage:
 
 ```bash

@@ -575,7 +575,7 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
       "lib/standard_id/api/token_manager.rb" => 3, # :api_device_session / :api_service_session
       "lib/standard_id/oauth/token_grant_flow.rb" => 1, # after enforce_login_method_policy!
       "lib/standard_id/oauth/oauth_session_persistence.rb" => 2, # only via TokenGrantFlow
-      "lib/standard_id/testing/request_helpers.rb" => 1 # test helper shipped to hosts, not a runtime path
+      "lib/standard_id/testing/request_helpers.rb" => 2 # test helpers shipped to hosts (create_browser_session, sign_in_as), not a runtime path
     }.freeze
 
     SESSION_CALL_PATTERN = /
