@@ -44,6 +44,13 @@ RSpec.describe StandardId::ApplicationMailer do
         .to raise_error(StandardId::ConfigurationError, /c\.mailer_parent_class = "Kernel"/)
     end
 
+    it "names the setting when the class is not a mailer" do
+      allow(StandardId.config).to receive(:mailer_parent_class).and_return("String")
+
+      expect { StandardId.mailer_parent_class }
+        .to raise_error(StandardId::ConfigurationError, /c\.mailer_parent_class = "String"/)
+    end
+
     it "lets an error raised inside the parent's own file through unchanged" do
       allow(StandardId.config).to receive(:mailer_parent_class).and_return("BrokenHostMailer")
       allow(Object).to receive(:const_missing).and_call_original
