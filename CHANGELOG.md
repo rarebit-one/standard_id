@@ -20,7 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   StandardId's mailers inherit from; set it to `"ApplicationMailer"` so built-in OTP
   and password-reset mail uses the host's layout, helpers, `default_url_options`
   and locale handling. With a host parent the gem no longer sets its placeholder
-  `default from:` or `layout "mailer"`, so the parent's apply.
+  `default from:` or `layout "mailer"`, so the parent's apply. A value that is
+  not a class raises `StandardId::ConfigurationError` naming the setting.
   (rarebit-one/rarebit-sre#479)
 
 ## [0.53.0] - 2026-10-22
