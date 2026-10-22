@@ -136,9 +136,11 @@ RSpec.describe "StandardId Web Verify Email", type: :request do
         code: "999000", expires_at: 10.minutes.from_now
       )
 
-      StandardId::Passwordless.max_attempts_per_challenge.times do
+      (StandardId::Passwordless.max_attempts_per_challenge - 1).times do
         http_patch "/verify_email/confirm", params: { email: "user@example.com", code: "111111" }
+        expect(flash[:alert]).to include("Invalid or expired")
       end
+      http_patch "/verify_email/confirm", params: { email: "user@example.com", code: "111111" }
       expect(flash[:alert]).to include("Too many failed attempts")
       expect(ch.reload).to be_used
 
