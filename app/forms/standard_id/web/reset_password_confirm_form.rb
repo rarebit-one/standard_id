@@ -46,7 +46,7 @@ module StandardId
       private
 
       # The reset has already happened, so a failing subscriber must not turn
-      # it into an error page; log and carry on, as Session does for
+      # it into an error page; report and carry on, as Session does for
       # SESSION_REVOKED.
       def publish_reset_completed(account)
         StandardId::Events.publish(
@@ -55,6 +55,7 @@ module StandardId
           account: account
         )
       rescue StandardError => e
+        Rails.error.report(e, handled: true, source: "standard_id")
         logger = StandardId.logger
         return unless logger.respond_to?(:error)
 

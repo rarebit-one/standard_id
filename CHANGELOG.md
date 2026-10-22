@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`credential.password.reset_completed` from `POST /auth/password/reset` carries a
+  loaded credential again.** The reset's row lock reloaded the `PasswordCredential`,
+  dropping its preloaded `credential → identifier → account`, so under strict loading a
+  subscriber that walked `event[:credential].credential.identifier` raised. Because the
+  publish is rescued, that subscriber failed silently. The chain is now preloaded again
+  before the event is published.
+- **A `reset_completed` subscriber that raises is now reported via `Rails.error`**
+  (`handled: true, source: "standard_id"`) as well as logged, on both the API reset and
+  the web reset form, so it reaches the host's error tracker. The reset still succeeds.
+
 ## [0.55.0] - 2026-10-22
 
 ### Added

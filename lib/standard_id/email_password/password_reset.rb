@@ -95,11 +95,14 @@ module StandardId
 
         private
 
+        CREDENTIAL_ASSOCIATIONS = { credential: { identifier: :account } }.freeze
+        private_constant :CREDENTIAL_ASSOCIATIONS
+
         def find_credential(token)
           return nil if token.blank?
 
           StandardId::PasswordCredential
-            .includes(credential: { identifier: :account })
+            .includes(CREDENTIAL_ASSOCIATIONS)
             .find_by_token_for(:password_reset, token.to_s)
         end
 
@@ -126,14 +129,23 @@ module StandardId
         end
 
         # The reset has already happened, so a failing subscriber must not turn
-        # it into an error; log and carry on, as Web::ResetPasswordConfirmForm does.
+        # it into an error; report and carry on, as Web::ResetPasswordConfirmForm
+        # does.
+        #
+        # lock! reloaded the credential, dropping what find_credential
+        # preloaded, so load it again: under strict loading a subscriber that
+        # walks credential.identifier would otherwise raise.
         def publish_reset_completed(account, password_credential)
+          ActiveRecord::Associations::Preloader.new(
+            records: [password_credential], associations: CREDENTIAL_ASSOCIATIONS
+          ).call
           StandardId::Events.publish(
             StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED,
             credential: password_credential,
             account: account
           )
         rescue StandardError => e
+          Rails.error.report(e, handled: true, source: "standard_id")
           logger = StandardId.logger
           return unless logger.respond_to?(:error)
 

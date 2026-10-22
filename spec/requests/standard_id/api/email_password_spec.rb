@@ -858,14 +858,33 @@ RSpec.describe "API email + password", type: :request do
       ActiveSupport::Notifications.unsubscribe(sub) if sub
     end
 
-    it "still answers 200, and logs, when a RESET_COMPLETED subscriber raises" do
+    it "lets a RESET_COMPLETED subscriber walk the credential under strict loading" do
+      accounts = []
+      sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) do |e|
+        accounts << e[:credential].credential.identifier.account
+      end
+      allow(Rails.error).to receive(:report).and_call_original
+
+      reset(token: token)
+
+      expect(accounts).to eq([account])
+      expect(Rails.error).not_to have_received(:report)
+    ensure
+      ActiveSupport::Notifications.unsubscribe(sub) if sub
+    end
+
+    it "still answers 200, and logs and reports, when a RESET_COMPLETED subscriber raises" do
       sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { raise "boom" }
-      allow(StandardId.logger).to receive(:error)
+      logger = instance_double(Logger, error: nil)
+      allow(StandardId).to receive(:logger).and_return(logger)
+      allow(Rails.error).to receive(:report).and_call_original
 
       reset(token: token)
 
       expect(response).to have_http_status(:ok)
-      expect(StandardId.logger).to have_received(:error).with(/CREDENTIAL_PASSWORD_RESET_COMPLETED.*boom/)
+      expect(logger).to have_received(:error).with(/CREDENTIAL_PASSWORD_RESET_COMPLETED.*boom/)
+      expect(Rails.error).to have_received(:report)
+        .with(an_object_having_attributes(message: "boom"), handled: true, source: "standard_id")
     ensure
       ActiveSupport::Notifications.unsubscribe(sub) if sub
     end
