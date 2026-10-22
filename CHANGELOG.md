@@ -14,8 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BrowserSession` and writes the encrypted `session_token` cookie a real sign-in
   writes, built with the host's own cookie jar, so no test-only route is added to
   the app. `scope:` also writes `standard_id_scopes` into the Rails session cookie
-  (cookie session store only; any other store raises `ArgumentError`). Replaces
-  per-app controller stubs and `/test/set-session` routes.
+  (cookie session store only; any other store raises `ArgumentError`). Like a
+  real sign-in it always replaces the Rails session cookie, so a later
+  `sign_in_as` never inherits an earlier one's scopes. Replaces per-app controller
+  stubs and `/test/set-session` routes.
 - **`RequestHelpers#bearer_headers_for(account, **jwt_options)`:** `build_jwt` plus
   `bearer_auth_header` in one call.
 

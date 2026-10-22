@@ -81,8 +81,10 @@ module StandardId
       #
       # Nothing is added to the app: the cookies are built with the app's own
       # encrypted cookie jar and secret_key_base, so there is no test-only route
-      # to forget to remove. Writing the session cookie replaces any session
-      # data an earlier request in the same example left behind.
+      # to forget to remove. Like a real sign-in (which resets the session), it
+      # always replaces the Rails session cookie: an earlier request's session
+      # data, and an earlier sign_in_as's scopes, never carry over to this
+      # account.
       #
       #   sign_in_as(account)
       #   sign_in_as(account, scope: :platform)
@@ -105,7 +107,11 @@ module StandardId
         }
         cookies[:session_token] = jar[:session_token]
 
-        write_standard_id_scopes(jar, scope) if scope
+        if scope
+          write_standard_id_scopes(jar, scope)
+        else
+          cookies.delete(rails_session_key) if rails_session_key
+        end
         browser_session
       end
 
@@ -129,8 +135,13 @@ module StandardId
           "Sign in through the app's own scoped login request instead."
       end
 
+      def rails_session_key
+        Rails.application.config.session_options[:key]
+      end
+
       def write_standard_id_scopes(jar, scope)
-        key = Rails.application.config.session_options.fetch(:key)
+        key = rails_session_key or raise ArgumentError,
+          "sign_in_as(scope:) needs the session cookie name (config.session_options[:key]), and it is not set"
         jar.encrypted[key] = {
           value: {
             "session_id" => SecureRandom.hex(16),
