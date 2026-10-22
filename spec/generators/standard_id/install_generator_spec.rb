@@ -51,7 +51,7 @@ RSpec.describe StandardId::Generators::InstallGenerator, type: :generator do
       expect(content).to include("c.account_class_name = \"User\"")
       expect(content).to include("# c.preset :inertia_web")
       expect(content).to include("# c.issuer =")
-      expect(content).to include("--with-reference")
+      expect(content).to include("standard_id_reference.rb")
       expect(content.lines.size).to be < 40
       expect(content).not_to include("# Web engine feature toggles")
     end

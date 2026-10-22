@@ -172,6 +172,23 @@ RSpec.describe StandardId::Providers::Base, "enablement and configuration checks
             .to raise_error(StandardId::ConfigurationError, /enablement_probe_team is required/)
         end
 
+        # StandardId::AppEnvironment: a staging box on RAILS_ENV=production with
+        # APP_ENVIRONMENT=staging is not production, so :raise only warns.
+        it "only warns under :raise on a staging box (APP_ENVIRONMENT=staging)" do
+          allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
+          stub_const("ENV", ENV.to_h.merge("APP_ENVIRONMENT" => "staging"))
+
+          expect { StandardId::ProviderRegistry.validate_configuration!(mode: :raise, logger:) }.not_to raise_error
+          expect(logger).to have_received(:warn)
+        end
+
+        it "raises under :raise for APP_ENVIRONMENT=production outside RAILS_ENV=production" do
+          stub_const("ENV", ENV.to_h.merge("APP_ENVIRONMENT" => "production"))
+
+          expect { StandardId::ProviderRegistry.validate_configuration!(mode: :raise, logger:) }
+            .to raise_error(StandardId::ConfigurationError)
+        end
+
         it "reads the mode from c.social.provider_misconfiguration" do
           allow(Rails).to receive(:env).and_return(ActiveSupport::EnvironmentInquirer.new("production"))
           StandardId.config.social.provider_misconfiguration = :raise

@@ -190,6 +190,19 @@ RSpec.describe StandardId::Engine do
       end
     end
 
+    context "on a staging box (RAILS_ENV=production, APP_ENVIRONMENT=staging)" do
+      before do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+        stub_const("ENV", ENV.to_h.merge("APP_ENVIRONMENT" => "staging"))
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+      end
+
+      it "stays silent" do
+        expect(logger).not_to receive(:warn)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
+    end
+
     context "in non-production environments with empty allowed_audiences" do
       before do
         allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("development"))
