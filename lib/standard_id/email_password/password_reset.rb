@@ -75,9 +75,9 @@ module StandardId
             end
 
             password_credential.update!(password: password)
-            EmailPassword.complete_verification!(
-              identifier, name: EmailPassword.signup_name(password_credential.login), request: request
-            )
+            # Skip the name lookup when the address was verified already.
+            name = EmailPassword.signup_name(password_credential.login) unless identifier.verified?
+            EmailPassword.complete_verification!(identifier, name: name, request: request)
             StandardId::AccessRevocation.revoke_all!(account, reason: "password_reset")
           end
 

@@ -739,9 +739,22 @@ RSpec.describe "API email + password", type: :request do
       expect(StandardId::EmailPassword::PasswordReset.valid_token?(pending_token)).to be(true)
     end
 
-    it "does not run after_email_verified for an address that was already verified" do
+    it "runs after_email_verified with no name for an unverified address that never had a code" do
+      seen = []
+      StandardId.config.email_password.after_email_verified = ->(account:, name:) { seen << [account.email, name] }
+      create_account_with_password(email: "websignup@example.com", password: "Sup3r-secret!", name: "Web")
+      identifier_for("websignup@example.com").update_columns(verified_at: nil)
+
+      reset(token: password_credential_for("websignup@example.com").generate_token_for(:password_reset))
+
+      expect(response).to have_http_status(:ok)
+      expect(seen).to eq([["websignup@example.com", nil]])
+    end
+
+    it "does not run after_email_verified, or look up the sign-up name, for an address that was already verified" do
       calls = 0
       StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
+      expect(StandardId::EmailPassword).not_to receive(:signup_name)
 
       reset(token: token)
 

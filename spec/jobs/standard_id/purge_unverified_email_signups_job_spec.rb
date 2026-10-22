@@ -149,6 +149,36 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
     expect(StandardId::EmailIdentifier.where(value: "first@example.com")).to be_empty
   end
 
+  it "locks the password credential before the identifier, the order verify and reset use" do
+    pending_signup("order@example.com")
+    locked = []
+    allow_any_instance_of(StandardId::EmailIdentifier).to receive(:lock!).and_wrap_original do |original, *args|
+      locked << :identifier
+      original.call(*args)
+    end
+    allow_any_instance_of(described_class).to receive(:lock_password_credentials).and_wrap_original do |original, *args|
+      locked << :password_credential
+      original.call(*args)
+    end
+
+    expect(described_class.perform_now).to eq(purged_count: 1, skipped_count: 0)
+    expect(locked).to eq([:password_credential, :identifier])
+  end
+
+  it "skips a sign-up, and carries on, when its locks deadlock" do
+    pending_signup("deadlocked@example.com")
+    other = pending_signup("other@example.com")
+    allow_any_instance_of(StandardId::EmailIdentifier).to receive(:lock!).and_wrap_original do |original, *args|
+      raise ActiveRecord::Deadlocked, "deadlock detected" if original.receiver.value == "deadlocked@example.com"
+
+      original.call(*args)
+    end
+
+    expect(described_class.perform_now).to eq(purged_count: 1, skipped_count: 1)
+    expect(gone?(other)).to be(true)
+    expect(StandardId::PasswordCredential.where(login: "deadlocked@example.com")).to exist
+  end
+
   it "rolls one sign-up back, and carries on, when a guard refuses the delete" do
     blocked = pending_signup("blocked@example.com")
     other = pending_signup("other@example.com")

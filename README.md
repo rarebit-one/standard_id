@@ -1742,7 +1742,10 @@ The rules:
   that should wait for a proven address from `after_email_verified`. That hook
   runs once, when the address is first verified (by code or reset link), in the
   verification's transaction: if it raises, the address stays unverified and the
-  registrant retries with a new code or link. `IDENTIFIER_VERIFICATION_SUCCEEDED`
+  registrant retries with a new code or link. A reset link runs it for any
+  unverified address with a password, not only API sign-ups, so it must accept a
+  nil `name`. It runs with the address's rows locked, so keep slow work (an
+  external call) in a job it enqueues. `IDENTIFIER_VERIFICATION_SUCCEEDED`
   is published only after that transaction commits. Tokens are minted under the
   password credential's row lock, so a reset racing a login or a verification
   either lands first (that request then fails) or revokes what it minted.

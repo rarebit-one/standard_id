@@ -36,7 +36,9 @@ module StandardId
   # link in flight still works. That check is only as good as the rate-limit
   # store: with a null store it never fires.
   # Each sign-up is re-checked under a row lock in its own transaction, so a
-  # verification that lands mid-run wins.
+  # verification that lands mid-run wins. The locks are taken in the order
+  # verify and reset take them (password credential, then identifier); a
+  # deadlock anyway leaves the sign-up for the next run.
   class PurgeUnverifiedEmailSignupsJob < ApplicationJob
     queue_as :default
 
@@ -90,6 +92,7 @@ module StandardId
     # true when the sign-up was removed, false when it was left alone.
     def purge(identifier, cutoff)
       ActiveRecord::Base.transaction do
+        lock_password_credentials(identifier)
         identifier.lock!
         return false unless identifier.verified_at.nil? && identifier.provider.nil? && identifier.created_at < cutoff
 
@@ -113,9 +116,20 @@ module StandardId
         end
         true
       end
-    rescue ActiveRecord::DeleteRestrictionError, ActiveRecord::InvalidForeignKey, ActiveRecord::RecordNotDestroyed => e
+    rescue ActiveRecord::DeleteRestrictionError, ActiveRecord::InvalidForeignKey, ActiveRecord::RecordNotDestroyed,
+      ActiveRecord::Deadlocked => e
       Rails.logger.warn("[StandardId] Left unverified email sign-up #{identifier.id} alone: #{e.class}")
       false
+    end
+
+    def lock_password_credentials(identifier)
+      StandardId::PasswordCredential
+        .where(id: StandardId::Credential
+          .where(identifier_id: identifier.id, credentialable_type: StandardId::PasswordCredential.name)
+          .select(:credentialable_id))
+        .order(:id)
+        .lock
+        .to_a
     end
 
     def account_in_use?(account)
