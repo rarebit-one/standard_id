@@ -75,7 +75,7 @@ module StandardId
         }
         redirect_override = invoke_after_sign_in(account, context)
 
-        session.delete(:standard_id_otp_payload)
+        clear_passwordless_handoff
 
         # after_authentication_url returns whatever was stashed in
         # session[:return_to_after_authenticating] — which could be an attacker-controlled
@@ -85,7 +85,7 @@ module StandardId
         destination = redirect_override || (safe_destination?(fallback) ? fallback : safe_post_signin_default)
         redirect_after_authentication destination, notice: "Successfully signed in"
       rescue StandardId::AuthenticationDenied => e
-        session.delete(:standard_id_otp_payload)
+        clear_passwordless_handoff
         handle_authentication_denied(e, account: account, newly_created: newly_created)
       end
 
@@ -96,19 +96,10 @@ module StandardId
       end
 
       def require_otp_payload!
-        signed_payload = session[:standard_id_otp_payload]
-
-        if signed_payload.blank?
-          redirect_to engine_path(login_path), alert: "Please start the login process"
-          return
-        end
-
-        begin
-          @otp_data = Rails.application.message_verifier(:otp).verify(signed_payload).symbolize_keys
-        rescue ActiveSupport::MessageVerifier::InvalidSignature
-          session.delete(:standard_id_otp_payload)
-          redirect_to engine_path(login_path), alert: "Your verification session has expired. Please try again."
-        end
+        @otp_data = read_passwordless_handoff
+        redirect_to engine_path(login_path), alert: "Please start the login process" if @otp_data.nil?
+      rescue ActiveSupport::MessageVerifier::InvalidSignature
+        redirect_to engine_path(login_path), alert: "Your verification session has expired. Please try again."
       end
 
       # Global web.passwordless_registration AND the active scope's

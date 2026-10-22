@@ -108,6 +108,11 @@ StandardId.configure do |c|
   # Default: nil (StandardId's packaged layout)
   # c.web_layout = "application"
 
+  # The class StandardId's mailers inherit from. Set it to your own mailer base
+  # so OTP and password-reset mail picks up your layout, helpers and locale.
+  # Default: "ActionMailer::Base"
+  # c.mailer_parent_class = "ApplicationMailer"
+
   # Expose current_account as current_user (useful for ActionPolicy / Pundit).
   # Default: false
   # c.alias_current_user = true

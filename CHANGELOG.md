@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`PasswordlessFlow#start_passwordless_login(username:, connection:, return_to:)`.**
+  Sends the code and stores the signed hand-off the WebEngine's `login_verify` page
+  requires, so a host controller (a sign-up or invite form) can start a passwordless
+  login and redirect to `standard_id_web.login_verify_path` without copying the
+  gem's `message_verifier(:otp)` / `session[:standard_id_otp_payload]` internals.
+  Nothing is stored when the code cannot be sent. The gem's own login controllers
+  now use the same code. (rarebit-one/rarebit-sre#479)
+- **`c.mailer_parent_class`** (default `"ActionMailer::Base"`). The class
+  StandardId's mailers inherit from; set it to `"ApplicationMailer"` so built-in OTP
+  and password-reset mail uses the host's layout, helpers, `default_url_options`
+  and locale handling. With a host parent the gem no longer sets its placeholder
+  `default from:` or `layout "mailer"`, so the parent's apply.
+  (rarebit-one/rarebit-sre#479)
+
 ## [0.53.0] - 2026-10-22
 
 ### Added

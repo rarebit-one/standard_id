@@ -244,4 +244,66 @@ RSpec.describe StandardId::PasswordlessFlow do
       controller.send(:verify_passwordless_otp, username: email, code: otp_code)
     end
   end
+
+  describe "#start_passwordless_login" do
+    include ActiveSupport::Testing::TimeHelpers
+
+    let(:controller_class) do
+      Class.new do
+        include StandardId::PasswordlessFlow
+
+        attr_reader :request, :session
+
+        def initialize(request)
+          @request = request
+          @session = {}
+        end
+      end
+    end
+
+    def handoff
+      controller.send(:read_passwordless_handoff)
+    end
+
+    it "sends the code and stores the hand-off login_verify reads" do
+      expect {
+        controller.send(:start_passwordless_login, username: email)
+      }.to change(StandardId::CodeChallenge, :count).by(1)
+
+      expect(handoff).to eq(username: email, connection: "email")
+    end
+
+    it "returns the created CodeChallenge" do
+      expect(controller.send(:start_passwordless_login, username: email)).to eq(StandardId::CodeChallenge.last)
+    end
+
+    it "remembers a String return_to as the post-sign-in destination" do
+      controller.send(:start_passwordless_login, username: email, return_to: "/welcome")
+
+      expect(controller.session[:return_to_after_authenticating]).to eq("/welcome")
+    end
+
+    it "ignores a non-String return_to" do
+      controller.send(:start_passwordless_login, username: email, return_to: ["/a", "/b"])
+
+      expect(controller.session).not_to have_key(:return_to_after_authenticating)
+    end
+
+    it "stores nothing when the code cannot be sent" do
+      expect {
+        controller.send(:start_passwordless_login, username: "not-an-email")
+      }.to raise_error(StandardId::InvalidRequestError)
+
+      expect(controller.session).to be_empty
+    end
+
+    it "expires the hand-off with the code" do
+      controller.send(:start_passwordless_login, username: email)
+
+      travel(StandardId.config.passwordless.code_ttl.seconds + 1) do
+        expect { handoff }.to raise_error(ActiveSupport::MessageVerifier::InvalidSignature)
+      end
+      expect(controller.session).not_to have_key(described_class::OTP_PAYLOAD_SESSION_KEY)
+    end
+  end
 end
