@@ -116,6 +116,20 @@ module StandardId
       config.account_class_name.constantize
     end
 
+    # The class StandardId::ApplicationMailer inherits from
+    # (`c.mailer_parent_class`). safe_constantize returns nil only when the
+    # name itself is undefined; an error raised while loading that class (a
+    # typo inside the host's mailer) still propagates as itself.
+    def mailer_parent_class
+      name = config.mailer_parent_class
+      parent = name.to_s.safe_constantize
+      return parent if parent.is_a?(Class)
+
+      raise ConfigurationError,
+        "c.mailer_parent_class = #{name.inspect} does not name a class. " \
+        "Set it to your mailer base, e.g. \"ApplicationMailer\", or leave it unset for ActionMailer::Base."
+    end
+
     def scope_for(name)
       return nil if config.scopes.blank? || name.blank?
       scope_hash = config.scopes[name.to_sym]
