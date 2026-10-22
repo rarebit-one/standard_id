@@ -95,15 +95,34 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
         expect(old.reload.revoked_at).to eq(revoked_at)
       end
 
-      it "still completes the reset when a reset_completed subscriber raises" do
+      it "still completes the reset when a reset_completed subscriber raises, and reports it" do
         subscription = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { raise "subscriber boom" }
-        allow(StandardId.logger).to receive(:error).and_call_original
-        expect(StandardId.logger).to receive(:error).with(/CREDENTIAL_PASSWORD_RESET_COMPLETED.*subscriber boom/)
+        logger = instance_double(Logger, error: nil)
+        allow(StandardId).to receive(:logger).and_return(logger)
+        allow(Rails.error).to receive(:report).and_call_original
 
         http_patch "/reset_password/confirm", params: { token: valid_token, password: new_password, password_confirmation: new_password }
 
         expect(response).to redirect_to(standard_id_web.login_path)
         expect(password_credential.reload.authenticate(new_password)).to be_truthy
+        expect(logger).to have_received(:error).with(/CREDENTIAL_PASSWORD_RESET_COMPLETED.*subscriber boom/)
+        expect(Rails.error).to have_received(:report)
+          .with(an_object_having_attributes(message: "subscriber boom"), handled: true, source: "standard_id")
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+
+      it "lets a reset_completed subscriber walk the credential under strict loading" do
+        accounts = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) do |event|
+          accounts << event[:credential].credential.identifier.account
+        end
+        allow(Rails.error).to receive(:report).and_call_original
+
+        http_patch "/reset_password/confirm", params: { token: valid_token, password: new_password, password_confirmation: new_password }
+
+        expect(accounts).to eq([account])
+        expect(Rails.error).not_to have_received(:report)
       ensure
         StandardId::Events.unsubscribe(subscription)
       end
