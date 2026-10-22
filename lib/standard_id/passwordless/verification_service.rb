@@ -247,14 +247,14 @@ module StandardId
       end
 
       # Whether the bypass code is forbidden because this is a production
-      # deploy. Defers to config.passwordless.production_env_detector when set
-      # (host apps that distinguish a physical deploy env from RAILS_ENV), else
-      # falls back to Rails.env.production?.
+      # deploy. Defers to config.passwordless.production_env_detector when set,
+      # else StandardId::AppEnvironment (APP_ENVIRONMENT, then Rails.env; fails
+      # closed).
       def bypass_production_deploy?
         detector = StandardId.config.passwordless.production_env_detector
         return !!detector.call if detector
 
-        defined?(Rails) && Rails.env.production?
+        StandardId::AppEnvironment.production?
       end
 
       def resolve_target_and_channel!(email, phone)

@@ -213,19 +213,19 @@ StandardId::ConfigSchema.define do
     # for *any* realm. Use a long, non-guessable value and unset it
     # outside test environments.
     #
-    # "Production" is decided by production_env_detector below (default
-    # Rails.env.production?), so host apps that distinguish a physical deploy
-    # environment from RAILS_ENV can still gate this correctly.
+    # "Production" is decided by production_env_detector below, defaulting to
+    # StandardId::AppEnvironment: APP_ENVIRONMENT when set (only staging,
+    # preview, development and test are non-production; anything else is
+    # production), else Rails.env.production?.
     field :bypass_code, type: :string, default: nil
 
     # Optional callable deciding whether the current deploy is "production"
     # for the purpose of the bypass-code guard. Takes no args, returns a
-    # boolean. When nil (default), falls back to Rails.env.production? — so
-    # existing consumers are unchanged. Host apps that distinguish a physical
-    # deploy environment from RAILS_ENV (e.g. APP_ENVIRONMENT, which stays
-    # RAILS_ENV=production on a physically-staging box) can supply
-    # `-> { AppEnv.production? }` to allow a bypass code on staging while it
-    # stays refused on real production.
+    # boolean. When nil (default), StandardId::AppEnvironment decides, which
+    # already reads APP_ENVIRONMENT (a physically-staging box with
+    # RAILS_ENV=production and APP_ENVIRONMENT=staging is not production), so
+    # `-> { AppEnv.production? }` is no longer needed. Set it only for a
+    # different discriminator.
     field :production_env_detector, type: :any, default: nil
 
     # Custom username validator for passwordless flows.

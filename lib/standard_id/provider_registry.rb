@@ -201,7 +201,7 @@ module StandardId
       end
 
       def production?
-        defined?(Rails) && Rails.respond_to?(:env) && Rails.env.production?
+        StandardId::AppEnvironment.production?
       end
 
       def validate_provider!(provider_class)

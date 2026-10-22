@@ -876,15 +876,19 @@ end
 
 **Bypass code (E2E testing).** When `StandardId.config.passwordless.bypass_code` is set (and the deploy is not production), `Otp.verify` accepts the bypass code for **any realm**. This replaces per-app bypass ENV checks and works consistently across `Otp.verify` and the built-in passwordless login flow. Never set `bypass_code` in production — it will raise if you try.
 
-By default "production" means `Rails.env.production?`. Apps that distinguish a physical deploy environment from `RAILS_ENV` (e.g. a staging box that still runs `RAILS_ENV=production`) can override the decision with a callable:
+"Production" is decided by `StandardId::AppEnvironment`, the same rule every
+check in the gem uses: `APP_ENVIRONMENT` when it is set, where only `staging`,
+`preview`, `development` and `test` count as non-production (any other value,
+including a typo, is production), else `Rails.env.production?`. So a staging box
+running `RAILS_ENV=production` with `APP_ENVIRONMENT=staging` is not
+production, and needs no extra wiring:
 
 ```ruby
-# Allow the bypass code on a physically-staging box, still refused on real prod.
-c.passwordless.production_env_detector = -> { AppEnv.production? }
-c.passwordless.bypass_code = ENV["STANDARD_ID_BYPASS_CODE"] unless AppEnv.production?
+c.passwordless.bypass_code = ENV["STANDARD_ID_BYPASS_CODE"] unless StandardId::AppEnvironment.production?
 ```
 
-`production_env_detector` takes no arguments and returns a boolean; when `nil` (the default) the gem falls back to `Rails.env.production?`, so existing consumers are unaffected.
+`production_env_detector` (a callable taking no arguments, returning a boolean)
+still overrides that, for an app with a different discriminator.
 
 **Back-compat.** The existing passwordless authentication flow continues to work unchanged. `Otp.issue`/`Otp.verify` are a new addition — you can migrate direct `CodeChallenge.create!` calls at your own pace.
 

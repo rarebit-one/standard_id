@@ -3,6 +3,12 @@ require "spec_helper"
 
 # Prevent database truncation if the environment is production
 abort("The Rails environment is running in production mode!") if Rails.env.production?
+
+# StandardId::AppEnvironment reads APP_ENVIRONMENT before Rails.env. Specs that
+# stub Rails.env to exercise production-only behaviour set APP_ENVIRONMENT
+# themselves when they need it, so an exported value in the developer's shell
+# must not leak in.
+ENV.delete("APP_ENVIRONMENT")
 # Uncomment the line below in case you have `--require rails_helper` in the `.rspec` file
 # that will avoid rails generators crashing because migrations haven't been run yet
 # return unless Rails.env.test?
