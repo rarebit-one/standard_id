@@ -817,6 +817,11 @@ locale files, or the templates in `app/views/standard_id/passwordless_mailer/`.
 An assigned `c.passwordless.mailer_subject` still sets the sign-in subject. The subscriber runs synchronously inside the request, so
 `I18n.locale`, `Current.*` and the like are still available.
 
+The built-in mailers inherit from `ActionMailer::Base`. Set
+`c.mailer_parent_class = "ApplicationMailer"` to have them inherit your mailer
+base instead, with its layout, helpers, `default_url_options` and locale
+handling. It is read when the gem's mailers load, so set it in an initializer.
+
 Event payload includes:
 - `channel` - `"email"` or `"sms"`
 - `identifier` - The email address or phone number
@@ -827,6 +832,31 @@ Event payload includes:
 - `delivery` - The `Otp.issue` delivery mode (`:built_in` / `:custom` / `:manual`), `nil` otherwise
 
 > **Note**: `passwordless_email_sender` / `passwordless_sms_sender` were removed in 0.43; see the [Migration Guide](docs/MIGRATION_GUIDE.md).
+
+### Starting a passwordless login from your own controller
+
+To send the code from your own controller (a sign-up form, an invite page) and
+let the WebEngine's verify page finish the sign-in, include
+`StandardId::PasswordlessFlow` and call `start_passwordless_login`. It sends the
+code and stores the signed hand-off the verify page requires, then you redirect
+there through the engine's mounted helper, which includes the mount path:
+
+```ruby
+class Onboarding::SignupsController < ApplicationController
+  include StandardId::PasswordlessFlow
+
+  def create
+    start_passwordless_login(username: params[:email], return_to: welcome_path)
+    redirect_to standard_id_web.login_verify_path, status: :see_other
+  rescue StandardId::InvalidRequestError => e
+    redirect_to new_signup_path, alert: e.message
+  end
+end
+```
+
+`connection:` defaults to `c.passwordless.connection`. `return_to:` becomes the
+post-sign-in destination, still subject to the verify page's safe-redirect check.
+Nothing is stored when the code cannot be sent.
 
 ### Using OTP for non-authentication flows
 

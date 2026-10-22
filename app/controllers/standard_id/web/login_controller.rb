@@ -100,24 +100,15 @@ module StandardId
         end
 
         begin
-          generate_passwordless_otp(username: username, connection: connection)
+          # string_param rejects Array/Hash-shaped redirect_uri values (see
+          # BaseController#string_param); start_passwordless_login also ignores
+          # non-Strings, since login_verify passes the stored value to redirect_to.
+          start_passwordless_login(username: username, connection: connection, return_to: string_param(:redirect_uri))
         rescue StandardId::InvalidRequestError => e
           flash.now[:alert] = e.message
           render_with_inertia action: :show, props: auth_page_props(passwordless_enabled: passwordless_enabled?), status: :unprocessable_content
           return
         end
-
-        code_ttl = StandardId.config.passwordless.code_ttl
-        signed_payload = Rails.application.message_verifier(:otp).generate(
-          { username: username, connection: connection },
-          expires_in: code_ttl.seconds
-        )
-        session[:standard_id_otp_payload] = signed_payload
-        # Use string_param to reject Array/Hash-shaped values — login_verify_controller
-        # consumes this via after_authentication_url and passes it to redirect_to;
-        # storing a non-String here would crash that flow with ArgumentError.
-        redirect_uri = string_param(:redirect_uri)
-        session[:return_to_after_authenticating] = redirect_uri if redirect_uri
 
         redirect_to engine_path(login_verify_path), status: :see_other
       end

@@ -9,6 +9,11 @@ StandardId::ConfigSchema.define do
     field :cache_store, type: :any, default: nil
     field :logger, type: :any, default: nil
     field :web_layout, type: :string, default: nil
+    # The class StandardId's mailers inherit from, e.g. "ApplicationMailer" so
+    # they pick up the host's layout, helpers, default_url_options and locale
+    # handling. Read once, when the gem's mailers load, so set it in an
+    # initializer.
+    field :mailer_parent_class, type: :string, default: "ActionMailer::Base"
     # Removed in 0.43 (deprecated since 0.1.7): assigning either raises
     # StandardId::ConfigurationError with this hint.
     removed :passwordless_email_sender,
