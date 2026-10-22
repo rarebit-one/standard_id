@@ -5,6 +5,13 @@
 # Commented-out lines show defaults; uncomment and edit to override.
 
 StandardId.configure do |c|
+  # An Inertia app whose users sign in passwordlessly or socially can start
+  # from a preset instead of setting each option below. :inertia_web sets
+  # use_inertia, alias_current_user, web.signup/password_login/password_reset
+  # = false and oauth.discovery_endpoint_base = :request. Anything you assign
+  # yourself wins, before or after this line.
+  # c.preset :inertia_web
+
   # ---------------------------------------------------------------------------
   # Required
   # ---------------------------------------------------------------------------
