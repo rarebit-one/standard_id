@@ -92,6 +92,7 @@ module StandardId
         end
 
         def create_account!(email, name, password, request)
+          EmailPassword.require_signup_source_column!
           ActiveRecord::Base.transaction do
             StandardId::Events.publish(
               StandardId::Events::ACCOUNT_CREATING,

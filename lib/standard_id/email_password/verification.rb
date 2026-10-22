@@ -8,7 +8,9 @@ module StandardId
 
       class << self
         # Confirms the code for a pending sign-up, verifies the address and runs
-        # `c.email_password.after_email_verified`.
+        # `c.email_password.after_email_verified` when the sign-up was made
+        # through Registration (EmailPassword.api_signup?), as a reset does: an
+        # unverified web sign-up that verifies here is verified without it.
         #
         # Requires the sign-up password as well as the code. Code alone would be
         # a takeover: anyone could start a sign-up for an address and the
@@ -59,7 +61,12 @@ module StandardId
           # without ever provisioning it.
           account = ActiveRecord::Base.transaction do
             password_unchanged!(password_credential, verified_digest)
-            EmailPassword.complete_verification!(identifier, name: otp.challenge&.metadata&.dig("name"), request: request)
+            EmailPassword.complete_verification!(
+              identifier,
+              name: otp.challenge&.metadata&.dig("name"),
+              request: request,
+              run_hook: EmailPassword.api_signup?(identifier)
+            )
             identifier.account
           end
           return account unless block_given?

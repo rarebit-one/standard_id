@@ -117,6 +117,17 @@ module StandardId
         identifier.signup_source == SIGNUP_SOURCE
       end
 
+      # Registration writes Identifier#signup_source, which migration
+      # 20261022000000 adds; without it a sign-up would fail with an unknown
+      # attribute, so say what to run instead.
+      def require_signup_source_column!
+        return if StandardId::Identifier.column_names.include?("signup_source")
+
+        raise StandardId::ConfigurationError,
+          "c.email_password needs migration 20261022000000_add_signup_source_to_standard_id_identifiers: " \
+          "run bin/rails standard_id:install:migrations && bin/rails db:migrate"
+      end
+
       # The name given at sign-up for +email+, carried on its latest
       # verification code; nil once CleanupExpiredCodeChallengesJob has removed
       # that code.

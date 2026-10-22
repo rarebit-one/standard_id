@@ -1745,9 +1745,9 @@ The rules:
   that should wait for a proven address from `after_email_verified`. That hook
   runs once, when the address is first verified (by code or reset link), in the
   verification's transaction: if it raises, the address stays unverified and the
-  registrant retries with a new code or link. A reset runs it only for a sign-up
-  made through this API (its identifier's `signup_source` is
-  `"email_password"`), not for a web sign-up. It runs with the address's rows
+  registrant retries with a new code or link. It runs only for a sign-up made
+  through this API (its identifier's `signup_source` is `"email_password"`): a
+  web sign-up verified here, by code or reset link, is verified without it. It runs with the address's rows
   locked, so keep slow work (an external call) in a job it enqueues.
 
   `IDENTIFIER_VERIFICATION_SUCCEEDED` is published only after that transaction

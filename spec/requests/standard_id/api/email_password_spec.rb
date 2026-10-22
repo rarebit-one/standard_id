@@ -147,6 +147,27 @@ RSpec.describe "API email + password", type: :request do
       expect(seen).to eq([email, "Nova Star"])
     end
 
+    it "verifies, without running after_email_verified, a web sign-up that verifies here" do
+      calls = 0
+      StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
+      create_account_with_password(email: email, password: password, name: "Web")
+      identifier_for.update_columns(verified_at: nil)
+
+      resend
+      verify(code: latest_code)
+
+      expect_token_response
+      expect(identifier_for).to be_verified
+      expect(calls).to eq(0)
+    end
+
+    it "refuses to sign up, naming the migration, until the signup_source column exists" do
+      allow(StandardId::Identifier).to receive(:column_names).and_return(StandardId::Identifier.column_names - ["signup_source"])
+
+      expect { register }.to raise_error(StandardId::ConfigurationError, /20261022000000_add_signup_source/)
+      expect(identifier_for).to be_nil
+    end
+
     it "leaves the address unverified, so a new code can retry the hook, when after_email_verified raises" do
       calls = 0
       StandardId.config.email_password.after_email_verified = lambda { |account:|
