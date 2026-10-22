@@ -36,6 +36,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   revokes every session and every refresh token, including sessionless ones; the web
   password reset now uses it.
 - **`login_method_policy` flow `:api_email_password`.**
+- **`Identifier#verify!(defer_event: true)`** publishes
+  `IDENTIFIER_VERIFICATION_SUCCEEDED` after the enclosing transaction commits (and not
+  at all if it rolls back). The default is unchanged.
 
 ### Changed
 

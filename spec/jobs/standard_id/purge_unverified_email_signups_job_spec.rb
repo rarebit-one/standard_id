@@ -75,6 +75,21 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
     expect(gone?(web_signup)).to be(false)
   end
 
+  it "never considers an unverified password sign-up that was never sent a code at all" do
+    web_signup = unverified_password_signup("web@example.com")
+
+    expect(described_class.perform_now).to eq(purged_count: 0, skipped_count: 0)
+    expect(gone?(web_signup)).to be(false)
+  end
+
+  it "warns when the window reaches past how long code challenges are kept" do
+    allow(Rails.logger).to receive(:warn)
+
+    described_class.perform_now(older_than_seconds: 8.days.to_i)
+
+    expect(Rails.logger).to have_received(:warn).with(/reaches past the 7 days code challenges are kept/)
+  end
+
   it "never considers a verified identifier" do
     account = pending_signup("verified@example.com")
     StandardId::EmailIdentifier.find_by(value: "verified@example.com").update!(verified_at: Time.current)
@@ -110,6 +125,11 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
 
     it "account_in_use returning true" do
       StandardId.config.email_password.account_in_use = ->(account:) { account.email == "used@example.com" }
+    end
+
+    it "a password reset requested in the last day" do
+      StandardId.config.cache_store = ActiveSupport::Cache::MemoryStore.new
+      StandardId::EmailPassword::DailyLimit.record!(:reset_requested, "used@example.com")
     end
 
     it "a code requested within purge_recent_code_window" do

@@ -65,10 +65,11 @@ module StandardId
       end
 
       def verify
-        account = StandardId::EmailPassword::Verification.verify!(
+        StandardId::EmailPassword::Verification.verify!(
           email: params[:email], code: params[:code], password: params[:password], request: request
-        )
-        render_tokens_for(account)
+        ) do |account|
+          render_tokens_for(account)
+        end
       end
 
       def resend
@@ -87,7 +88,8 @@ module StandardId
         StandardId::EmailPassword::PasswordReset.complete!(
           token: params[:token],
           password: params[:password],
-          password_confirmation: params.key?(:password_confirmation) ? params[:password_confirmation] : nil
+          password_confirmation: params.key?(:password_confirmation) ? params[:password_confirmation] : nil,
+          request: request
         )
         render json: { status: "password_reset" }, status: :ok
       end

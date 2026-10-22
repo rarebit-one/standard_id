@@ -26,13 +26,22 @@ module StandardId
         # limit (rate_limits.email_password_verify_per_email) does count every
         # request, so a stranger CAN hold verification off for that window.
         #
+        # Given a block, yields the account with the password credential's row
+        # locked, after re-checking that the password has not changed since it
+        # was checked, as Authentication.call does: mint tokens inside it, so a
+        # password reset racing this verification either finishes first (and
+        # this answers :invalid_code) or revokes what it minted.
+        #
         # @return [Account] ready for EmailPassword::TokenFlow
         # @raise [StandardId::EmailPasswordError] :invalid_code
         def verify!(email:, code:, password:, request: nil)
           email = EmailPassword.normalize_email(email)
-          identifier = EmailPassword.identifier_for_password(email, password)
+          password_credential = EmailPassword.credential_for_password(email, password)
+          identifier = password_credential&.credential&.identifier
           raise invalid_code(INVALID_CODE_MESSAGE) if identifier.nil?
           raise invalid_code(LOCKED_OUT_MESSAGE) if DailyLimit.exceeded?(:failed_verification, email)
+
+          verified_digest = password_credential.password_digest
 
           otp = StandardId::Otp.verify(
             realm: EmailPassword.config.verification_realm,
@@ -48,16 +57,16 @@ module StandardId
           # a new code (this one is spent) and the hook runs again. Otherwise a
           # failed hook would leave a verified account that login lets in
           # without ever provisioning it.
-          ActiveRecord::Base.transaction do
-            identifier.verify! unless identifier.verified?
-            account = identifier.account
+          account = ActiveRecord::Base.transaction do
+            password_unchanged!(password_credential, verified_digest)
+            EmailPassword.complete_verification!(identifier, name: otp.challenge&.metadata&.dig("name"), request: request)
+            identifier.account
+          end
+          return account unless block_given?
 
-            hook = EmailPassword.config.after_email_verified
-            if hook.respond_to?(:call)
-              EmailPassword.call_hook(hook, account: account, name: otp.challenge&.metadata&.dig("name"), request: request)
-            end
-
-            account
+          password_credential.with_lock do
+            password_unchanged!(password_credential, verified_digest)
+            yield account
           end
         end
 
@@ -95,7 +104,7 @@ module StandardId
             channel: :email,
             request: request,
             delivery: built_in ? :manual : :custom,
-            metadata: { "name" => name.presence || pending_name(email) }.compact
+            metadata: { "name" => name.presence || EmailPassword.signup_name(email) }.compact
           )
           return false unless result.success?
 
@@ -111,6 +120,13 @@ module StandardId
 
         private
 
+        # Locks the credential (in the caller's transaction) and refuses the
+        # verification if a reset changed the password after it was checked.
+        def password_unchanged!(password_credential, verified_digest)
+          password_credential.lock!
+          raise invalid_code(INVALID_CODE_MESSAGE) unless password_credential.password_digest == verified_digest
+        end
+
         def failed!(email, error_code)
           count = DailyLimit.record!(:failed_verification, email)
           message = if count >= DailyLimit.limit(:failed_verification)
@@ -125,14 +141,6 @@ module StandardId
 
         def invalid_code(message)
           StandardId::EmailPasswordError.new(:invalid_code, message)
-        end
-
-        def pending_name(email)
-          StandardId::CodeChallenge
-            .where(realm: EmailPassword.config.verification_realm, channel: "email", target: email)
-            .order(created_at: :desc)
-            .pick(:metadata)
-            &.dig("name")
         end
       end
     end
