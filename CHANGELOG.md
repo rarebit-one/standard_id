@@ -28,9 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BrowserSession` and writes the encrypted `session_token` cookie a real sign-in
   writes, built with the host's own cookie jar, so no test-only route is added to
   the app. `scope:` also writes `standard_id_scopes` into the Rails session cookie
-  (cookie session store only; any other store raises `ArgumentError`). Like a
-  real sign-in it always replaces the Rails session cookie, so a later
-  `sign_in_as` never inherits an earlier one's scopes. Replaces per-app controller
+  (cookie session store only; any other store raises `ArgumentError`, before
+  anything is created). Like a real sign-in it always replaces the Rails session
+  cookie, so a later `sign_in_as` never inherits an earlier one's scopes or any
+  other session data (flash, CSRF token). Replaces per-app controller
   stubs and `/test/set-session` routes.
 - **`RequestHelpers#bearer_headers_for(account, **jwt_options)`:** `build_jwt` plus
   `bearer_auth_header` in one call.
@@ -39,8 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`rails g standard_id:install` writes a minimal initializer.** It holds only
   `account_class_name`, plus commented `issuer` and `c.preset :inertia_web` lines,
-  instead of 578 lines of commented defaults that apps then kept verbatim (one
-  estate app's initializer carried 506 comment lines). `--with-reference` writes
+  instead of several hundred lines of commented defaults that apps then kept
+  verbatim. `--with-reference` writes
   the annotated initializer as before. Existing initializers are not touched.
 
 ## [0.52.0] - 2026-10-22

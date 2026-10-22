@@ -109,8 +109,8 @@ module StandardId
 
         if scope
           write_standard_id_scopes(jar, scope)
-        else
-          cookies.delete(rails_session_key) if rails_session_key
+        elsif (key = rails_session_key)
+          cookies.delete(key)
         end
         browser_session
       end
@@ -127,21 +127,24 @@ module StandardId
       # Checked before anything is created, so a refused call leaves no session.
       def ensure_cookie_session_store!
         store = Rails.application.config.session_store
-        return if store.is_a?(Class) && store <= ActionDispatch::Session::CookieStore
+        unless store.is_a?(Class) && store <= ActionDispatch::Session::CookieStore
+          raise ArgumentError,
+            "sign_in_as(scope:) writes the Rails session cookie, so it needs the cookie " \
+            "session store; this app uses #{store.inspect}. " \
+            "Sign in through the app's own scoped login request instead."
+        end
+        return if rails_session_key
 
         raise ArgumentError,
-          "sign_in_as(scope:) writes the Rails session cookie, so it needs the cookie " \
-          "session store; this app uses #{store.inspect}. " \
-          "Sign in through the app's own scoped login request instead."
+          "sign_in_as(scope:) needs the session cookie name (config.session_options[:key]), and it is not set"
       end
 
       def rails_session_key
-        Rails.application.config.session_options[:key]
+        Rails.application.config.session_options[:key]&.to_s
       end
 
       def write_standard_id_scopes(jar, scope)
-        key = rails_session_key or raise ArgumentError,
-          "sign_in_as(scope:) needs the session cookie name (config.session_options[:key]), and it is not set"
+        key = rails_session_key
         jar.encrypted[key] = {
           value: {
             "session_id" => SecureRandom.hex(16),
