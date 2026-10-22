@@ -65,6 +65,18 @@ RSpec.describe "StandardId::Testing::RequestHelpers#sign_in_as", type: :request 
 
     expect { sign_in_as(account, scope: :platform) }
       .to raise_error(ArgumentError, /needs the cookie session store/)
+      .and(not_change(StandardId::BrowserSession, :count))
+  end
+
+  it "does not carry an earlier sign_in_as's scopes over to the next account" do
+    other = Account.create!(email: "other@example.com", name: "Other")
+    sign_in_as(account, scope: :platform)
+    sign_in_as(other)
+
+    get admin_root_path, headers: { "User-Agent" => "RSpec" }
+
+    expect(response).to have_http_status(:ok)
+    expect(session[:standard_id_scopes]).to be_nil
   end
 
   it "builds bearer headers for an account" do
