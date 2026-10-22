@@ -69,6 +69,39 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
         expect(sessionless.reload.revoked_at).to be_present
       end
 
+      it "publishes one SESSION_REVOKED per session with reason password_reset" do
+        StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Chrome/91.0")
+        StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Firefox/89.0")
+        reasons = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SESSION_REVOKED) { |event| reasons << event[:reason] }
+
+        http_patch "/reset_password/confirm", params: { token: valid_token, password: new_password, password_confirmation: new_password }
+
+        expect(reasons).to eq(%w[password_reset password_reset])
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+
+      it "leaves an already-revoked refresh token's revoked_at alone" do
+        revoked_at = 2.days.ago.change(usec: 0)
+        old = StandardId::RefreshToken.create!(account: account, token_digest: SecureRandom.hex(32), expires_at: 1.day.from_now, revoked_at: revoked_at)
+
+        http_patch "/reset_password/confirm", params: { token: valid_token, password: new_password, password_confirmation: new_password }
+
+        expect(old.reload.revoked_at).to eq(revoked_at)
+      end
+
+      it "still completes the reset when a reset_completed subscriber raises" do
+        subscription = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { raise "subscriber boom" }
+
+        http_patch "/reset_password/confirm", params: { token: valid_token, password: new_password, password_confirmation: new_password }
+
+        expect(response).to redirect_to(standard_id_web.login_path)
+        expect(password_credential.reload.authenticate(new_password)).to be_truthy
+      ensure
+        StandardId::Events.unsubscribe(subscription)
+      end
+
       it "publishes credential.password.reset_completed" do
         events = []
         subscription = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { |event| events << event }

@@ -21,11 +21,10 @@ module StandardId
         def update
           # Otp.verify locks the challenge, compares in constant time, counts
           # the failed attempt and burns the challenge at the per-challenge cap.
-          result = code.present? && StandardId::Otp.verify(realm: "verification", target: target, code: code, channel: :sms, request: request)
-          unless result && result.success?
-            alert = result ? result.error : "Invalid or expired verification code"
-            return redirect_to(standard_id_web.login_path, alert: alert)
-          end
+          return redirect_to(standard_id_web.login_path, alert: "Invalid or expired verification code") if code.blank?
+
+          result = StandardId::Otp.verify(realm: "verification", target: target, code: code, channel: :sms, request: request)
+          return redirect_to(standard_id_web.login_path, alert: result.error) unless result.success?
 
           StandardId::PhoneNumberIdentifier.find_by(value: target)&.verify!
 

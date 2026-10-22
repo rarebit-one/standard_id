@@ -98,5 +98,25 @@ RSpec.describe "StandardId Web Verify Phone", type: :request do
       expect(response).to redirect_to(standard_id_web.login_path)
       expect(flash[:alert]).to include("Invalid or expired")
     end
+
+    it "burns the challenge once the per-challenge attempt cap is reached" do
+      account = Account.create!(name: "User", email: "phone@example.com")
+      idf = StandardId::PhoneNumberIdentifier.create!(account: account, value: "+14155550123")
+      ch = StandardId::CodeChallenge.create!(
+        realm: "verification", channel: "sms", target: "+14155550123",
+        code: "999000", expires_at: 10.minutes.from_now
+      )
+
+      (StandardId::Passwordless.max_attempts_per_challenge - 1).times do
+        http_patch "/verify_phone/confirm", params: { phone_number: "+14155550123", code: "111111" }
+        expect(flash[:alert]).to include("Invalid or expired")
+      end
+      http_patch "/verify_phone/confirm", params: { phone_number: "+14155550123", code: "111111" }
+      expect(flash[:alert]).to include("Too many failed attempts")
+      expect(ch.reload).to be_used
+
+      http_patch "/verify_phone/confirm", params: { phone_number: "+14155550123", code: "999000" }
+      expect(idf.reload).not_to be_verified
+    end
   end
 end

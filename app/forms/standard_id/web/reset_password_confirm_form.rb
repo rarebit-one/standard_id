@@ -24,16 +24,18 @@ module StandardId
 
         account = @password_credential.account
 
+        # The password change and the revocation commit together, so a failure
+        # cannot leave the new password in place with old tokens still live.
+        # The SESSION_REVOKED events revoke_all_for! publishes therefore run
+        # before the commit; each is rescued, so a subscriber cannot roll the
+        # reset back, but one that reads the rows must do so after commit
+        # (e.g. from a job, which Rails enqueues after commit).
         ActiveRecord::Base.transaction do
           @password_credential.update!(password: password, password_confirmation: password_confirmation)
           revoke_access!(account)
         end
 
-        StandardId::Events.publish(
-          StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED,
-          credential: @password_credential,
-          account: account
-        )
+        publish_reset_completed(account)
 
         true
       rescue ActiveRecord::RecordInvalid => e
@@ -48,6 +50,25 @@ module StandardId
       # rather than destroying keeps the audit trail and fires SESSION_REVOKED;
       # sessions.destroy_all used to nullify refresh_tokens.session_id
       # (dependent: :nullify), leaving those tokens active after the reset.
+      # The reset has already happened, so a failing subscriber must not turn
+      # it into an error page; log and carry on, as Session does for
+      # SESSION_REVOKED.
+      def publish_reset_completed(account)
+        StandardId::Events.publish(
+          StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED,
+          credential: @password_credential,
+          account: account
+        )
+      rescue StandardError => e
+        logger = StandardId.logger
+        return unless logger.respond_to?(:error)
+
+        logger.error(
+          "[StandardId::Web::ResetPasswordConfirmForm] Failed to publish " \
+          "CREDENTIAL_PASSWORD_RESET_COMPLETED for account #{account.id}: #{e.class}: #{e.message}"
+        )
+      end
+
       def revoke_access!(account)
         StandardId::Session.revoke_all_for!(account, reason: "password_reset")
         StandardId::RefreshToken.where(account_id: account.id, revoked_at: nil).update_all(revoked_at: Time.current)

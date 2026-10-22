@@ -15,13 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rate limit. `PATCH` now goes through `StandardId::Otp.verify`, which counts failed
   attempts and burns the challenge at `passwordless.max_attempts_per_challenge`.
   `GET` no longer checks the code at all (it answered valid/invalid without counting an
-  attempt); a wrong code is reported on submit.
+  attempt); a wrong code is reported on submit. Because `Otp.verify` honours
+  `passwordless.bypass_code`, that code now also verifies an email or phone through these
+  pages where it is allowed (never in production, which raises).
 - **Web password reset revokes refresh tokens.** `Web::ResetPasswordConfirmForm` ran
   `account.sessions.destroy_all`, and `Session has_many :refresh_tokens, dependent:
   :nullify` left every refresh token active and detached. It now revokes all sessions
   (`Session.revoke_all_for!`, reason `"password_reset"`, one `SESSION_REVOKED` each)
   and every remaining refresh token for the account, and publishes the documented
-  `credential.password.reset_completed` event, which the gem never emitted before.
+  `credential.password.reset_completed` event, which the gem never emitted before (a
+  raising subscriber is logged, not surfaced, since the reset has already happened).
   Sessions are revoked, no longer deleted.
 
 ## [0.54.0] - 2026-10-22
