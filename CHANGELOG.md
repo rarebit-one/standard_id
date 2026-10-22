@@ -14,10 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`c.preset :inertia_web`.** Applies the settings an Inertia app with
   passwordless or social sign-in flips: `use_inertia` and `alias_current_user`
   true; `web.signup`, `web.password_login` and `web.password_reset` false;
-  `oauth.discovery_endpoint_base = :request`. Four of the five estate apps set
-  exactly this by hand. A preset fills only settings the host has not assigned
-  (via `Scope#assigned?`), so explicit assignments win in either order; an
-  unknown name raises `ArgumentError`. The public defaults are unchanged.
+  `oauth.discovery_endpoint_base = :request`. Each setting is hand-set in four
+  of the five estate apps, though the full bundle matches only two of them. A
+  preset fills only settings the host has not assigned (via
+  `Scope#assigned?`), so explicit assignments win in either order; an unknown
+  name raises `ArgumentError`. The public defaults are unchanged.
   Presets live in `StandardId::Config::Presets`.
 
 ## [0.51.2] - 2026-10-21
