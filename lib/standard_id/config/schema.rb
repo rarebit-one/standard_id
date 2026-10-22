@@ -340,13 +340,13 @@ StandardId::ConfigSchema.define do
     # that must not be a model validation, e.g. a breached-password lookup.
     field :password_validator, type: :any, default: nil
 
-    # Callable `(account:, name:, request:)` run when an address with a
-    # password is first verified, by a sign-up code or by a reset link, before
-    # tokens are minted, e.g. to provision a profile. +name+ is the one given
-    # at sign-up, nil when there is none (a reset of a web sign-up or a
-    # host-created account). It runs in the verification's transaction, with
-    # the password credential and identifier rows locked: a raise undoes it,
-    # and a slow hook holds those locks for as long as it takes.
+    # Callable `(account:, name:, request:)` run when a sign-up's address is
+    # first verified, by its code or by a reset link, before tokens are
+    # minted, e.g. to provision a profile. +name+ is the one given at sign-up.
+    # Only sign-ups made through this API run it (a reset of a web sign-up
+    # does not). It runs in the verification's transaction, with the password
+    # credential and identifier rows locked: a raise undoes it, and a slow
+    # hook holds those locks for as long as it takes.
     field :after_email_verified, type: :any, default: nil
 
     # Callable `(account:)`; truthy keeps an account from

@@ -166,6 +166,21 @@ RSpec.describe "API email + password", type: :request do
       expect(identifier_for).to be_verified
     end
 
+    it "still returns tokens when an IDENTIFIER_VERIFICATION_SUCCEEDED subscriber fails" do
+      sub = StandardId::Events.subscribe(StandardId::Events::IDENTIFIER_VERIFICATION_SUCCEEDED) { raise "subscriber down" }
+      register
+
+      begin
+        verify(code: latest_code)
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      expect(response).to have_http_status(:ok)
+      expect(json["access_token"]).to be_present
+      expect(identifier_for).to be_verified
+    end
+
     it "publishes IDENTIFIER_VERIFICATION_SUCCEEDED only once the verification commits" do
       events = []
       sub = StandardId::Events.subscribe(StandardId::Events::IDENTIFIER_VERIFICATION_SUCCEEDED) { |e| events << e }
@@ -739,22 +754,41 @@ RSpec.describe "API email + password", type: :request do
       expect(StandardId::EmailPassword::PasswordReset.valid_token?(pending_token)).to be(true)
     end
 
-    it "runs after_email_verified with no name for an unverified address that never had a code" do
-      seen = []
-      StandardId.config.email_password.after_email_verified = ->(account:, name:) { seen << [account.email, name] }
+    it "verifies, without running after_email_verified, an unverified address that did not sign up here" do
+      calls = 0
+      StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
       create_account_with_password(email: "websignup@example.com", password: "Sup3r-secret!", name: "Web")
       identifier_for("websignup@example.com").update_columns(verified_at: nil)
 
       reset(token: password_credential_for("websignup@example.com").generate_token_for(:password_reset))
 
       expect(response).to have_http_status(:ok)
-      expect(seen).to eq([["websignup@example.com", nil]])
+      expect(identifier_for("websignup@example.com")).to be_verified
+      expect(calls).to eq(0)
     end
 
-    it "does not run after_email_verified, or look up the sign-up name, for an address that was already verified" do
+    it "still answers, and publishes CREDENTIAL_PASSWORD_RESET_COMPLETED, when a verification subscriber fails" do
+      completed = []
+      failing = StandardId::Events.subscribe(StandardId::Events::IDENTIFIER_VERIFICATION_SUCCEEDED) { raise "subscriber down" }
+      done = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { |e| completed << e }
+      register(email: "pending@example.com")
+
+      begin
+        reset(token: password_credential_for("pending@example.com").generate_token_for(:password_reset))
+      ensure
+        StandardId::Events.unsubscribe(failing)
+        StandardId::Events.unsubscribe(done)
+      end
+
+      expect(response).to have_http_status(:ok)
+      expect(identifier_for("pending@example.com")).to be_verified
+      expect(completed.size).to eq(1)
+    end
+
+    it "does not run after_email_verified, or look up the sign-up, for an address that was already verified" do
       calls = 0
       StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
-      expect(StandardId::EmailPassword).not_to receive(:signup_name)
+      expect(StandardId::EmailPassword).not_to receive(:signup_challenge)
 
       reset(token: token)
 
