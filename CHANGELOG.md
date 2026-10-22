@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **"Production" follows `APP_ENVIRONMENT`, failing closed.** The new
+  `StandardId::AppEnvironment.production?` decides every production check in the
+  gem: the bypass-code guard (when `passwordless.production_env_detector` is
+  unset), the provider-misconfiguration `:raise` mode, and the empty
+  `allowed_audiences` boot warning. It reads `APP_ENVIRONMENT` when set (only
+  `staging`, `preview`, `development` and `test` are non-production; any other
+  value is production), else `Rails.env.production?`. A staging box with
+  `RAILS_ENV=production` and `APP_ENVIRONMENT=staging` is therefore no longer
+  treated as production, and `-> { AppEnv.production? }` detectors can be
+  deleted. Same convention as standard_audit, standard_health and
+  standard_singpass.
+
 ### Added
 
 - **`StandardId::Testing::RequestHelpers#sign_in_as(account, scope: nil)`.** Signs an

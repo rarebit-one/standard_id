@@ -440,6 +440,43 @@ RSpec.describe StandardId::Passwordless::VerificationService do
           }.to raise_error(RuntimeError, /must not be set in production/)
         end
 
+        context "with no production_env_detector, deciding from APP_ENVIRONMENT" do
+          around do |example|
+            original = ENV.fetch("APP_ENVIRONMENT", nil)
+            example.run
+          ensure
+            original.nil? ? ENV.delete("APP_ENVIRONMENT") : ENV["APP_ENVIRONMENT"] = original
+          end
+
+          before { allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production")) }
+
+          it "allows bypass on a staging box (RAILS_ENV=production, APP_ENVIRONMENT=staging)" do
+            ENV["APP_ENVIRONMENT"] = "staging"
+            account = create_email_account(email)
+
+            result = described_class.verify(email: email, code: bypass_code, request: request)
+
+            expect(result.success?).to be true
+            expect(result.account).to eq(account)
+          end
+
+          it "still raises for APP_ENVIRONMENT=production" do
+            ENV["APP_ENVIRONMENT"] = "production"
+
+            expect {
+              described_class.verify(email: email, code: bypass_code, request: request)
+            }.to raise_error(RuntimeError, /must not be set in production/)
+          end
+
+          it "fails closed on an unrecognised APP_ENVIRONMENT" do
+            ENV["APP_ENVIRONMENT"] = "prod"
+
+            expect {
+              described_class.verify(email: email, code: bypass_code, request: request)
+            }.to raise_error(RuntimeError, /must not be set in production/)
+          end
+        end
+
         it "allows bypass when production_env_detector returns false even under Rails.env.production?" do
           account = create_email_account(email)
           allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))

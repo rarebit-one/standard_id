@@ -166,7 +166,7 @@ module StandardId
     # inclusion. Extracted to a module method so specs can exercise it
     # directly without booting a second Rails app.
     def self.warn_if_allowed_audiences_empty_in_production!
-      return unless Rails.env.production?
+      return unless StandardId::AppEnvironment.production?
       return if StandardId.config.oauth.allowed_audiences.present?
 
       Rails.logger.warn(
