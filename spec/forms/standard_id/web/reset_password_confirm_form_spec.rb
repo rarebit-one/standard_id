@@ -25,7 +25,7 @@ RSpec.describe StandardId::Web::ResetPasswordConfirmForm, type: :model do
       expect(form.errors[:password]).to include("must be at least 8 characters long")
     end
 
-    it "updates password, destroys sessions, and returns true on success" do
+    it "updates password, revokes sessions, and returns true on success" do
       StandardId::BrowserSession.create!(account: account, user_agent: "RSpec", expires_at: 1.day.from_now)
       expect(account.sessions.count).to be >= 1
 
@@ -37,8 +37,8 @@ RSpec.describe StandardId::Web::ResetPasswordConfirmForm, type: :model do
       updated = StandardId::PasswordCredential.find(password_credential.id)
       expect(updated.authenticate("NewPass1!ab")).to be_truthy
 
-      # Sessions should be destroyed
-      expect(account.sessions.count).to eq(0)
+      # Sessions are revoked (kept for the audit trail), not deleted
+      expect(account.sessions.where(revoked_at: nil).count).to eq(0)
     end
   end
 end
