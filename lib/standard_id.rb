@@ -117,7 +117,8 @@ module StandardId
     end
 
     # The class StandardId::ApplicationMailer inherits from
-    # (`c.mailer_parent_class`). safe_constantize returns nil only when the
+    # (`c.mailer_parent_class`); it must be an ActionMailer::Base subclass,
+    # anything else raises ConfigurationError. safe_constantize returns nil only when the
     # name itself is undefined; an error raised while loading that class (a
     # typo inside the host's mailer) still propagates as itself.
     def mailer_parent_class
