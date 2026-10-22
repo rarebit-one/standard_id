@@ -20,9 +20,15 @@ module StandardId
       verified_at.present?
     end
 
-    def verify!
+    # +defer_event+ holds IDENTIFIER_VERIFICATION_SUCCEEDED until the
+    # enclosing transaction commits, and drops it if that rolls back.
+    def verify!(defer_event: false)
       update!(verified_at: Time.current)
-      emit_verification_succeeded
+      if defer_event
+        ActiveRecord.after_all_transactions_commit { emit_verification_succeeded }
+      else
+        emit_verification_succeeded
+      end
     end
 
     def unverify!

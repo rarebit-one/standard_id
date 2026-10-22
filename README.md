@@ -1728,7 +1728,8 @@ The rules:
 - **Resend and forgot-password answer the same whatever the address.** The
   reset lookup happens in `PasswordResetDeliveryJob`.
 - **A reset link** sets the password, verifies the address (the link proved the
-  inbox) and revokes every session and refresh token. It is single-use and
+  inbox; a pending sign-up's `after_email_verified` runs then) and revokes every
+  session and refresh token. It is single-use and
   expires with `PasswordCredential`'s `password_reset` token.
 - **Existing accounts:** sign-up for an address with a verified password
   account answers `409 account_exists`, and for a social-only account `409
@@ -1739,8 +1740,12 @@ The rules:
 - **Hooks and events.** `ACCOUNT_CREATED` and `CREDENTIAL_PASSWORD_CREATED`
   fire at sign-up, for an address that is not verified yet; provision anything
   that should wait for a proven address from `after_email_verified`. That hook
-  runs in the verification's transaction: if it raises, the address stays
-  unverified and the registrant asks for a new code to retry.
+  runs once, when the address is first verified (by code or reset link), in the
+  verification's transaction: if it raises, the address stays unverified and the
+  registrant retries with a new code or link. `IDENTIFIER_VERIFICATION_SUCCEEDED`
+  is published only after that transaction commits. Tokens are minted under the
+  password credential's row lock, so a reset racing a login or a verification
+  either lands first (that request then fails) or revokes what it minted.
 
 **Errors** are `StandardId::EmailPasswordError` codes, rendered as
 `{"error": code, "error_description": message, "details"?: {field: [messages]}}`:

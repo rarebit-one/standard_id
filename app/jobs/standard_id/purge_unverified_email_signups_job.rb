@@ -31,10 +31,18 @@ module StandardId
   # A sign-up whose owner asked for a code within
   # `c.email_password.purge_recent_code_window` seconds is kept, so someone
   # who comes back on day 4 is not deleted minutes before typing the code in.
+  # So is one whose address asked for a password reset in the last 24 hours
+  # (EmailPassword::DailyLimit's counter; a reset leaves no row), so the
+  # link in flight still works. That check is only as good as the rate-limit
+  # store: with a null store it never fires.
   # Each sign-up is re-checked under a row lock in its own transaction, so a
   # verification that lands mid-run wins.
   class PurgeUnverifiedEmailSignupsJob < ApplicationJob
     queue_as :default
+
+    # CleanupExpiredCodeChallengesJob's default grace_period_seconds: how long
+    # an unused code challenge, and so a candidate, survives past its expiry.
+    CHALLENGE_RETENTION = 7.days
 
     # @param older_than_seconds [Integer, nil] defaults to
     #   c.email_password.unverified_purge_after
@@ -42,7 +50,14 @@ module StandardId
     def perform(older_than_seconds: nil)
       return { purged_count: 0, skipped_count: 0 } unless StandardId::EmailPassword.enabled?
 
-      cutoff = (older_than_seconds || config.unverified_purge_after).to_i.seconds.ago
+      older_than = (older_than_seconds || config.unverified_purge_after).to_i.seconds
+      if older_than >= CHALLENGE_RETENTION
+        Rails.logger.warn(
+          "[StandardId] PurgeUnverifiedEmailSignupsJob: purging after #{older_than.inspect} reaches past the " \
+          "#{CHALLENGE_RETENTION.inspect} code challenges are kept, so few or no sign-ups can match"
+        )
+      end
+      cutoff = older_than.ago
       purged = 0
       skipped = 0
 
@@ -80,7 +95,7 @@ module StandardId
 
         account = StandardId.account_class.find_by(id: identifier.account_id)
         return false if account.nil? || account_in_use?(account)
-        return false if recent_code_requested?(identifier.value)
+        return false if recent_code_requested?(identifier.value) || reset_requested?(identifier.value)
 
         credentials = StandardId::Credential.where(identifier_id: identifier.id).to_a
         return false unless credentials.all? { |c| c.credentialable_type == StandardId::PasswordCredential.name }
@@ -111,6 +126,10 @@ module StandardId
       hook = config.account_in_use
       # Any truthy answer keeps the account: when in doubt, keep.
       hook.respond_to?(:call) && StandardId::EmailPassword.call_hook(hook, account: account) ? true : false
+    end
+
+    def reset_requested?(email)
+      StandardId::EmailPassword::DailyLimit.count(:reset_requested, email).positive?
     end
 
     def recent_code_requested?(email)

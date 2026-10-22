@@ -69,6 +69,12 @@ module StandardId
       # The identifier of the password credential for +email+, only when
       # +password+ is that credential's password.
       def identifier_for_password(email, password)
+        credential_for_password(email, password)&.credential&.identifier
+      end
+
+      # The password credential for +email+, only when +password+ is its
+      # password. A miss still pays for a bcrypt comparison.
+      def credential_for_password(email, password)
         password = password.to_s
         password_credential = find_password_credential(email)
         unless password_credential
@@ -77,7 +83,34 @@ module StandardId
         end
         return nil if password.empty? || !password_credential.authenticate(password)
 
-        password_credential.credential&.identifier
+        password_credential
+      end
+
+      # The first verification of a sign-up's address, by code or by reset
+      # link: marks it verified and runs `c.email_password.after_email_verified`.
+      # A no-op when the address is already verified, so the hook runs once.
+      #
+      # Call it inside a transaction. If the hook raises, the address stays
+      # unverified and the next verification retries it; and
+      # IDENTIFIER_VERIFICATION_SUCCEEDED waits for the commit, so subscribers
+      # never see a verification that was rolled back.
+      def complete_verification!(identifier, name: nil, request: nil)
+        identifier.lock!
+        return if identifier.verified?
+
+        identifier.verify!(defer_event: true)
+        hook = config.after_email_verified
+        call_hook(hook, account: identifier.account, name: name, request: request) if hook.respond_to?(:call)
+      end
+
+      # The name given at sign-up for +email+, carried on its latest
+      # verification code.
+      def signup_name(email)
+        StandardId::CodeChallenge
+          .where(realm: config.verification_realm, channel: "email", target: normalize_email(email))
+          .order(created_at: :desc)
+          .pick(:metadata)
+          &.dig("name")
       end
 
       # Field messages for +password+ (empty when acceptable): PasswordStrength

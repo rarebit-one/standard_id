@@ -41,6 +41,11 @@ module StandardId
         # Sets a new password from a reset token, verifies the address and
         # revokes every session and refresh token (AccessRevocation).
         #
+        # A reset that verifies a pending sign-up is its first verification, so
+        # it runs `c.email_password.after_email_verified` too, in the same
+        # transaction (EmailPassword.complete_verification!): if the hook
+        # raises, nothing changes and the token still works.
+        #
         # The token is PasswordCredential's `generates_token_for
         # :password_reset`: it embeds the current digest, so the change below is
         # what makes it single-use. That holds under concurrency too: the row is
@@ -51,7 +56,7 @@ module StandardId
         # @return [Account]
         # @raise [StandardId::EmailPasswordError] :invalid_reset_token,
         #   :weak_password
-        def complete!(token:, password:, password_confirmation: nil)
+        def complete!(token:, password:, password_confirmation: nil, request: nil)
           password = password.to_s
           password_credential = find_credential(token)
           identifier = password_credential&.credential&.identifier
@@ -70,7 +75,9 @@ module StandardId
             end
 
             password_credential.update!(password: password)
-            identifier.verify! unless identifier.verified?
+            EmailPassword.complete_verification!(
+              identifier, name: EmailPassword.signup_name(password_credential.login), request: request
+            )
             StandardId::AccessRevocation.revoke_all!(account, reason: "password_reset")
           end
 

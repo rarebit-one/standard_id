@@ -166,6 +166,41 @@ RSpec.describe "API email + password", type: :request do
       expect(identifier_for).to be_verified
     end
 
+    it "publishes IDENTIFIER_VERIFICATION_SUCCEEDED only once the verification commits" do
+      events = []
+      sub = StandardId::Events.subscribe(StandardId::Events::IDENTIFIER_VERIFICATION_SUCCEEDED) { |e| events << e }
+      calls = 0
+      StandardId.config.email_password.after_email_verified = lambda { |account:|
+        calls += 1
+        raise "provisioning down" if calls == 1
+      }
+      register
+
+      begin
+        expect { verify(code: latest_code) }.to raise_error("provisioning down")
+        expect(events).to be_empty
+
+        travel(StandardId.config.passwordless.retry_delay + 1) do
+          resend
+          verify(code: latest_code)
+        end
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+      expect(events.size).to eq(1)
+    end
+
+    it "answers a sign-up that loses the race to the uniqueness validation as account_exists" do
+      create_verified_account
+      allow(StandardId::EmailPassword).to receive(:find_password_credential).and_return(nil)
+      allow(StandardId::EmailIdentifier).to receive(:exists?).and_return(false)
+
+      expect { register }.not_to change(Account, :count)
+
+      expect(response).to have_http_status(:conflict)
+      expect(json["error"]).to eq("account_exists")
+    end
+
     it "answers a host validation failure as invalid_request" do
       StandardId.config.email_password.account_creator = lambda { |email:|
         account = Account.new(email: email)
@@ -452,6 +487,32 @@ RSpec.describe "API email + password", type: :request do
       expect(response).to have_http_status(:ok)
     end
 
+    it "refuses, leaving the address unverified, when a password reset lands before the verification" do
+      allow(StandardId::Otp).to receive(:verify).and_wrap_original do |original, **kwargs|
+        original.call(**kwargs).tap { password_credential_for.update!(password: "Res3t-elsewhere!") }
+      end
+
+      expect { verify(code: latest_code) }.not_to change(StandardId::RefreshToken, :count)
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(json["error"]).to eq("invalid_code")
+      expect(identifier_for).not_to be_verified
+    end
+
+    it "refuses tokens when a password reset lands between the verification and token issue" do
+      sub = StandardId::Events.subscribe(StandardId::Events::IDENTIFIER_VERIFICATION_SUCCEEDED) do
+        password_credential_for.update!(password: "Res3t-elsewhere!")
+      end
+      begin
+        expect { verify(code: latest_code) }.not_to change(StandardId::RefreshToken, :count)
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(json["error"]).to eq("invalid_code")
+    end
+
     it "answers a wrong password exactly like a wrong code" do
       verify(code: latest_code, password: "Wrong-passw0rd!")
       wrong_password = json
@@ -654,6 +715,38 @@ RSpec.describe "API email + password", type: :request do
       reset(token: pending_token)
 
       expect(identifier_for("pending@example.com")).to be_verified
+    end
+
+    it "runs after_email_verified, once, when it verifies a pending sign-up" do
+      seen = []
+      StandardId.config.email_password.after_email_verified = ->(account:, name:) { seen << [account.email, name] }
+      register(email: "pending@example.com", name: "Nova Star")
+
+      reset(token: password_credential_for("pending@example.com").generate_token_for(:password_reset))
+      reset(token: password_credential_for("pending@example.com").generate_token_for(:password_reset), password: "An0ther-passphrase!")
+
+      expect(response).to have_http_status(:ok)
+      expect(seen).to eq([["pending@example.com", "Nova Star"]])
+    end
+
+    it "changes nothing, and the link still works, when after_email_verified raises" do
+      StandardId.config.email_password.after_email_verified = ->(account:) { raise "provisioning down" }
+      register(email: "pending@example.com")
+      pending_token = password_credential_for("pending@example.com").generate_token_for(:password_reset)
+
+      expect { reset(token: pending_token) }.to raise_error("provisioning down")
+      expect(identifier_for("pending@example.com")).not_to be_verified
+      expect(StandardId::EmailPassword::PasswordReset.valid_token?(pending_token)).to be(true)
+    end
+
+    it "does not run after_email_verified for an address that was already verified" do
+      calls = 0
+      StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
+
+      reset(token: token)
+
+      expect(response).to have_http_status(:ok)
+      expect(calls).to eq(0)
     end
 
     it "publishes CREDENTIAL_PASSWORD_RESET_COMPLETED" do

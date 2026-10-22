@@ -55,6 +55,9 @@ module StandardId
           # Lost a race with a concurrent sign-up for the same address.
           existing_account!(email, :account_exists)
         rescue ActiveRecord::RecordInvalid => e
+          # The same race, caught by the uniqueness validation instead.
+          return existing_account!(email, :account_exists) if e.record.errors.of_kind?(:login, :taken)
+
           # A host Account validation (or account_creator) refused the record.
           raise StandardId::EmailPasswordError.new(:invalid_request, details: e.record.errors.to_hash)
         end
