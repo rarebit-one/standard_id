@@ -123,10 +123,10 @@ module StandardId
     def mailer_parent_class
       name = config.mailer_parent_class
       parent = name.to_s.safe_constantize
-      return parent if parent.is_a?(Class)
+      return parent if parent.is_a?(Class) && parent <= ActionMailer::Base
 
       raise ConfigurationError,
-        "c.mailer_parent_class = #{name.inspect} does not name a class. " \
+        "c.mailer_parent_class = #{name.inspect} does not name an ActionMailer::Base subclass. " \
         "Set it to your mailer base, e.g. \"ApplicationMailer\", or leave it unset for ActionMailer::Base."
     end
 
