@@ -64,14 +64,13 @@ module StandardId
         )
       end
 
-      # Revoke every session (and the refresh tokens under them), then any
-      # refresh token with no session (e.g. one minted by a grant flow). Revoking
-      # rather than destroying keeps the audit trail and fires SESSION_REVOKED;
-      # sessions.destroy_all used to nullify refresh_tokens.session_id
-      # (dependent: :nullify), leaving those tokens active after the reset.
+      # Revoke every session and refresh token (StandardId::AccessRevocation).
+      # Revoking rather than destroying keeps the audit trail and fires
+      # SESSION_REVOKED; sessions.destroy_all used to nullify
+      # refresh_tokens.session_id (dependent: :nullify), leaving those tokens
+      # active after the reset.
       def revoke_access!(account)
-        StandardId::Session.revoke_all_for!(account, reason: "password_reset")
-        StandardId::RefreshToken.where(account_id: account.id, revoked_at: nil).update_all(revoked_at: Time.current)
+        StandardId::AccessRevocation.revoke_all!(account, reason: "password_reset")
       end
     end
   end

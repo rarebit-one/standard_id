@@ -75,3 +75,16 @@ end
 ```cron
 0 3 * * * cd /path/to/app && bundle exec rake standard_id:cleanup:all RAILS_ENV=production
 ```
+
+### Unverified email + password sign-ups
+
+With `c.email_password.enabled`, schedule `StandardId::PurgeUnverifiedEmailSignupsJob` too (it is not part of `CleanupAllJob`, and is a no-op while the feature is off). Daily is plenty:
+
+```yaml
+production:
+  standard_id_purge_unverified_email_signups:
+    class: StandardId::PurgeUnverifiedEmailSignupsJob
+    schedule: every day at 4:20am
+```
+
+It removes sign-ups left unverified for `c.email_password.unverified_purge_after` seconds (3 days): the password credential, the email identifier and, when nothing else is left on it, the account. It skips an account at any sign of use (a verified or provider identifier, a session, a refresh token, `c.email_password.account_in_use` returning true, a row that still references it) and any address that asked for a code within `c.email_password.purge_recent_code_window` (24 hours). It returns `{ purged_count:, skipped_count: }`.

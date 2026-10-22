@@ -109,6 +109,31 @@ RSpec.describe StandardId::Config::CallableValidator do
       end
     end
 
+    context "email_password hooks" do
+      {
+        "reset_url" => ->(request:) { "https://app.example.com/r?token={token}" },
+        "client_key" => ->(request:) { request.remote_ip },
+        "account_creator" => ->(email:, name:) { nil },
+        "password_validator" => ->(password:) { [] },
+        "after_email_verified" => ->(account:, name:, request:) { nil },
+        "account_in_use" => ->(account:) { false },
+        "error_renderer" => ->(error:) { {} }
+      }.each do |field, hook|
+        it "accepts email_password.#{field} declaring a subset of its keywords" do
+          StandardId.config.email_password.public_send("#{field}=", hook)
+          expect { described_class.validate! }.not_to raise_error
+        end
+
+        it "rejects email_password.#{field} declaring an unknown keyword" do
+          StandardId.config.email_password.public_send("#{field}=", ->(nope:) { nil })
+          expect { described_class.validate! }.to raise_error(
+            StandardId::ConfigurationError,
+            /`email_password.#{field}`.*unknown keyword argument\(s\) \[:nope\]/
+          )
+        end
+      end
+    end
+
     context "keyword callables" do
       it "accepts a lambda with only allowed keywords" do
         StandardId.config.oauth.custom_claims = ->(account:, client:, **) { { id: account&.id } }

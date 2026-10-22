@@ -210,6 +210,20 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
       },
       allowed: -> { expect(@outcome).to be_a(StandardId::ServiceSession) },
       refused: -> { expect(@outcome).to be_a(StandardId::LoginMethodDenied) }
+    },
+    {
+      # Also POST /auth/verify-email, through the same TokenFlow.
+      flow: :api_email_password, auth_method: :password, provider: nil,
+      setup: -> {
+        StandardId.config.email_password.enabled = true
+        create_account_with_password(email: email, password: password)
+      },
+      perform: -> { post "/api/auth/login", params: { email: email, password: password }, as: :json },
+      allowed: -> { expect_token_response },
+      refused: -> {
+        expect(response).to have_http_status(:forbidden)
+        expect(json).to eq("error" => "login_method_denied", "error_description" => deny_message)
+      }
     }
   ].freeze
 

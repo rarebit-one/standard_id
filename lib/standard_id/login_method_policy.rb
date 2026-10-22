@@ -19,6 +19,7 @@ module StandardId
   # | :oauth_refresh_token            | the ORIGINAL sign-in's, else :unspecified | POST /oauth/token grant_type=refresh_token |
   # | :api_device_session             | caller's, else :unspecified | Api::TokenManager#create_device_session (host code) |
   # | :api_service_session            | caller's, else :unspecified | Api::TokenManager#create_service_session (host code) |
+  # | :api_email_password             | :password      | POST /auth/login and /auth/verify-email (Api::EmailPasswordController) |
   #
   # `refresh_token` is re-checked with the method of the authentication it
   # descends from (see StandardId::AuthLineage): a policy tightened after a
@@ -53,7 +54,7 @@ module StandardId
     FLOWS = %i[
       web_password web_signup web_passwordless web_social web_remember_me web_session
       oauth_password_grant oauth_passwordless_otp_grant oauth_social_callback oauth_refresh_token
-      api_device_session api_service_session
+      api_device_session api_service_session api_email_password
     ].freeze
 
     module_function

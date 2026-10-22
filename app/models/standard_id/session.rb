@@ -176,10 +176,10 @@ module StandardId
       )
     end
 
-    # DB state is already committed by the time this runs (unless the caller
-    # wraps revoke_all_for! in its own transaction, as Web::ResetPasswordConfirmForm
-    # does); event publishing is
-    # best-effort audit emission. A failing subscriber must not short-circuit the
+    # DB state is already committed by the time this runs, unless the caller
+    # wraps revoke_all_for! in its own transaction, as StandardId::AccessRevocation
+    # does for the password-reset paths (Web::ResetPasswordConfirmForm and
+    # EmailPassword::PasswordReset). Event publishing is best-effort audit emission. A failing subscriber must not short-circuit the
     # loop and leave later sessions without their SESSION_REVOKED event, which
     # would permanently desync audit-trail consumers from the DB.
     def self.publish_session_revocations(sessions, account:, reason:, now:)

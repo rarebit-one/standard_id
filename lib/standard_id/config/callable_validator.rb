@@ -70,6 +70,41 @@ module StandardId
           signature: "(audience:, client:, configured_scopes:)",
           kind: :keyword,
           keywords: %i[audience client configured_scopes]
+        },
+        "email_password.reset_url" => {
+          signature: "(request:)",
+          kind: :keyword,
+          keywords: %i[request]
+        },
+        "email_password.client_key" => {
+          signature: "(request:)",
+          kind: :keyword,
+          keywords: %i[request]
+        },
+        "email_password.account_creator" => {
+          signature: "(email:, name:, request:)",
+          kind: :keyword,
+          keywords: %i[email name request]
+        },
+        "email_password.password_validator" => {
+          signature: "(password:, email:)",
+          kind: :keyword,
+          keywords: %i[password email]
+        },
+        "email_password.after_email_verified" => {
+          signature: "(account:, name:, request:)",
+          kind: :keyword,
+          keywords: %i[account name request]
+        },
+        "email_password.account_in_use" => {
+          signature: "(account:)",
+          kind: :keyword,
+          keywords: %i[account]
+        },
+        "email_password.error_renderer" => {
+          signature: "(error:, request:)",
+          kind: :keyword,
+          keywords: %i[error request]
         }
       }.freeze
 

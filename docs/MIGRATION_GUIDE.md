@@ -4,10 +4,46 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Adopting the email + password API (0.55)](#adopting-the-email--password-api-055)
 - [0.42 to 0.43: deprecated settings removed](#042-to-043-deprecated-settings-removed)
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Adopting the email + password API (0.55)
+
+0.55 adds an opt-in email + password API (`c.email_password`; see the README's
+"Email + password API"). Nothing changes until you set
+`c.email_password.enabled = true`. If your app hand-rolled the same flow, move
+onto it like this:
+
+1. **Map your hooks.** Rate-limit network key → `client_key`; extra password
+   checks (e.g. breached passwords) → `password_validator`; profile
+   provisioning after verification → `after_email_verified`; "this account is
+   real" for the purge job → `account_in_use`; `require_name` /
+   `name_max_length` for the name rules.
+2. **Keep your error envelope**, if clients depend on it, with
+   `error_renderer`, mapping the `EmailPasswordError` codes onto your own.
+3. **Keep or change the paths.** The routes are `POST /auth/...` under the API
+   engine's mount. Delete your own routes and controllers once clients call
+   these. Unlike a plain Rails controller, the engine requires
+   `Content-Type: application/json`.
+4. **Replace your purge job** with `StandardId::PurgeUnverifiedEmailSignupsJob`
+   in your scheduler, and call
+   `StandardId::EmailPassword.discard_pending_credentials!` from your
+   `social.account.linked` subscriber if you link social sign-ins by email.
+5. **Expect these differences:**
+   - The sign-up code goes out as `PasswordlessMailer#verification_email` (set
+     `code_delivery = :custom` to send your own).
+   - `login_method_policy` sees `flow: :api_email_password`.
+   - The pending sign-up's name is kept in the code challenge's
+     `metadata["name"]`.
+   - The daily caps count under new keys in `c.cache_store`, so counts from your
+     own implementation do not carry over (each starts at zero on deploy).
+   - Nothing emails the user when a reset completes. Subscribe to
+     `credential.password.reset_completed` to send a "password changed" notice.
 
 ---
 

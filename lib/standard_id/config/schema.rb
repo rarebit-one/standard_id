@@ -277,6 +277,89 @@ StandardId::ConfigSchema.define do
     field :mailer_subject, type: :string, default: "Reset your password"
   end
 
+  # Email + password sign-up and sign-in over JSON (Api::EmailPasswordController,
+  # StandardId::EmailPassword), for native and SPA clients that cannot use the
+  # WebEngine's cookie forms. Off by default: until `enabled` is true the
+  # routes are not drawn at all (a routing constraint, so a host's own routes
+  # behind the mount point still match). See README "Email + password API".
+  #
+  # Sign-up creates an UNVERIFIED account and emails a 6-digit code; tokens are
+  # issued only when the code is confirmed, together with the sign-up password.
+  scope :email_password do
+    field :enabled, type: :boolean, default: false
+
+    # Stamped on the tokens this flow mints. It plays the role a provider name
+    # plays for social tokens: the client presents it on the refresh_token
+    # grant, which must match the token's client_id claim.
+    field :token_client_id, type: :string, default: "email"
+    field :token_scope, type: :string, default: "profile"
+    field :token_audience, type: :string, default: nil
+
+    # OTP realm for the sign-up code. Deliberately not "authentication": that
+    # realm resolves (and can create) an account on verify.
+    field :verification_realm, type: :string, default: "email_verification"
+
+    # What sign-up answers for an address that already has a verified password
+    # account, or belongs to a social-only account:
+    #   true  — (default) 409 :account_exists / :social_account
+    #   false — the same 202 as a new address, and the owner is emailed
+    #           (AccountNoticeMailer#existing_account), so sign-up cannot be
+    #           used to learn which addresses are registered.
+    field :reveal_existing_accounts, type: :boolean, default: true
+
+    field :require_name, type: :boolean, default: false
+    field :name_max_length, type: :integer, default: 100
+
+    # Who emails the sign-up code:
+    #   :built_in — the engine, with PasswordlessMailer#verification_email
+    #   :custom   — a host PASSWORDLESS_CODE_GENERATED subscriber (the event
+    #               carries delivery: :custom and realm verification_realm)
+    # Independent of passwordless.delivery, so turning this on does not start
+    # delivering codes for the passwordless-login endpoint.
+    field :code_delivery, type: :symbol, default: :built_in
+
+    # Link emailed by forgot-password. A String containing "{token}", or a
+    # callable `(request:)` returning one. Required once enabled: the reset
+    # page lives on the host, not the API engine. Delivery follows
+    # reset_password.delivery.
+    field :reset_url, type: :any, default: nil
+
+    # Callable `(request:)` returning the key the per-IP limits and the daily
+    # per-network reset cap count under. Default: request.remote_ip. Return a
+    # masked network (an IPv4 /24, IPv6 /64) to stop address rotation inside
+    # one allocation from resetting the count.
+    field :client_key, type: :any, default: nil
+
+    # Callable `(email:, name:, request:)` returning a new, persisted account.
+    # Default: account_class.create! with email and name (the local part when
+    # name is blank), each only when the account has that attribute.
+    field :account_creator, type: :any, default: nil
+
+    # Callable `(password:, email:)` returning an Array of messages (empty when
+    # acceptable), run after PasswordStrength on sign-up and reset. For checks
+    # that must not be a model validation, e.g. a breached-password lookup.
+    field :password_validator, type: :any, default: nil
+
+    # Callable `(account:, name:, request:)` run once the sign-up code is
+    # confirmed, before tokens are minted, e.g. to provision a profile. +name+
+    # is the one given at sign-up.
+    field :after_email_verified, type: :any, default: nil
+
+    # Callable `(account:)`; truthy keeps an account from
+    # PurgeUnverifiedEmailSignupsJob on top of the built-in checks.
+    field :account_in_use, type: :any, default: nil
+
+    # Callable `(error:, request:)` returning the JSON body for a
+    # StandardId::EmailPasswordError; the status stays error.http_status.
+    # Default: { error:, error_description:, details? }.
+    field :error_renderer, type: :any, default: nil
+
+    # PurgeUnverifiedEmailSignupsJob: unverified sign-ups older than this are
+    # removed, unless a code was requested within purge_recent_code_window.
+    field :unverified_purge_after, type: :integer, default: 259200 # 3 days in seconds
+    field :purge_recent_code_window, type: :integer, default: 86400 # 24 hours in seconds
+  end
+
   scope :session do
     field :browser_session_lifetime, type: :integer, default: 86400 # 24 hours in seconds
     field :browser_session_remember_me_lifetime, type: :integer, default: 2592000 # 30 days in seconds
@@ -875,5 +958,26 @@ StandardId::ConfigSchema.define do
     # "throttled" from "token invalid" and turn the limiter into a token-validity
     # oracle.
     field :introspection_per_ip, type: :integer, default: 30              # per 15 minutes
+
+    # Email + password API (Api::EmailPasswordController). The other actions
+    # reuse the limits above: register signup_per_ip + verification_start_per_target,
+    # login login_per_*, resend verification_start_*, forgot password_reset_start_*.
+    field :email_password_verify_per_email, type: :integer, default: 10  # per 15 minutes
+    field :email_password_reset_per_ip, type: :integer, default: 20      # per 15 minutes
+
+    # Daily (24h) per-address caps (StandardId::EmailPassword::DailyLimit), on
+    # top of the short windows. Counted whether or not the address has an
+    # account, so reaching one reveals nothing.
+    #   failed_verifications — a wrong code sent WITH the right password; at the
+    #     cap the address cannot verify until the window passes. Wrong-password
+    #     attempts never count, so a stranger cannot lock the registrant out.
+    #   codes — sign-up codes (and existing-account notices) emailed.
+    #   reset_requests_per_network — forgot-password emails per address per
+    #     client_key, so one attacker cannot spend the owner's allowance.
+    #   reset_requests — the same across all networks.
+    field :email_password_failed_verifications_per_day, type: :integer, default: 10
+    field :email_password_codes_per_day, type: :integer, default: 10
+    field :email_password_reset_requests_per_network_per_day, type: :integer, default: 5
+    field :email_password_reset_requests_per_day, type: :integer, default: 20
   end
 end

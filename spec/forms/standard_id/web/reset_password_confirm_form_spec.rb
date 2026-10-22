@@ -40,5 +40,18 @@ RSpec.describe StandardId::Web::ResetPasswordConfirmForm, type: :model do
       # Sessions are revoked (kept for the audit trail), not deleted
       expect(account.sessions.where(revoked_at: nil).count).to eq(0)
     end
+
+    it "still succeeds, and logs, when a CREDENTIAL_PASSWORD_RESET_COMPLETED subscriber raises" do
+      subscription = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { raise "boom" }
+      allow(StandardId.logger).to receive(:error)
+
+      form = described_class.new(password_credential, password: "NewPass1!ab", password_confirmation: "NewPass1!ab")
+
+      expect(form.submit).to eq(true)
+      expect(StandardId::PasswordCredential.find(password_credential.id).authenticate("NewPass1!ab")).to be_truthy
+      expect(StandardId.logger).to have_received(:error).with(/CREDENTIAL_PASSWORD_RESET_COMPLETED.*RuntimeError: boom/)
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+    end
   end
 end
