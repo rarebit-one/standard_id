@@ -629,6 +629,23 @@ StandardId.configure do |config|
 end
 ```
 
+   Or start from the `:inertia_web` preset, which bundles the settings an
+   Inertia app with passwordless or social sign-in usually flips:
+
+```ruby
+StandardId.configure do |config|
+  config.preset :inertia_web
+  # use_inertia = true, alias_current_user = true,
+  # web.signup / web.password_login / web.password_reset = false,
+  # oauth.discovery_endpoint_base = :request
+  config.web.passwordless_login = true # not part of the preset: your call
+end
+```
+
+   A preset fills only the settings you haven't assigned, so an explicit
+   assignment wins whether it comes before or after `preset`. An unknown name
+   raises `ArgumentError`. The public defaults are unchanged.
+
 3. Create the corresponding frontend components. The component path follows the pattern:
    `{namespace}/{ControllerName}/{action}`
 

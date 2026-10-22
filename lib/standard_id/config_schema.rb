@@ -266,6 +266,16 @@ module StandardId
 
       def registered?(scope_name) = !!self[scope_name.to_sym]&.resolver
 
+      # Applies a named settings bundle (StandardId::Config::Presets). Only
+      # settings the host has not assigned are filled, so explicit
+      # assignments win in either order.
+      #
+      #   StandardId.configure do |c|
+      #     c.preset :inertia_web
+      #     c.web.passwordless_login = true
+      #   end
+      def preset(name) = StandardId::Config::Presets.apply(self, name)
+
       def [](key)
         sym = key.to_sym
         return super if key?(sym) || __schema__.nil? || __schema__.scope?(sym)
