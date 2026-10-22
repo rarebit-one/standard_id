@@ -19,22 +19,29 @@ This guide helps you migrate between StandardId versions.
 `c.email_password.enabled = true`. If your app hand-rolled the same flow, move
 onto it like this:
 
-1. **Map your hooks.** Rate-limit network key → `client_key`; extra password
+1. **Run the migration.** `bin/rails standard_id:install:migrations && bin/rails
+   db:migrate` adds `standard_id_identifiers.signup_source`. The API's sign-up
+   sets it to `"email_password"`; a reset runs `after_email_verified` only for
+   such sign-ups, and the purge job deletes only those. Sign-ups your own flow
+   left pending have none, so backfill the ones that should count as API
+   sign-ups (say, unverified email identifiers with a password credential and a
+   code in your verification realm) to `"email_password"`.
+2. **Map your hooks.** Rate-limit network key → `client_key`; extra password
    checks (e.g. breached passwords) → `password_validator`; profile
    provisioning after verification → `after_email_verified`; "this account is
    real" for the purge job → `account_in_use`; `require_name` /
    `name_max_length` for the name rules.
-2. **Keep your error envelope**, if clients depend on it, with
+3. **Keep your error envelope**, if clients depend on it, with
    `error_renderer`, mapping the `EmailPasswordError` codes onto your own.
-3. **Keep or change the paths.** The routes are `POST /auth/...` under the API
+4. **Keep or change the paths.** The routes are `POST /auth/...` under the API
    engine's mount. Delete your own routes and controllers once clients call
    these. Unlike a plain Rails controller, the engine requires
    `Content-Type: application/json`.
-4. **Replace your purge job** with `StandardId::PurgeUnverifiedEmailSignupsJob`
+5. **Replace your purge job** with `StandardId::PurgeUnverifiedEmailSignupsJob`
    in your scheduler, and call
    `StandardId::EmailPassword.discard_pending_credentials!` from your
    `social.account.linked` subscriber if you link social sign-ins by email.
-5. **Expect these differences:**
+6. **Expect these differences:**
    - The sign-up code goes out as `PasswordlessMailer#verification_email` (set
      `code_delivery = :custom` to send your own).
    - `login_method_policy` sees `flow: :api_email_password`.

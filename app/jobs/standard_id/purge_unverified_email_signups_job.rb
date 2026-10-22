@@ -11,14 +11,10 @@ module StandardId
   # the account too when nothing else is left on it.
   #
   # Only an email identifier that is unverified, has no provider, carries a
-  # password credential, is older than the cutoff AND has had a code issued in
-  # `c.email_password.verification_realm` (the mark of a sign-up made through
-  # EmailPassword::Registration) is considered. That last condition keeps the
-  # job away from other unverified password sign-ups, such as
-  # Web::SignupForm's, which never get a code in that realm. Unused code
-  # challenges survive CleanupExpiredCodeChallengesJob for 7 days past expiry,
-  # so keep `unverified_purge_after` well under that: a sign-up whose
-  # challenge has already been cleaned up is simply never purged (fails safe).
+  # password credential, is older than the cutoff AND was created by
+  # EmailPassword::Registration (`signup_source`, EmailPassword.api_signup?)
+  # is considered. That last condition keeps the job away from other
+  # unverified password sign-ups, such as Web::SignupForm's.
   # Even then the whole account is skipped, unchanged, at any sign of real use:
   #   * any verified identifier, or any with a provider (a social sign-in
   #     linked to it does not verify the identifier, so the provider is
@@ -38,13 +34,9 @@ module StandardId
   # Each sign-up is re-checked under a row lock in its own transaction, so a
   # verification that lands mid-run wins. The locks are taken in the order
   # verify and reset take them (password credential, then identifier); a
-  # deadlock anyway leaves the sign-up for the next run.
+  # deadlock or lock wait timeout anyway leaves the sign-up for the next run.
   class PurgeUnverifiedEmailSignupsJob < ApplicationJob
     queue_as :default
-
-    # CleanupExpiredCodeChallengesJob's default grace_period_seconds: how long
-    # an unused code challenge, and so a candidate, survives past its expiry.
-    CHALLENGE_RETENTION = 7.days
 
     # @param older_than_seconds [Integer, nil] defaults to
     #   c.email_password.unverified_purge_after
@@ -52,14 +44,7 @@ module StandardId
     def perform(older_than_seconds: nil)
       return { purged_count: 0, skipped_count: 0 } unless StandardId::EmailPassword.enabled?
 
-      older_than = (older_than_seconds || config.unverified_purge_after).to_i.seconds
-      if older_than >= CHALLENGE_RETENTION
-        Rails.logger.warn(
-          "[StandardId] PurgeUnverifiedEmailSignupsJob: purging after #{older_than.inspect} reaches past the " \
-          "#{CHALLENGE_RETENTION.inspect} code challenges are kept, so few or no sign-ups can match"
-        )
-      end
-      cutoff = older_than.ago
+      cutoff = (older_than_seconds || config.unverified_purge_after).to_i.seconds.ago
       purged = 0
       skipped = 0
 
@@ -83,10 +68,9 @@ module StandardId
 
     def candidates(cutoff)
       StandardId::EmailIdentifier
-        .where(verified_at: nil, provider: nil)
+        .where(verified_at: nil, provider: nil, signup_source: StandardId::EmailPassword::SIGNUP_SOURCE)
         .where(created_at: ...cutoff)
         .where(id: StandardId::Credential.where(credentialable_type: StandardId::PasswordCredential.name).select(:identifier_id))
-        .where(value: StandardId::CodeChallenge.where(realm: config.verification_realm, channel: "email").select(:target))
     end
 
     # true when the sign-up was removed, false when it was left alone.
@@ -94,7 +78,8 @@ module StandardId
       ActiveRecord::Base.transaction do
         lock_password_credentials(identifier)
         identifier.lock!
-        return false unless identifier.verified_at.nil? && identifier.provider.nil? && identifier.created_at < cutoff
+        return false unless identifier.verified_at.nil? && identifier.provider.nil? && identifier.created_at < cutoff &&
+          StandardId::EmailPassword.api_signup?(identifier)
 
         account = StandardId.account_class.find_by(id: identifier.account_id)
         return false if account.nil? || account_in_use?(account)
@@ -117,7 +102,7 @@ module StandardId
         true
       end
     rescue ActiveRecord::DeleteRestrictionError, ActiveRecord::InvalidForeignKey, ActiveRecord::RecordNotDestroyed,
-      ActiveRecord::Deadlocked => e
+      ActiveRecord::Deadlocked, ActiveRecord::LockWaitTimeout => e
       Rails.logger.warn("[StandardId] Left unverified email sign-up #{identifier.id} alone: #{e.class}")
       false
     end

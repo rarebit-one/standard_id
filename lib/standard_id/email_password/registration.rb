@@ -100,7 +100,9 @@ module StandardId
             )
 
             account = build_account(email, name, request)
-            identifier = StandardId::EmailIdentifier.create!(account: account, value: email)
+            identifier = StandardId::EmailIdentifier.create!(
+              account: account, value: email, signup_source: EmailPassword::SIGNUP_SOURCE
+            )
             password_credential = StandardId::PasswordCredential.create!(login: email, password: password)
             StandardId::Credential.create!(identifier: identifier, credentialable: password_credential)
 
