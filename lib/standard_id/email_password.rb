@@ -33,6 +33,11 @@ module StandardId
     # address is registered.
     DUMMY_PASSWORD_DIGEST = Concurrent::Delay.new { BCrypt::Password.create("").freeze }
 
+    # Identifier#signup_source of a sign-up made through Registration. A reset
+    # runs `after_email_verified` only for these, and
+    # PurgeUnverifiedEmailSignupsJob only deletes these.
+    SIGNUP_SOURCE = "email_password"
+
     class << self
       def config
         StandardId.config.email_password
@@ -106,20 +111,32 @@ module StandardId
         call_hook(hook, account: identifier.account, name: name, request: request)
       end
 
-      # The latest verification code sent to +email+: the mark of a sign-up
-      # made through Registration (as PurgeUnverifiedEmailSignupsJob reads
-      # it), nil for any other account, such as a Web::SignupForm sign-up.
-      def signup_challenge(email)
-        StandardId::CodeChallenge
-          .where(realm: config.verification_realm, channel: "email", target: normalize_email(email))
-          .order(created_at: :desc)
-          .first
+      # true when +identifier+ was created by Registration (its signup_source),
+      # as opposed to Web::SignupForm, a social sign-in or the host's own flow.
+      def api_signup?(identifier)
+        identifier.signup_source == SIGNUP_SOURCE
+      end
+
+      # Registration writes Identifier#signup_source, which migration
+      # 20261022000000 adds; without it a sign-up would fail with an unknown
+      # attribute, so say what to run instead.
+      def require_signup_source_column!
+        return if StandardId::Identifier.column_names.include?("signup_source")
+
+        raise StandardId::ConfigurationError,
+          "c.email_password needs migration 20261022000000_add_signup_source_to_standard_id_identifiers: " \
+          "run bin/rails standard_id:install:migrations && bin/rails db:migrate"
       end
 
       # The name given at sign-up for +email+, carried on its latest
-      # verification code.
+      # verification code; nil once CleanupExpiredCodeChallengesJob has removed
+      # that code.
       def signup_name(email)
-        signup_challenge(email)&.metadata&.dig("name")
+        StandardId::CodeChallenge
+          .where(realm: config.verification_realm, channel: "email", target: normalize_email(email))
+          .order(created_at: :desc)
+          .pick(:metadata)
+          &.dig("name")
       end
 
       # Field messages for +password+ (empty when acceptable): PasswordStrength

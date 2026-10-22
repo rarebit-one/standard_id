@@ -45,8 +45,8 @@ module StandardId
         # it runs `c.email_password.after_email_verified` too, in the same
         # transaction (EmailPassword.complete_verification!): if the hook
         # raises, nothing changes and the token still works. An unverified
-        # account that did not sign up through Registration (no code in
-        # verification_realm) is verified without the hook.
+        # account that did not sign up through Registration (no signup_source,
+        # EmailPassword.api_signup?) is verified without the hook.
         #
         # The token is PasswordCredential's `generates_token_for
         # :password_reset`: it embeds the current digest, so the change below is
@@ -77,10 +77,12 @@ module StandardId
             end
 
             password_credential.update!(password: password)
-            # Skip the lookup when the address was verified already.
-            signup = EmailPassword.signup_challenge(password_credential.login) unless identifier.verified?
+            api_signup = !identifier.verified? && EmailPassword.api_signup?(identifier)
             EmailPassword.complete_verification!(
-              identifier, name: signup&.metadata&.dig("name"), request: request, run_hook: !signup.nil?
+              identifier,
+              name: (EmailPassword.signup_name(password_credential.login) if api_signup),
+              request: request,
+              run_hook: api_signup
             )
             StandardId::AccessRevocation.revoke_all!(account, reason: "password_reset")
           end

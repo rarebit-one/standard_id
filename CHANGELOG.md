@@ -21,13 +21,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   codes, with an `error_renderer` hook for hosts that keep their own envelope. Short
   limits reuse `c.rate_limits`, plus new daily per-address caps
   (`rate_limits.email_password_*`). The operations behind it
-  (`StandardId::EmailPassword::*`) are public. See the README and
-  `docs/MIGRATION_GUIDE.md`.
+  (`StandardId::EmailPassword::*`) are public. Migration
+  **`20261022000000_add_signup_source_to_standard_id_identifiers`** adds the
+  nullable `signup_source` column that marks these sign-ups; run it before enabling
+  the API. See the README and `docs/MIGRATION_GUIDE.md`.
 - **`c.email_password.reveal_existing_accounts`** (default `true`: `409
   account_exists` / `social_account`). `false` answers sign-up for a registered address
   like a new one and emails the owner (`AccountNoticeMailer#existing_account`).
 - **`StandardId::PurgeUnverifiedEmailSignupsJob`** removes sign-ups made through the
-  email + password API (never the web sign-up form's) left unverified for `c.email_password.unverified_purge_after` (3 days), skipping any
+  email + password API (`signup_source` `"email_password"`; never the web sign-up form's) left unverified for `c.email_password.unverified_purge_after` (3 days), skipping any
   account showing use. Schedule it yourself (`docs/OPERATIONS.md`).
 - **`StandardId::EmailPassword.discard_pending_credentials!`**, for a
   `social.account.linked` subscriber: drops a stranger's pending password from an

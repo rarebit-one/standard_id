@@ -92,6 +92,7 @@ module StandardId
         end
 
         def create_account!(email, name, password, request)
+          EmailPassword.require_signup_source_column!
           ActiveRecord::Base.transaction do
             StandardId::Events.publish(
               StandardId::Events::ACCOUNT_CREATING,
@@ -100,7 +101,9 @@ module StandardId
             )
 
             account = build_account(email, name, request)
-            identifier = StandardId::EmailIdentifier.create!(account: account, value: email)
+            identifier = StandardId::EmailIdentifier.create!(
+              account: account, value: email, signup_source: EmailPassword::SIGNUP_SOURCE
+            )
             password_credential = StandardId::PasswordCredential.create!(login: email, password: password)
             StandardId::Credential.create!(identifier: identifier, credentialable: password_credential)
 

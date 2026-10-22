@@ -7,18 +7,15 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
   before { StandardId.config.email_password.enabled = true }
 
   # An email + password sign-up as Registration leaves it: an unverified email
-  # identifier with a password credential and the code it was sent, all
+  # identifier marked with its signup_source, with a password credential,
   # created +age+ ago.
   def pending_signup(email, age: 4.days)
     account = unverified_password_signup(email, age: age)
-    StandardId::CodeChallenge.create!(
-      realm: StandardId.config.email_password.verification_realm, channel: "email", target: email,
-      code: "654321", expires_at: (age - 10.minutes).ago, created_at: age.ago
-    )
+    StandardId::EmailIdentifier.find_by!(value: email).update_columns(signup_source: StandardId::EmailPassword::SIGNUP_SOURCE)
     account
   end
 
-  # The same rows without a code: what Web::SignupForm leaves.
+  # The same rows without the mark: what Web::SignupForm leaves.
   def unverified_password_signup(email, age: 4.days)
     account = create_account_with_password(email: email, password: "Sup3r-secret!", name: "Pending")
     StandardId::EmailIdentifier.find_by!(value: email).update_columns(verified_at: nil, created_at: age.ago)
@@ -64,10 +61,12 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
     expect(gone?(account)).to be(false)
   end
 
-  it "never considers an unverified password sign-up that was not sent a code in the verification realm" do
+  it "never considers an unverified password sign-up not made through the API" do
     web_signup = unverified_password_signup("web@example.com")
+    # A code in the verification realm (say, left by a purged API sign-up for
+    # the same address) does not make it one.
     StandardId::CodeChallenge.create!(
-      realm: "authentication", channel: "email", target: "web@example.com",
+      realm: StandardId.config.email_password.verification_realm, channel: "email", target: "web@example.com",
       code: "111111", expires_at: 4.days.ago, created_at: 4.days.ago
     )
 
@@ -75,19 +74,12 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
     expect(gone?(web_signup)).to be(false)
   end
 
-  it "never considers an unverified password sign-up that was never sent a code at all" do
-    web_signup = unverified_password_signup("web@example.com")
+  it "still finds a sign-up once its code challenges have been cleaned up" do
+    account = pending_signup("cleaned@example.com")
 
-    expect(described_class.perform_now).to eq(purged_count: 0, skipped_count: 0)
-    expect(gone?(web_signup)).to be(false)
-  end
-
-  it "warns when the window reaches past how long code challenges are kept" do
-    allow(Rails.logger).to receive(:warn)
-
-    described_class.perform_now(older_than_seconds: 8.days.to_i)
-
-    expect(Rails.logger).to have_received(:warn).with(/reaches past the 7 days code challenges are kept/)
+    expect(StandardId::CodeChallenge.where(target: "cleaned@example.com")).to be_empty
+    expect(described_class.perform_now).to eq(purged_count: 1, skipped_count: 0)
+    expect(gone?(account)).to be(true)
   end
 
   it "never considers a verified identifier" do
@@ -165,18 +157,20 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
     expect(locked).to eq([:password_credential, :identifier])
   end
 
-  it "skips a sign-up, and carries on, when its locks deadlock" do
-    pending_signup("deadlocked@example.com")
-    other = pending_signup("other@example.com")
-    allow_any_instance_of(StandardId::EmailIdentifier).to receive(:lock!).and_wrap_original do |original, *args|
-      raise ActiveRecord::Deadlocked, "deadlock detected" if original.receiver.value == "deadlocked@example.com"
+  [ActiveRecord::Deadlocked, ActiveRecord::LockWaitTimeout].each do |error|
+    it "skips a sign-up, and carries on, when its locks raise #{error.name.demodulize}" do
+      pending_signup("deadlocked@example.com")
+      other = pending_signup("other@example.com")
+      allow_any_instance_of(StandardId::EmailIdentifier).to receive(:lock!).and_wrap_original do |original, *args|
+        raise error, "lock failed" if original.receiver.value == "deadlocked@example.com"
 
-      original.call(*args)
+        original.call(*args)
+      end
+
+      expect(described_class.perform_now).to eq(purged_count: 1, skipped_count: 1)
+      expect(gone?(other)).to be(true)
+      expect(StandardId::PasswordCredential.where(login: "deadlocked@example.com")).to exist
     end
-
-    expect(described_class.perform_now).to eq(purged_count: 1, skipped_count: 1)
-    expect(gone?(other)).to be(true)
-    expect(StandardId::PasswordCredential.where(login: "deadlocked@example.com")).to exist
   end
 
   it "rolls one sign-up back, and carries on, when a guard refuses the delete" do

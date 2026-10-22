@@ -100,6 +100,7 @@ RSpec.describe "API email + password", type: :request do
       expect(response).to have_http_status(:accepted)
       expect(json).to eq("status" => "verification_required", "email" => email)
       expect(identifier_for).not_to be_verified
+      expect(identifier_for.signup_source).to eq("email_password")
       expect(latest_code).to match(/\A\d{6}\z/)
       expect(identifier_for.account.name).to eq("Nova")
     end
@@ -144,6 +145,27 @@ RSpec.describe "API email + password", type: :request do
       verify(code: latest_code)
 
       expect(seen).to eq([email, "Nova Star"])
+    end
+
+    it "verifies, without running after_email_verified, a web sign-up that verifies here" do
+      calls = 0
+      StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
+      create_account_with_password(email: email, password: password, name: "Web")
+      identifier_for.update_columns(verified_at: nil)
+
+      resend
+      verify(code: latest_code)
+
+      expect_token_response
+      expect(identifier_for).to be_verified
+      expect(calls).to eq(0)
+    end
+
+    it "refuses to sign up, naming the migration, until the signup_source column exists" do
+      allow(StandardId::Identifier).to receive(:column_names).and_return(StandardId::Identifier.column_names - ["signup_source"])
+
+      expect { register }.to raise_error(StandardId::ConfigurationError, /20261022000000_add_signup_source/)
+      expect(identifier_for).to be_nil
     end
 
     it "leaves the address unverified, so a new code can retry the hook, when after_email_verified raises" do
@@ -767,6 +789,35 @@ RSpec.describe "API email + password", type: :request do
       expect(calls).to eq(0)
     end
 
+    it "runs after_email_verified, without a name, once the sign-up's code challenges have been cleaned up" do
+      seen = []
+      StandardId.config.email_password.after_email_verified = ->(account:, name:) { seen << [account.email, name] }
+      register(email: "pending@example.com", name: "Nova Star")
+      StandardId::CodeChallenge.where(target: "pending@example.com").delete_all
+
+      reset(token: password_credential_for("pending@example.com").generate_token_for(:password_reset))
+
+      expect(response).to have_http_status(:ok)
+      expect(seen).to eq([["pending@example.com", nil]])
+    end
+
+    it "does not run after_email_verified for a web sign-up, even with a code in the verification realm" do
+      calls = 0
+      StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
+      create_account_with_password(email: "websignup@example.com", password: "Sup3r-secret!", name: "Web")
+      identifier_for("websignup@example.com").update_columns(verified_at: nil)
+      StandardId::CodeChallenge.create!(
+        realm: realm, channel: "email", target: "websignup@example.com",
+        code: "111111", expires_at: 1.hour.from_now, metadata: { "name" => "Stale" }
+      )
+
+      reset(token: password_credential_for("websignup@example.com").generate_token_for(:password_reset))
+
+      expect(response).to have_http_status(:ok)
+      expect(identifier_for("websignup@example.com")).to be_verified
+      expect(calls).to eq(0)
+    end
+
     it "still answers, and publishes CREDENTIAL_PASSWORD_RESET_COMPLETED, when a verification subscriber fails" do
       completed = []
       failing = StandardId::Events.subscribe(StandardId::Events::IDENTIFIER_VERIFICATION_SUCCEEDED) { raise "subscriber down" }
@@ -788,7 +839,7 @@ RSpec.describe "API email + password", type: :request do
     it "does not run after_email_verified, or look up the sign-up, for an address that was already verified" do
       calls = 0
       StandardId.config.email_password.after_email_verified = ->(account:) { calls += 1 }
-      expect(StandardId::EmailPassword).not_to receive(:signup_challenge)
+      expect(StandardId::EmailPassword).not_to receive(:signup_name)
 
       reset(token: token)
 

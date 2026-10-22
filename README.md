@@ -1679,7 +1679,10 @@ POST /api/passwordless/verify
 
 Opt-in sign-up and sign-in with an email and a password for JSON clients
 (mobile apps, SPAs), alongside the OAuth grants. Off by default; the routes are
-not drawn until you enable it.
+not drawn until you enable it. It needs migration
+`20261022000000_add_signup_source_to_standard_id_identifiers`, so run
+`bin/rails standard_id:install:migrations && bin/rails db:migrate` before
+enabling it.
 
 ```ruby
 StandardId.configure do |c|
@@ -1742,14 +1745,16 @@ The rules:
   that should wait for a proven address from `after_email_verified`. That hook
   runs once, when the address is first verified (by code or reset link), in the
   verification's transaction: if it raises, the address stays unverified and the
-  registrant retries with a new code or link. Only sign-ups made through this API
-  run it: a reset that verifies a web sign-up does not. It runs with the
-  address's rows locked, so keep slow work (an external call) in a job it
-  enqueues. A failing `IDENTIFIER_VERIFICATION_SUCCEEDED` subscriber is logged,
-  not raised, since the verification has already committed. `IDENTIFIER_VERIFICATION_SUCCEEDED`
-  is published only after that transaction commits. Tokens are minted under the
-  password credential's row lock, so a reset racing a login or a verification
-  either lands first (that request then fails) or revokes what it minted.
+  registrant retries with a new code or link. It runs only for a sign-up made
+  through this API (its identifier's `signup_source` is `"email_password"`): a
+  web sign-up verified here, by code or reset link, is verified without it. It runs with the address's rows
+  locked, so keep slow work (an external call) in a job it enqueues.
+
+  `IDENTIFIER_VERIFICATION_SUCCEEDED` is published only after that transaction
+  commits. A failing subscriber to it is logged, not raised, since the
+  verification has already committed. Tokens are minted under the password
+  credential's row lock, so a reset racing a login or a verification either
+  lands first (that request then fails) or revokes what it minted.
 
 **Errors** are `StandardId::EmailPasswordError` codes, rendered as
 `{"error": code, "error_description": message, "details"?: {field: [messages]}}`:
