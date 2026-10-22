@@ -55,6 +55,91 @@ module StandardId
       def bearer_auth_header(token)
         { "Authorization" => "Bearer #{token}" }
       end
+
+      # Bearer headers for an account, in one call: build_jwt + bearer_auth_header.
+      #
+      #   get "/api/orders", headers: bearer_headers_for(account, scope: "orders.read")
+      #
+      # @param account [Object] the account (its id becomes the sub claim)
+      # @param jwt_options [Hash] any other build_jwt keyword (scope:, client_id:, extra:, ...)
+      # @return [Hash] header hash
+      #
+      def bearer_headers_for(account, **jwt_options)
+        bearer_auth_header(build_jwt(account: account, **jwt_options))
+      end
+
+      # Sign an account in for the following requests in a request spec,
+      # without driving a login form or stubbing controllers.
+      #
+      # Creates a real BrowserSession and writes the same encrypted
+      # `session_token` cookie that Web::SessionManager writes on a real
+      # sign-in, so `current_account`, `require_browser_session!` and the
+      # session's expiry and revocation all behave exactly as in production.
+      # With `scope:`, it also writes the Rails session cookie carrying
+      # `standard_id_scopes` (what `current_scope_names` reads), which needs
+      # the cookie session store; any other store raises ArgumentError.
+      #
+      # Nothing is added to the app: the cookies are built with the app's own
+      # encrypted cookie jar and secret_key_base, so there is no test-only route
+      # to forget to remove. Writing the session cookie replaces any session
+      # data an earlier request in the same example left behind.
+      #
+      #   sign_in_as(account)
+      #   sign_in_as(account, scope: :platform)
+      #   get "/dashboard"
+      #
+      # @param account [Object] the account to sign in
+      # @param scope [Symbol, String, Array, nil] scope name(s) to grant
+      # @param user_agent [String] stored on the BrowserSession
+      # @return [StandardId::BrowserSession] the session that was created
+      #
+      def sign_in_as(account, scope: nil, user_agent: "RSpec")
+        ensure_cookie_session_store! if scope
+        browser_session = create_browser_session(account, user_agent: user_agent)
+        jar = standard_id_cookie_jar
+
+        jar.encrypted[:session_token] = {
+          value: browser_session.token,
+          expires: browser_session.expires_at,
+          httponly: true
+        }
+        cookies[:session_token] = jar[:session_token]
+
+        write_standard_id_scopes(jar, scope) if scope
+        browser_session
+      end
+
+      private
+
+      # The host app's cookie jar, outside any request: same secret_key_base,
+      # salts, serializer and rotations as a real request, so the cookies it
+      # writes read back exactly as Web::SessionManager's own.
+      def standard_id_cookie_jar
+        ActionDispatch::Request.new(Rails.application.env_config.deep_dup).cookie_jar
+      end
+
+      # Checked before anything is created, so a refused call leaves no session.
+      def ensure_cookie_session_store!
+        store = Rails.application.config.session_store
+        return if store.is_a?(Class) && store <= ActionDispatch::Session::CookieStore
+
+        raise ArgumentError,
+          "sign_in_as(scope:) writes the Rails session cookie, so it needs the cookie " \
+          "session store; this app uses #{store.inspect}. " \
+          "Sign in through the app's own scoped login request instead."
+      end
+
+      def write_standard_id_scopes(jar, scope)
+        key = Rails.application.config.session_options.fetch(:key)
+        jar.encrypted[key] = {
+          value: {
+            "session_id" => SecureRandom.hex(16),
+            "standard_id_scopes" => Array(scope).map(&:to_s)
+          },
+          httponly: true
+        }
+        cookies[key] = jar[key]
+      end
     end
   end
 end
