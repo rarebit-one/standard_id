@@ -477,10 +477,10 @@ RSpec.describe StandardId::Passwordless do
       end
     end
 
-    # The generated initializer's commented example must document the value an
-    # untouched install actually gets. It said 5 while the runtime default was 3.
+    # The annotated initializer's (--with-reference) commented example must
+    # document the value an untouched install actually gets. It said 5 while the runtime default was 3.
     it "matches the value the install template documents" do
-      template = File.read(File.expand_path("../../../lib/generators/standard_id/install/templates/standard_id.rb", __dir__))
+      template = File.read(File.expand_path("../../../lib/generators/standard_id/install/templates/standard_id_reference.rb", __dir__))
       documented = template[/^\s*#\s*c\.passwordless\.max_attempts_per_challenge\s*=\s*(\d+)/, 1]
 
       expect(documented).to be_present
