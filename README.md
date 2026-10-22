@@ -821,6 +821,9 @@ The built-in mailers inherit from `ActionMailer::Base`. Set
 `c.mailer_parent_class = "ApplicationMailer"` to have them inherit your mailer
 base instead, with its layout, helpers, `default_url_options` and locale
 handling. It is read when the gem's mailers load, so set it in an initializer.
+The sender still comes from `c.passwordless.mailer_from` and
+`c.reset_password.mailer_from`, which every gem message passes explicitly, so a
+parent's `default from:` does not apply to them.
 
 Event payload includes:
 - `channel` - `"email"` or `"sms"`

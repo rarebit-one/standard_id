@@ -28,4 +28,11 @@ RSpec.describe StandardId::ApplicationMailer do
       expect(mailer.delivery_job).to eq(StandardId::SecureMailDeliveryJob)
     end
   end
+
+  it "names the setting when mailer_parent_class is not a class" do
+    allow(StandardId.config).to receive(:mailer_parent_class).and_return("ApplicationMailr")
+
+    expect { StandardId.mailer_parent_class }
+      .to raise_error(StandardId::ConfigurationError, /c\.mailer_parent_class = "ApplicationMailr"/)
+  end
 end
