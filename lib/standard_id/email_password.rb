@@ -98,7 +98,7 @@ module StandardId
       # The key per-IP limits count under (`c.email_password.client_key`).
       def client_key(request)
         hook = config.client_key
-        key = call_hook(hook, request: request) if hook.respond_to?(:call)
+        key = hook.respond_to?(:call) ? call_hook(hook, request: request) : nil
         key.presence || request&.remote_ip.to_s
       end
 

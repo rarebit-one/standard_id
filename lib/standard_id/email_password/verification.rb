@@ -20,16 +20,19 @@ module StandardId
         # rate_limits.email_password_failed_verifications_per_day; at the cap the
         # address cannot verify, even with the right code, until the window
         # passes. A wrong password does not count, so a stranger cannot burn the
-        # registrant's allowance.
+        # registrant's daily allowance, and only the right password is told the
+        # address is locked out (otherwise the lockout would reveal that the
+        # address has a pending sign-up). The controller's short per-email
+        # limit (rate_limits.email_password_verify_per_email) does count every
+        # request, so a stranger CAN hold verification off for that window.
         #
         # @return [Account] ready for EmailPassword::TokenFlow
         # @raise [StandardId::EmailPasswordError] :invalid_code
         def verify!(email:, code:, password:, request: nil)
           email = EmailPassword.normalize_email(email)
-          raise invalid_code(LOCKED_OUT_MESSAGE) if DailyLimit.exceeded?(:failed_verification, email)
-
           identifier = EmailPassword.identifier_for_password(email, password)
           raise invalid_code(INVALID_CODE_MESSAGE) if identifier.nil?
+          raise invalid_code(LOCKED_OUT_MESSAGE) if DailyLimit.exceeded?(:failed_verification, email)
 
           otp = StandardId::Otp.verify(
             realm: EmailPassword.config.verification_realm,
@@ -40,15 +43,22 @@ module StandardId
           )
           failed!(email, otp.error_code) unless otp.success?
 
-          identifier.verify! unless identifier.verified?
-          account = identifier.account
+          # The hook runs in the same transaction as the verification: if it
+          # raises, the address stays unverified, so the registrant can ask for
+          # a new code (this one is spent) and the hook runs again. Otherwise a
+          # failed hook would leave a verified account that login lets in
+          # without ever provisioning it.
+          ActiveRecord::Base.transaction do
+            identifier.verify! unless identifier.verified?
+            account = identifier.account
 
-          hook = EmailPassword.config.after_email_verified
-          if hook.respond_to?(:call)
-            EmailPassword.call_hook(hook, account: account, name: otp.challenge&.metadata&.dig("name"), request: request)
+            hook = EmailPassword.config.after_email_verified
+            if hook.respond_to?(:call)
+              EmailPassword.call_hook(hook, account: account, name: otp.challenge&.metadata&.dig("name"), request: request)
+            end
+
+            account
           end
-
-          account
         end
 
         # Resend: issues a fresh code for a pending sign-up, only when +password+

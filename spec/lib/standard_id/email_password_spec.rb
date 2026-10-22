@@ -2,6 +2,7 @@ require "rails_helper"
 
 RSpec.describe StandardId::EmailPassword do
   include ActiveSupport::Testing::TimeHelpers
+  include RequestSpecHelpers
 
   before { StandardId.config.email_password.enabled = true }
 
@@ -34,13 +35,8 @@ RSpec.describe StandardId::EmailPassword do
 
   describe ".discard_pending_credentials!" do
     let(:email) { "pending@example.com" }
-    let(:account) { Account.create!(name: "Pending", email: email) }
-    let!(:identifier) { StandardId::EmailIdentifier.create!(account: account, value: email) }
-
-    before do
-      password_credential = StandardId::PasswordCredential.create!(login: email, password: "Attack3r-pass!")
-      StandardId::Credential.create!(credentialable: password_credential, identifier: identifier)
-    end
+    let!(:account) { create_account_with_password(email: email, password: "Attack3r-pass!", name: "Pending") }
+    let!(:identifier) { StandardId::EmailIdentifier.find_by!(value: email).tap { |i| i.update_columns(verified_at: nil) } }
 
     it "drops the password of an unverified identifier and revokes what was issued before" do
       earlier = StandardId::RefreshToken.create!(account: account, token_digest: Digest::SHA256.hexdigest("earlier"), expires_at: 30.days.from_now)

@@ -26,8 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`c.email_password.reveal_existing_accounts`** (default `true`: `409
   account_exists` / `social_account`). `false` answers sign-up for a registered address
   like a new one and emails the owner (`AccountNoticeMailer#existing_account`).
-- **`StandardId::PurgeUnverifiedEmailSignupsJob`** removes email + password sign-ups
-  left unverified for `c.email_password.unverified_purge_after` (3 days), skipping any
+- **`StandardId::PurgeUnverifiedEmailSignupsJob`** removes sign-ups made through the
+  email + password API (never the web sign-up form's) left unverified for `c.email_password.unverified_purge_after` (3 days), skipping any
   account showing use. Schedule it yourself (`docs/OPERATIONS.md`).
 - **`StandardId::EmailPassword.discard_pending_credentials!`**, for a
   `social.account.linked` subscriber: drops a stranger's pending password from an

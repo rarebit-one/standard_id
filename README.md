@@ -1736,6 +1736,11 @@ The rules:
   answer those like a new address instead and email the owner
   (`AccountNoticeMailer#existing_account`).
 - **`login_method_policy`** is consulted with `flow: :api_email_password`.
+- **Hooks and events.** `ACCOUNT_CREATED` and `CREDENTIAL_PASSWORD_CREATED`
+  fire at sign-up, for an address that is not verified yet; provision anything
+  that should wait for a proven address from `after_email_verified`. That hook
+  runs in the verification's transaction: if it raises, the address stays
+  unverified and the registrant asks for a new code to retry.
 
 **Errors** are `StandardId::EmailPasswordError` codes, rendered as
 `{"error": code, "error_description": message, "details"?: {field: [messages]}}`:
@@ -1762,7 +1767,10 @@ loads, so set them in an initializer. Daily per-address caps sit on top:
 day, even with the right code), `email_password_codes_per_day`,
 `email_password_reset_requests_per_network_per_day` and
 `email_password_reset_requests_per_day`. All of them count in
-`c.cache_store`, so a `NullStore` disables them.
+`c.cache_store`, so a `NullStore` disables them. Only a wrong code sent with the
+right password counts toward the daily verify lockout, but the short
+`email_password_verify_per_email` limit counts every request, so anyone can
+hold an address's verification off for that window.
 
 **Housekeeping.** Schedule `StandardId::PurgeUnverifiedEmailSignupsJob` (see
 [docs/OPERATIONS.md](docs/OPERATIONS.md)). If you link social sign-ins by

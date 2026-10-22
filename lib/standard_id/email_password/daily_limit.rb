@@ -11,6 +11,9 @@ module StandardId
     # being reached reveals nothing. Counters live in the engine's rate-limit
     # store. The window is fixed from the first event: `increment(expires_in:)`
     # only sets the expiry when it creates the entry.
+    #
+    # Check-then-record is not atomic, so concurrent requests can overshoot a
+    # cap by a few. That is fine for an abuse bound; do not use these as quotas.
     module DailyLimit
       WINDOW = 24.hours
 

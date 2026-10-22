@@ -124,6 +124,14 @@ RSpec.describe StandardId::Config::CallableValidator do
           expect { described_class.validate! }.not_to raise_error
         end
 
+        it "rejects email_password.#{field} taking a positional argument" do
+          StandardId.config.email_password.public_send("#{field}=", ->(arg) { arg })
+          expect { described_class.validate! }.to raise_error(
+            StandardId::ConfigurationError,
+            /`email_password.#{field}` takes a positional argument/
+          )
+        end
+
         it "rejects email_password.#{field} declaring an unknown keyword" do
           StandardId.config.email_password.public_send("#{field}=", ->(nope:) { nil })
           expect { described_class.validate! }.to raise_error(

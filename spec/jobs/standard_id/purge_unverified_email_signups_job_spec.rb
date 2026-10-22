@@ -2,17 +2,26 @@ require "rails_helper"
 
 RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
   include ActiveSupport::Testing::TimeHelpers
+  include RequestSpecHelpers
 
   before { StandardId.config.email_password.enabled = true }
 
   # An email + password sign-up as Registration leaves it: an unverified email
-  # identifier with a password credential, created +age+ ago.
+  # identifier with a password credential and the code it was sent, all
+  # created +age+ ago.
   def pending_signup(email, age: 4.days)
-    account = Account.create!(name: "Pending", email: email)
-    identifier = StandardId::EmailIdentifier.create!(account: account, value: email)
-    password_credential = StandardId::PasswordCredential.create!(login: email, password: "Sup3r-secret!")
-    StandardId::Credential.create!(credentialable: password_credential, identifier: identifier)
-    identifier.update_columns(created_at: age.ago)
+    account = unverified_password_signup(email, age: age)
+    StandardId::CodeChallenge.create!(
+      realm: StandardId.config.email_password.verification_realm, channel: "email", target: email,
+      code: "654321", expires_at: (age - 10.minutes).ago, created_at: age.ago
+    )
+    account
+  end
+
+  # The same rows without a code: what Web::SignupForm leaves.
+  def unverified_password_signup(email, age: 4.days)
+    account = create_account_with_password(email: email, password: "Sup3r-secret!", name: "Pending")
+    StandardId::EmailIdentifier.find_by!(value: email).update_columns(verified_at: nil, created_at: age.ago)
     account
   end
 
@@ -39,6 +48,7 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
   end
 
   it "honours older_than_seconds" do
+    StandardId.config.email_password.purge_recent_code_window = 30.minutes.to_i
     account = pending_signup("fresh@example.com", age: 2.hours)
 
     described_class.perform_now(older_than_seconds: 1.hour.to_i)
@@ -52,6 +62,17 @@ RSpec.describe StandardId::PurgeUnverifiedEmailSignupsJob, type: :job do
 
     expect(described_class.perform_now).to eq(purged_count: 0, skipped_count: 0)
     expect(gone?(account)).to be(false)
+  end
+
+  it "never considers an unverified password sign-up that was not sent a code in the verification realm" do
+    web_signup = unverified_password_signup("web@example.com")
+    StandardId::CodeChallenge.create!(
+      realm: "authentication", channel: "email", target: "web@example.com",
+      code: "111111", expires_at: 4.days.ago, created_at: 4.days.ago
+    )
+
+    expect(described_class.perform_now).to eq(purged_count: 0, skipped_count: 0)
+    expect(gone?(web_signup)).to be(false)
   end
 
   it "never considers a verified identifier" do

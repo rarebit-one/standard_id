@@ -11,8 +11,15 @@ module StandardId
   # the account too when nothing else is left on it.
   #
   # Only an email identifier that is unverified, has no provider, carries a
-  # password credential and is older than the cutoff is considered, and then
-  # the whole account is skipped, unchanged, at any sign of real use:
+  # password credential, is older than the cutoff AND has had a code issued in
+  # `c.email_password.verification_realm` (the mark of a sign-up made through
+  # EmailPassword::Registration) is considered. That last condition keeps the
+  # job away from other unverified password sign-ups, such as
+  # Web::SignupForm's, which never get a code in that realm. Unused code
+  # challenges survive CleanupExpiredCodeChallengesJob for 7 days past expiry,
+  # so keep `unverified_purge_after` well under that: a sign-up whose
+  # challenge has already been cleaned up is simply never purged (fails safe).
+  # Even then the whole account is skipped, unchanged, at any sign of real use:
   #   * any verified identifier, or any with a provider (a social sign-in
   #     linked to it does not verify the identifier, so the provider is
   #     checked separately);
@@ -62,6 +69,7 @@ module StandardId
         .where(verified_at: nil, provider: nil)
         .where(created_at: ...cutoff)
         .where(id: StandardId::Credential.where(credentialable_type: StandardId::PasswordCredential.name).select(:identifier_id))
+        .where(value: StandardId::CodeChallenge.where(realm: config.verification_realm, channel: "email").select(:target))
     end
 
     # true when the sign-up was removed, false when it was left alone.
@@ -77,11 +85,9 @@ module StandardId
         credentials = StandardId::Credential.where(identifier_id: identifier.id).to_a
         return false unless credentials.all? { |c| c.credentialable_type == StandardId::PasswordCredential.name }
 
-        credentials.each do |credential|
-          password_credential = StandardId::PasswordCredential.find_by(id: credential.credentialable_id)
-          credential.destroy!
-          password_credential&.destroy!
-        end
+        password_credentials = StandardId::PasswordCredential.where(id: credentials.map(&:credentialable_id)).to_a
+        credentials.each(&:destroy!)
+        password_credentials.each(&:destroy!)
         identifier.destroy!
 
         unless StandardId::Identifier.exists?(account_id: account.id)

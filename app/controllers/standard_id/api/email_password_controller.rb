@@ -59,8 +59,9 @@ module StandardId
       end
 
       def login
-        account = StandardId::EmailPassword::Authentication.call(email: params[:email], password: params[:password])
-        render_tokens_for(account)
+        StandardId::EmailPassword::Authentication.call(email: params[:email], password: params[:password]) do |account|
+          render_tokens_for(account)
+        end
       end
 
       def verify

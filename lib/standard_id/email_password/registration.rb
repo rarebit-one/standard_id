@@ -21,6 +21,11 @@ module StandardId
     # :social_account, unless `c.email_password.reveal_existing_accounts` is
     # false: then it returns normally and the address is emailed
     # (AccountNoticeMailer#existing_account) instead.
+    #
+    # ACCOUNT_CREATED and CREDENTIAL_PASSWORD_CREATED fire here, inside the
+    # sign-up transaction, for an account whose address is NOT yet verified
+    # (as they do for Web::SignupForm). Provision anything that should wait for
+    # a proven address from `c.email_password.after_email_verified` instead.
     module Registration
       class << self
         # @return [String] the normalised email
@@ -35,13 +40,13 @@ module StandardId
           existing = EmailPassword.find_password_credential(email)
           if existing
             identifier = existing.credential&.identifier
-            return existing_account!(email, :account_exists) if identifier.nil? || identifier.verified?
+            return existing_account!(email, :account_exists, password) if identifier.nil? || identifier.verified?
 
             Verification.issue_code(email, name: name, request: request) if existing.authenticate(password)
             return email
           end
 
-          return existing_account!(email, :social_account) if StandardId::EmailIdentifier.exists?(value: email)
+          return existing_account!(email, :social_account, password) if StandardId::EmailIdentifier.exists?(value: email)
 
           create_account!(email, name, password, request)
           Verification.issue_code(email, name: name, request: request)
@@ -49,6 +54,9 @@ module StandardId
         rescue ActiveRecord::RecordNotUnique
           # Lost a race with a concurrent sign-up for the same address.
           existing_account!(email, :account_exists)
+        rescue ActiveRecord::RecordInvalid => e
+          # A host Account validation (or account_creator) refused the record.
+          raise StandardId::EmailPasswordError.new(:invalid_request, details: e.record.errors.to_hash)
         end
 
         private
@@ -67,9 +75,13 @@ module StandardId
           raise StandardId::EmailPasswordError.new(:weak_password, details: { password: errors }) if errors.any?
         end
 
-        def existing_account!(email, code)
+        # +password+ is hashed and thrown away when concealing: a new address
+        # pays one bcrypt to store its password, so an existing one must too,
+        # or the response time would tell them apart.
+        def existing_account!(email, code, password = nil)
           raise StandardId::EmailPasswordError.new(code) if EmailPassword.config.reveal_existing_accounts
 
+          StandardId::PasswordCredential.new(password: password) unless password.nil?
           if DailyLimit.consume!(:code_issued, email)
             StandardId::AccountNoticeMailer.with(email: email).existing_account.deliver_later
           end

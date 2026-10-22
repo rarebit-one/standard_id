@@ -7,6 +7,12 @@ module StandardId
     # enumerate accounts. :unverified is only reachable WITH the right
     # password, so it reveals nothing the caller did not already know.
     # Publishes the events Oauth::PasswordFlow does.
+    #
+    # Given a block, yields the account with the password credential's row
+    # locked, after re-checking that the password has not changed since it was
+    # verified. Mint tokens inside it: PasswordReset.complete! takes the same
+    # lock to change the password and revoke access, so a login racing a reset
+    # either finishes first (and its tokens are revoked) or fails.
     module Authentication
       class << self
         # @return [Account]
@@ -28,6 +34,7 @@ module StandardId
           end
 
           identifier = password_credential.credential&.identifier
+          verified_digest = password_credential.password_digest
           failed!(email) unless identifier && password_credential.authenticate(password)
 
           account = identifier.account
@@ -38,8 +45,12 @@ module StandardId
           )
 
           raise StandardId::EmailPasswordError.new(:unverified) unless identifier.verified?
+          return account unless block_given?
 
-          account
+          password_credential.with_lock do
+            failed!(email) unless password_credential.password_digest == verified_digest
+            yield account
+          end
         end
 
         private

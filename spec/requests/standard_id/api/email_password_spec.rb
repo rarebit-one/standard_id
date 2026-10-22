@@ -146,6 +146,39 @@ RSpec.describe "API email + password", type: :request do
       expect(seen).to eq([email, "Nova Star"])
     end
 
+    it "leaves the address unverified, so a new code can retry the hook, when after_email_verified raises" do
+      calls = 0
+      StandardId.config.email_password.after_email_verified = lambda { |account:|
+        calls += 1
+        raise "provisioning down" if calls == 1
+      }
+      register
+
+      expect { verify(code: latest_code) }.to raise_error("provisioning down")
+      expect(identifier_for).not_to be_verified
+
+      travel(StandardId.config.passwordless.retry_delay + 1) do
+        resend
+        verify(code: latest_code)
+      end
+      expect(response).to have_http_status(:ok)
+      expect(calls).to eq(2)
+      expect(identifier_for).to be_verified
+    end
+
+    it "answers a host validation failure as invalid_request" do
+      StandardId.config.email_password.account_creator = lambda { |email:|
+        account = Account.new(email: email)
+        account.errors.add(:email, "is not allowed")
+        raise ActiveRecord::RecordInvalid, account
+      }
+      register
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(json["error"]).to eq("invalid_request")
+      expect(Account.where(email: email)).to be_empty
+    end
+
     it "mints tokens that refresh through /oauth/token with the configured client_id" do
       register
       verify(code: latest_code)
@@ -261,6 +294,21 @@ RSpec.describe "API email + password", type: :request do
       expect(json).to eq("status" => "verification_required", "email" => email)
     end
 
+    it "does the same bcrypt work for an existing account as for a new one" do
+      hashes = 0
+      allow(BCrypt::Password).to receive(:create).and_wrap_original { |original, *args, **kw| hashes += 1; original.call(*args, **kw) }
+      register(email: "fresh@example.com")
+      for_new_address = hashes
+      create_verified_account
+      create_social_account("social@example.com")
+
+      [email, "social@example.com"].each do |address|
+        hashes = 0
+        register(email: address, password: "Other-passw0rd!")
+        expect(hashes).to eq(for_new_address), "#{address}: #{hashes} bcrypt hashes, a new address costs #{for_new_address}"
+      end
+    end
+
     it "answers a social-only account the same way" do
       create_social_account(email)
 
@@ -317,6 +365,21 @@ RSpec.describe "API email + password", type: :request do
       login(email: "NEW.USER@example.com")
 
       expect(response).to have_http_status(:ok)
+    end
+
+    it "refuses tokens when a password reset lands between the password check and token issue" do
+      create_verified_account
+      sub = StandardId::Events.subscribe(StandardId::Events::PASSWORD_VALIDATED) do
+        password_credential_for.update!(password: "Res3t-elsewhere!")
+      end
+      begin
+        expect { login }.not_to change(StandardId::RefreshToken, :count)
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(json["error"]).to eq("invalid_credentials")
     end
 
     it "gives the same answer for a wrong password and an unknown email" do
@@ -641,6 +704,18 @@ RSpec.describe "API email + password", type: :request do
         verify(code: latest_code)
         expect(response).to have_http_status(:ok)
       end
+    end
+
+    it "tells only the right password that the address is locked out" do
+      StandardId.config.rate_limits.email_password_failed_verifications_per_day = 1
+      register
+      verify(code: "000000")
+
+      verify(code: latest_code, password: "Wrong-passw0rd!")
+      expect(json["error_description"]).to eq(StandardId::EmailPassword::Verification::INVALID_CODE_MESSAGE)
+
+      verify(code: latest_code)
+      expect(json["error_description"]).to eq(StandardId::EmailPassword::Verification::LOCKED_OUT_MESSAGE)
     end
 
     it "does not count wrong-password attempts toward the lockout" do
