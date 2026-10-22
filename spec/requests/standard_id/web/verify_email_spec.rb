@@ -92,8 +92,13 @@ RSpec.describe "StandardId Web Verify Email", type: :request do
       expect(response.body).to include("verify email confirm")
     end
 
-    it "redirects for invalid code" do
+    it "does not reveal whether the code is right" do
       http_get "/verify_email/confirm", params: { email: "user@example.com", code: "BAD" }
+      expect(response).to have_http_status(:ok)
+    end
+
+    it "redirects when the link has no code" do
+      http_get "/verify_email/confirm", params: { email: "user@example.com" }
       expect(response).to redirect_to(standard_id_web.login_path)
       expect(flash[:alert]).to include("Invalid or expired")
     end
@@ -121,6 +126,25 @@ RSpec.describe "StandardId Web Verify Email", type: :request do
       http_patch "/verify_email/confirm", params: { email: "user@example.com", code: "BAD" }
       expect(response).to redirect_to(standard_id_web.login_path)
       expect(flash[:alert]).to include("Invalid or expired")
+    end
+
+    it "burns the challenge once the per-challenge attempt cap is reached" do
+      account = Account.create!(name: "User", email: "user@example.com")
+      idf = StandardId::EmailIdentifier.create!(account: account, value: "user@example.com")
+      ch = StandardId::CodeChallenge.create!(
+        realm: "verification", channel: "email", target: "user@example.com",
+        code: "999000", expires_at: 10.minutes.from_now
+      )
+
+      StandardId::Passwordless.max_attempts_per_challenge.times do
+        http_patch "/verify_email/confirm", params: { email: "user@example.com", code: "111111" }
+      end
+      expect(flash[:alert]).to include("Too many failed attempts")
+      expect(ch.reload).to be_used
+
+      http_patch "/verify_email/confirm", params: { email: "user@example.com", code: "999000" }
+      expect(flash[:alert]).to include("Invalid or expired")
+      expect(idf.reload).not_to be_verified
     end
   end
 end

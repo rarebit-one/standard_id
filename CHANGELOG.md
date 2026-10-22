@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Web email/phone verification now counts attempts.** `Web::VerifyEmail::ConfirmController`
+  and `Web::VerifyPhone::ConfirmController` looked the code up with
+  `CodeChallenge.active.find_by(code:)`, so the only brake on guessing was the per-IP
+  rate limit. `PATCH` now goes through `StandardId::Otp.verify`, which counts failed
+  attempts and burns the challenge at `passwordless.max_attempts_per_challenge`.
+  `GET` no longer checks the code at all (it answered valid/invalid without counting an
+  attempt); a wrong code is reported on submit.
+- **Web password reset revokes refresh tokens.** `Web::ResetPasswordConfirmForm` ran
+  `account.sessions.destroy_all`, and `Session has_many :refresh_tokens, dependent:
+  :nullify` left every refresh token active and detached. It now revokes all sessions
+  (`Session.revoke_all_for!`, reason `"password_reset"`, one `SESSION_REVOKED` each)
+  and every remaining refresh token for the account, and publishes the documented
+  `credential.password.reset_completed` event, which the gem never emitted before.
+  Sessions are revoked, no longer deleted.
+
 ## [0.54.0] - 2026-10-22
 
 ### Added

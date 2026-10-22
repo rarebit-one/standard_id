@@ -69,10 +69,9 @@ RSpec.describe "StandardId Web Verify Phone", type: :request do
       expect(response.body).to include("verify phone confirm")
     end
 
-    it "redirects for invalid code" do
+    it "does not reveal whether the code is right" do
       http_get "/verify_phone/confirm", params: { phone_number: "+14155550123", code: "BAD" }
-      expect(response).to redirect_to(standard_id_web.login_path)
-      expect(flash[:alert]).to include("Invalid or expired")
+      expect(response).to have_http_status(:ok)
     end
   end
 

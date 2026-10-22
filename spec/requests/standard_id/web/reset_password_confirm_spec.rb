@@ -52,10 +52,11 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
         expect(password_credential.authenticate("OldPass1!xyz")).to be_falsey
       end
 
-      it "destroys all existing sessions for security" do
-        # Create some sessions
+      it "revokes every session and refresh token, including ones with no session" do
         session1 = StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Chrome/91.0")
-        session2 = StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Firefox/89.0")
+        StandardId::BrowserSession.create!(account: account, expires_at: 1.hour.from_now, user_agent: "Firefox/89.0")
+        with_session = StandardId::RefreshToken.create!(account: account, session: session1, token_digest: SecureRandom.hex(32), expires_at: 1.day.from_now)
+        sessionless = StandardId::RefreshToken.create!(account: account, token_digest: SecureRandom.hex(32), expires_at: 1.day.from_now)
 
         http_patch "/reset_password/confirm", params: {
           token: valid_token,
@@ -63,7 +64,26 @@ RSpec.describe "StandardId Web Reset Password Confirm", type: :request do
           password_confirmation: new_password
         }
 
-        expect(StandardId::Session.where(account: account)).to be_empty
+        expect(StandardId::Session.where(account: account, revoked_at: nil)).to be_empty
+        expect(with_session.reload.revoked_at).to be_present
+        expect(sessionless.reload.revoked_at).to be_present
+      end
+
+      it "publishes credential.password.reset_completed" do
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED) { |event| events << event }
+
+        http_patch "/reset_password/confirm", params: {
+          token: valid_token,
+          password: new_password,
+          password_confirmation: new_password
+        }
+
+        expect(events.size).to eq(1)
+        expect(events.first[:account]).to eq(account)
+        expect(events.first[:credential]).to eq(password_credential)
+      ensure
+        StandardId::Events.unsubscribe(subscription)
       end
     end
 
