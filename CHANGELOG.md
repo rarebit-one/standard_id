@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-10-22
+
 ### Added
 
 - **Email + password API, opt-in (`c.email_password.enabled`).** `POST /auth/register`,
