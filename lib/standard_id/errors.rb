@@ -342,6 +342,45 @@ module StandardId
   class InvalidAlgorithmError < InvalidTokenError; end
   class InvalidAudienceTokenError < InvalidTokenError; end
 
+  # Raised by the API email + password endpoints (StandardId::EmailPassword).
+  # +code+ is one of CODES — stable symbols a client can branch on — and the
+  # status is fixed per code, so `c.email_password.error_renderer` can change
+  # the body without having to know the status. +details+ carries field
+  # messages for :weak_password and :invalid_request.
+  class EmailPasswordError < StandardError
+    CODES = {
+      invalid_credentials: { status: :unauthorized, message: "Invalid email or password" },
+      unverified: { status: :forbidden, message: "The email address has not been verified" },
+      account_exists: { status: :conflict, message: "An account with this email already exists" },
+      social_account: { status: :conflict, message: "This email is registered with a different sign-in method" },
+      invalid_code: { status: :unprocessable_content, message: "Invalid or expired verification code" },
+      invalid_reset_token: { status: :unprocessable_content, message: "The password reset link is invalid or has expired" },
+      weak_password: { status: :unprocessable_content, message: "The password does not meet the requirements" },
+      invalid_request: { status: :unprocessable_content, message: "The request is invalid" },
+      login_method_denied: { status: :forbidden, message: "This sign-in method is not available for this account" },
+      rate_limited: { status: :too_many_requests, message: "Too many requests. Please try again later." }
+    }.freeze
+
+    attr_reader :code, :details, :retry_after
+
+    def initialize(code, message = nil, details: {}, retry_after: nil)
+      @code = code.to_sym
+      raise ArgumentError, "Unknown EmailPasswordError code: #{code.inspect}" unless CODES.key?(@code)
+
+      @details = details.to_h
+      @retry_after = retry_after
+      super(message.presence || CODES.dig(@code, :message))
+    end
+
+    def status
+      CODES.dig(code, :status)
+    end
+
+    def http_status
+      Rack::Utils.status_code(status)
+    end
+  end
+
   # Raised for engine misconfiguration — a required config value is missing,
   # malformed, points at a non-callable with the wrong arity, or references a
   # scope whose claims have no resolver registered. Always indicates a

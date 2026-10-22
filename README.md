@@ -1614,6 +1614,7 @@ usual "invalid" answer and never reaches the policy.
 | `:oauth_social_callback` (`/api/oauth/callback/:provider`) | `:social` + `provider` | `403 access_denied`; a just-created account is removed |
 | `:oauth_refresh_token` | the **original** sign-in's method (and provider), else `:unspecified` | `400 invalid_grant` ("Refresh token is no longer valid"), and the token family is revoked |
 | `:api_device_session` / `:api_service_session` (`Api::TokenManager#create_*_session` from host code) | what you pass, else `:unspecified` | raises `LoginMethodDenied` |
+| `:api_email_password` (`/api/auth/login`, `/api/auth/verify-email`) | `:password` | `403 {"error":"login_method_denied"}` (through `error_renderer` when set) |
 
 **Refresh tokens remember how their authentication was made.** The method
 (and provider) is recorded at sign-in and carried along: web sign-in → the
@@ -1673,6 +1674,113 @@ POST /api/passwordless/verify
   "otp": "123456"
 }
 ```
+
+### Email + password API (0.55+)
+
+Opt-in sign-up and sign-in with an email and a password for JSON clients
+(mobile apps, SPAs), alongside the OAuth grants. Off by default; the routes are
+not drawn until you enable it.
+
+```ruby
+StandardId.configure do |c|
+  c.email_password.enabled = true
+  c.email_password.reset_url = "https://app.example.com/password-reset?token={token}"
+
+  # Optional hooks (each may declare any subset of its keywords):
+  c.email_password.require_name = true
+  c.email_password.client_key = ->(request:) { MaskedNetwork.for(request) }    # default: remote IP
+  c.email_password.password_validator = ->(password:) { PwnedPasswords.check(password) } # => Array of messages
+  c.email_password.after_email_verified = ->(account:, name:) { Profile.provision!(account, name) }
+  c.email_password.account_in_use = ->(account:) { Profile.exists?(account: account) }
+end
+```
+
+| Request (under the API mount) | Body | Success |
+|---|---|---|
+| `POST /auth/register` | `email`, `password`, `name?` | `202 {"status":"verification_required","email":…}` |
+| `POST /auth/verify-email` | `email`, `code`, `password` | `200` token response |
+| `POST /auth/verify-email/resend` | `email`, `password` | `202 {"status":"verification_sent"}`, always |
+| `POST /auth/login` | `email`, `password` | `200` token response |
+| `POST /auth/password/forgot` | `email` | `202 {"status":"reset_requested"}`, always |
+| `POST /auth/password/reset` | `token`, `password`, `password_confirmation?` | `200 {"status":"password_reset"}` |
+
+Requests must be JSON. Token responses are the usual `TokenResponse` and
+refresh through `POST /oauth/token` with `client_id` =
+`c.email_password.token_client_id` (default `"email"`).
+
+The rules:
+
+- **Sign-up creates an unverified account** and emails a 6-digit code
+  (`PasswordlessMailer#verification_email`, or your own
+  `PASSWORDLESS_CODE_GENERATED` subscriber with `code_delivery = :custom`). No
+  tokens until the address is verified.
+- **Verifying needs the code and the sign-up password**, so a stranger who
+  started a sign-up for someone else's address cannot finish it with the
+  owner's code. A wrong password answers exactly like a wrong code. Outside
+  production, `passwordless.bypass_code` is accepted as the code (as everywhere
+  `Otp.verify` runs); `after_email_verified` then receives no `name`.
+- **Re-submitting sign-up for a pending address never changes its password.**
+  With the same password it sends a fresh code; with a different one it answers
+  the same `202` and sends nothing.
+- **Login answers `unverified` (403) only when the password is right**;
+  everything else (unknown address, wrong password, deactivated or locked
+  account) is one `invalid_credentials` (401).
+- **Resend and forgot-password answer the same whatever the address.** The
+  reset lookup happens in `PasswordResetDeliveryJob`.
+- **A reset link** sets the password, verifies the address (the link proved the
+  inbox) and revokes every session and refresh token. It is single-use and
+  expires with `PasswordCredential`'s `password_reset` token.
+- **Existing accounts:** sign-up for an address with a verified password
+  account answers `409 account_exists`, and for a social-only account `409
+  social_account`. Set `c.email_password.reveal_existing_accounts = false` to
+  answer those like a new address instead and email the owner
+  (`AccountNoticeMailer#existing_account`).
+- **`login_method_policy`** is consulted with `flow: :api_email_password`.
+- **Hooks and events.** `ACCOUNT_CREATED` and `CREDENTIAL_PASSWORD_CREATED`
+  fire at sign-up, for an address that is not verified yet; provision anything
+  that should wait for a proven address from `after_email_verified`. That hook
+  runs in the verification's transaction: if it raises, the address stays
+  unverified and the registrant asks for a new code to retry.
+
+**Errors** are `StandardId::EmailPasswordError` codes, rendered as
+`{"error": code, "error_description": message, "details"?: {field: [messages]}}`:
+
+| Code | Status |
+|---|---|
+| `invalid_credentials` | 401 |
+| `unverified`, `login_method_denied` | 403 |
+| `account_exists`, `social_account` | 409 |
+| `invalid_code`, `invalid_reset_token`, `weak_password`, `invalid_request` | 422 |
+| `rate_limited` (with `Retry-After`) | 429 |
+
+To keep an existing envelope, return your own body from
+`c.email_password.error_renderer = ->(error:, request:) { … }`; the status stays
+`error.http_status`.
+
+**Limits.** Each endpoint has short per-client-key and per-address limits that
+reuse `c.rate_limits` (`signup_per_ip`, `login_per_*`, `verification_start_*`,
+`password_reset_start_*`, `otp_verify_per_ip`) plus
+`email_password_verify_per_email` and `email_password_reset_per_ip`; like the
+engine's other `rate_limit` declarations they are read when the controller
+loads, so set them in an initializer. Daily per-address caps sit on top:
+`email_password_failed_verifications_per_day` (then verify is refused for the
+day, even with the right code), `email_password_codes_per_day`,
+`email_password_reset_requests_per_network_per_day` and
+`email_password_reset_requests_per_day`. All of them count in
+`c.cache_store`, so a `NullStore` disables them. Only a wrong code sent with the
+right password counts toward the daily verify lockout, but the short
+`email_password_verify_per_email` limit counts every request, so anyone can
+hold an address's verification off for that window.
+
+**Housekeeping.** Schedule `StandardId::PurgeUnverifiedEmailSignupsJob` (see
+[docs/OPERATIONS.md](docs/OPERATIONS.md)). If you link social sign-ins by
+email, call `StandardId::EmailPassword.discard_pending_credentials!(account,
+issued_before:)` from a `social.account.linked` subscriber, so an owner who
+signs in with a provider does not inherit a stranger's pending password.
+
+The operations behind the controller (`EmailPassword::Registration`,
+`Authentication`, `Verification`, `PasswordReset`, `TokenFlow`) are public, so
+a host can drive them from its own controllers instead.
 
 ### API Authentication
 
@@ -1770,6 +1878,7 @@ StandardId creates the following tables:
 - `GET /userinfo` - OpenID Connect userinfo
 - `POST /passwordless/start` - Start passwordless flow
 - `POST /passwordless/verify` - Verify OTP code
+- `POST /auth/register`, `/auth/login`, `/auth/verify-email`, `/auth/verify-email/resend`, `/auth/password/forgot`, `/auth/password/reset` - Email + password, when `c.email_password.enabled`
 - `GET /oauth/callback/google` - Google OAuth callback
 - `POST /oauth/callback/apple` - Apple Sign In callback
 

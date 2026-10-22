@@ -10,6 +10,20 @@ StandardId::ApiEngine.routes.draw do
       post :start
     end
 
+    # Email + password for JSON clients (StandardId::EmailPassword). Drawn
+    # always but matched only while c.email_password.enabled is true, so the
+    # endpoints 404 otherwise.
+    constraints(->(_request) { StandardId::EmailPassword.enabled? }) do
+      scope "auth", controller: :email_password, as: :email_password do
+        post "register", action: :register, as: :register
+        post "login", action: :login, as: :login
+        post "verify-email", action: :verify, as: :verify
+        post "verify-email/resend", action: :resend, as: :resend
+        post "password/forgot", action: :forgot_password, as: :forgot_password
+        post "password/reset", action: :reset_password, as: :reset_password
+      end
+    end
+
     namespace :oidc do
       resource :logout, only: [:show], controller: :logout
     end

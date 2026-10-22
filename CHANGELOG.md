@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Email + password API, opt-in (`c.email_password.enabled`).** `POST /auth/register`,
+  `/auth/verify-email`, `/auth/verify-email/resend`, `/auth/login`,
+  `/auth/password/forgot` and `/auth/password/reset` under the API mount, for JSON
+  clients. Sign-up creates an unverified account and emails a 6-digit code;
+  verification needs the code and the sign-up password and returns the usual token
+  response, refreshable through `/oauth/token`. Login answers a distinct `unverified`
+  only to the right password. Resend and forgot always answer `202`. A reset verifies
+  the address and revokes every session and refresh token. Re-submitting a pending
+  sign-up never changes its password. Errors are stable `StandardId::EmailPasswordError`
+  codes, with an `error_renderer` hook for hosts that keep their own envelope. Short
+  limits reuse `c.rate_limits`, plus new daily per-address caps
+  (`rate_limits.email_password_*`). The operations behind it
+  (`StandardId::EmailPassword::*`) are public. See the README and
+  `docs/MIGRATION_GUIDE.md`.
+- **`c.email_password.reveal_existing_accounts`** (default `true`: `409
+  account_exists` / `social_account`). `false` answers sign-up for a registered address
+  like a new one and emails the owner (`AccountNoticeMailer#existing_account`).
+- **`StandardId::PurgeUnverifiedEmailSignupsJob`** removes sign-ups made through the
+  email + password API (never the web sign-up form's) left unverified for `c.email_password.unverified_purge_after` (3 days), skipping any
+  account showing use. Schedule it yourself (`docs/OPERATIONS.md`).
+- **`StandardId::EmailPassword.discard_pending_credentials!`**, for a
+  `social.account.linked` subscriber: drops a stranger's pending password from an
+  account its owner has just proven with a provider.
+- **`StandardId::AccessRevocation.revoke_all!(account, reason:, issued_before: nil)`**
+  revokes every session and every refresh token, including sessionless ones; the web
+  password reset now uses it.
+- **`login_method_policy` flow `:api_email_password`.**
+
+### Changed
+
+- **`SESSION_REVOKED` timing on a web password reset** (from 0.54.1, now documented):
+  the events publish inside the reset's transaction, before it commits. Each is
+  rescued, so a subscriber cannot roll the reset back, but one that reads the rows
+  must do so after commit (from a job, say).
+- **`passwordless.bypass_code` applies to the web email/phone verification pages**
+  (from 0.54.1, which routed them through `Otp.verify`). It is never accepted in
+  production, which raises.
+
 ## [0.54.1] - 2026-10-22
 
 ### Security
