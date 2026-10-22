@@ -29,10 +29,27 @@ RSpec.describe StandardId::ApplicationMailer do
     end
   end
 
-  it "names the setting when mailer_parent_class is not a class" do
-    allow(StandardId.config).to receive(:mailer_parent_class).and_return("ApplicationMailr")
+  describe "StandardId.mailer_parent_class" do
+    it "names the setting when the value is undefined" do
+      allow(StandardId.config).to receive(:mailer_parent_class).and_return("ApplicationMailr")
 
-    expect { StandardId.mailer_parent_class }
-      .to raise_error(StandardId::ConfigurationError, /c\.mailer_parent_class = "ApplicationMailr"/)
+      expect { StandardId.mailer_parent_class }
+        .to raise_error(StandardId::ConfigurationError, /c\.mailer_parent_class = "ApplicationMailr"/)
+    end
+
+    it "names the setting when the value is a module, not a class" do
+      allow(StandardId.config).to receive(:mailer_parent_class).and_return("Kernel")
+
+      expect { StandardId.mailer_parent_class }
+        .to raise_error(StandardId::ConfigurationError, /c\.mailer_parent_class = "Kernel"/)
+    end
+
+    it "lets an error raised inside the parent's own file through unchanged" do
+      allow(StandardId.config).to receive(:mailer_parent_class).and_return("BrokenHostMailer")
+      allow(Object).to receive(:const_missing).and_call_original
+      allow(Object).to receive(:const_missing).with(:BrokenHostMailer) { raise NameError.new("uninitialized constant Helperz", :Helperz) }
+
+      expect { StandardId.mailer_parent_class }.to raise_error(NameError, /Helperz/)
+    end
   end
 end
