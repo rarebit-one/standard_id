@@ -142,9 +142,14 @@ module StandardId
         # the attempt targeted (e.g. gmail.com vs corporate SSO).
         def redact_login(value)
           str = value.to_s
-          if (m = str.match(/\A(.+)@(.+)\z/))
-            local = m[1]
-            domain = m[2]
+          # Split on the FIRST '@' only (limit 2) to detect email shape without
+          # a regex. A regex such as /\A(.+)@(.+)\z/ is polynomial on strings
+          # like "a@a@a@…" because the two greedy `.+` quantifiers can match the
+          # same characters in exponentially many ways — a ReDoS vector on
+          # attacker-controlled login values. String#split is linear.
+          parts = str.split("@", 2)
+          if parts.length == 2
+            local, domain = parts
             prefix = local.length > 2 ? local[0, 2] : local[0, 1]
             "#{prefix}***@#{domain}"
           else
