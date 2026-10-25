@@ -1,4 +1,4 @@
-# Minimal stand-in for the two inertia_rails touchpoints StandardId calls.
+# Minimal stand-in for the three inertia_rails touchpoints StandardId calls.
 #
 # standard_id has no inertia_rails dependency — hosts opt in, and
 # StandardId::InertiaSupport#inertia_available? checks `defined?(::InertiaRails)`
@@ -7,23 +7,31 @@
 # Inertia redirect branches were previously untestable here (see the note in
 # spec/requests/standard_id/api/consent_spec.rb).
 #
-# These doubles reproduce inertia_rails 3.21.2 exactly:
+# These doubles reproduce inertia_rails 3.23.0 exactly:
 #
-#   lib/inertia_rails/controller.rb:154
+#   lib/inertia_rails/controller.rb
 #     def inertia_location(url)
 #       headers['X-Inertia-Location'] = url
 #       head :conflict
 #     end
 #
-#   lib/inertia_rails/extensions/request.rb:5
+#     def redirect_to(options = {}, response_options_and_flash = {})
+#       inertia_opts = response_options_and_flash.delete(:inertia) if
+#         response_options_and_flash.is_a?(Hash)
+#       session[:_inertia_clear_history] = true if inertia_opts&.dig(:clear_history)
+#       super
+#     end
+#
+#   lib/inertia_rails/extensions/request.rb
 #     def inertia?
 #       key? 'HTTP_X_INERTIA'
 #     end
 #
-# Both modules are inert until a spec opts in: #inertia? is false without the
-# X-Inertia header, and #inertia_location is only reachable through
-# redirect_with_inertia when use_inertia? is true, which requires ::InertiaRails
-# to be defined — which only happens inside an example tagged `:inertia`.
+# All three are inert until a spec opts in: #inertia? is false without the
+# X-Inertia header, #inertia_location is only reachable through
+# redirect_with_inertia when use_inertia? is true, and the redirect_to override
+# only intercepts the inertia: option when called in an :inertia example (where
+# ::InertiaRails is defined and use_inertia? is true).
 #
 # `use_inertia` is written to the real config rather than stubbed, because
 # spec/support/config_isolation.rb snapshots and restores the global config
@@ -42,6 +50,15 @@ module InertiaDouble
     def inertia_location(url)
       headers["X-Inertia-Location"] = url
       head :conflict
+    end
+
+    # Mirror inertia_rails' redirect_to override: extract the inertia: option
+    # before calling super, and store clear_history in the session so it
+    # survives to the next render (the same mechanism the real gem uses).
+    def redirect_to(options = {}, response_options_and_flash = {})
+      inertia_opts = response_options_and_flash.delete(:inertia) if response_options_and_flash.is_a?(Hash)
+      session[:_inertia_clear_history] = true if inertia_opts&.dig(:clear_history)
+      super
     end
   end
 end

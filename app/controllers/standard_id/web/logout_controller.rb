@@ -14,7 +14,8 @@ module StandardId
 
       def create
         revoke_current_session!
-        redirect_to logout_destination, notice: "Successfully signed out"
+        redirect_to logout_destination, notice: "Successfully signed out",
+                    **(use_inertia? ? { inertia: { clear_history: true } } : {})
       end
 
       private
