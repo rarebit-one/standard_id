@@ -110,12 +110,27 @@ RSpec.describe StandardId::Events::Subscribers::LoggingSubscriber do
         described_class.new.call(event)
       end
 
-      it "includes login in payload" do
+      it "redacts the login identifier by default" do
         expect(logger).to receive(:warn) do |payload|
-          expect(payload[:login]).to eq("user@example.com")
+          expect(payload[:login]).to eq("us***@example.com")
+          expect(payload[:login]).not_to include("user@example.com")
         end
 
         described_class.new.call(event)
+      end
+
+      context "when log_login_identifiers is true" do
+        before do
+          allow(StandardId.config.events).to receive(:log_login_identifiers).and_return(true)
+        end
+
+        it "logs the full login identifier" do
+          expect(logger).to receive(:warn) do |payload|
+            expect(payload[:login]).to eq("user@example.com")
+          end
+
+          described_class.new.call(event)
+        end
       end
 
       it "includes error code in payload" do
@@ -231,6 +246,54 @@ RSpec.describe StandardId::Events::Subscribers::LoggingSubscriber do
 
     it "uses debug as default for unknown events" do
       expect(described_class::DEFAULT_LOG_LEVEL).to eq(:debug)
+    end
+  end
+
+  describe "login identifier redaction" do
+    subject(:subscriber) { described_class.new }
+
+    describe "#redact_login" do
+      it "redacts an email address, keeping the first two local-part chars and the domain" do
+        expect(subscriber.send(:redact_login, "user@example.com")).to eq("us***@example.com")
+      end
+
+      it "redacts a short local part to one char + ***" do
+        expect(subscriber.send(:redact_login, "a@example.com")).to eq("a***@example.com")
+      end
+
+      it "redacts a non-email identifier to first two chars + ***" do
+        expect(subscriber.send(:redact_login, "johndoe")).to eq("jo***")
+      end
+
+      it "redacts a one-character identifier to one char + ***" do
+        expect(subscriber.send(:redact_login, "j")).to eq("j***")
+      end
+
+      it "never exposes the full value" do
+        result = subscriber.send(:redact_login, "secretuser@gmail.com")
+        expect(result).not_to include("secretuser")
+        expect(result).to match(/se\*\*\*@gmail\.com/)
+      end
+    end
+
+    context "when AUTHENTICATION_ATTEMPT_STARTED fires with a login" do
+      let(:event) do
+        StandardId::Events::Event.new(
+          name: "standard_id.authentication.attempt.started",
+          payload: {
+            event_type: "authentication.attempt.started",
+            account_lookup: "probe@attacker.com"
+          }
+        )
+      end
+
+      it "redacts the login by default (log_login_identifiers defaults to false)" do
+        expect(logger).to receive(:debug) do |payload|
+          expect(payload[:login]).to eq("pr***@attacker.com")
+        end
+
+        subscriber.call(event)
+      end
     end
   end
 end

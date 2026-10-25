@@ -216,6 +216,71 @@ RSpec.describe StandardId::Engine do
     end
   end
 
+  describe ".warn_about_issuer_config!" do
+    let(:logger) { instance_double(ActiveSupport::Logger, warn: nil) }
+
+    before do
+      allow(Rails).to receive(:logger).and_return(logger)
+    end
+
+    context "when issuer is blank" do
+      before do
+        allow(StandardId.config).to receive(:issuer).and_return(nil)
+      end
+
+      it "warns about missing issuer" do
+        expect(logger).to receive(:warn).with(/No issuer configured/)
+
+        described_class.warn_about_issuer_config!
+      end
+    end
+
+    context "when issuer is set and verify_issuer is nil (default — follow issuer)" do
+      before do
+        allow(StandardId.config).to receive(:issuer).and_return("https://auth.example.com")
+        allow(StandardId.config).to receive(:verify_issuer).and_return(nil)
+      end
+
+      it "stays silent" do
+        expect(logger).not_to receive(:warn)
+
+        described_class.warn_about_issuer_config!
+      end
+    end
+
+    context "when issuer is set and verify_issuer is true" do
+      before do
+        allow(StandardId.config).to receive(:issuer).and_return("https://auth.example.com")
+        allow(StandardId.config).to receive(:verify_issuer).and_return(true)
+      end
+
+      it "stays silent" do
+        expect(logger).not_to receive(:warn)
+
+        described_class.warn_about_issuer_config!
+      end
+    end
+
+    context "when issuer is set and verify_issuer is explicitly false" do
+      before do
+        allow(StandardId.config).to receive(:issuer).and_return("https://auth.example.com")
+        allow(StandardId.config).to receive(:verify_issuer).and_return(false)
+      end
+
+      it "warns that verify_issuer: false is a migration flag" do
+        expect(logger).to receive(:warn).with(/verify_issuer is explicitly false.*migration flag/m)
+
+        described_class.warn_about_issuer_config!
+      end
+
+      it "includes the configured issuer value in the warning" do
+        expect(logger).to receive(:warn).with(/"https:\/\/auth\.example\.com"/)
+
+        described_class.warn_about_issuer_config!
+      end
+    end
+  end
+
   describe "error hierarchy availability at engine load time" do
     # Host apps reference StandardId error classes at controller class-body
     # load time (e.g. `rescue_from StandardId::SocialLinkError, with: ...`).
