@@ -15,7 +15,8 @@ module StandardId
         if session == current_session
           # If revoking current session, sign out and redirect
           revoke_current_session!
-          redirect_to "/", notice: "Session revoked. You have been signed out."
+          redirect_to "/", notice: "Session revoked. You have been signed out.",
+                      **(use_inertia? ? { inertia: { clear_history: true } } : {})
         else
           # Revoke other session
           session.revoke!
