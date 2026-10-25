@@ -21,6 +21,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumers (fundbright-web, nutripod-web, jumpdrive-web, luminality-web,
   sidekick-web).
 
+## [0.56.0] - 2026-10-26
+
+### Added
+
+- **`c.events.log_login_identifiers` (default `false`).** `LoggingSubscriber` now redacts the submitted
+  email/login in `AUTHENTICATION_ATTEMPT_STARTED` (debug) and `AUTHENTICATION_FAILED` (warn) log lines by
+  default: email-shaped values are logged as `lo***@domain`; everything else as `lo***`. Set
+  `c.events.log_login_identifiers = true` to restore the previous behaviour (full value logged) for apps
+  that need it for debugging.
+
+- **Boot-time warning when `verify_issuer: false` is combined with a configured `issuer`.** The existing
+  warning fires when `issuer` is blank; this companion fires when `issuer` is set but `verify_issuer` is
+  explicitly `false`, reminding operators it is a migration flag to remove once all in-flight tokens have
+  expired.
+
 ## [0.55.1] - 2026-10-23
 
 ### Fixed

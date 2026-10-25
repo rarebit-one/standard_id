@@ -110,7 +110,10 @@ module StandardId
             payload[:account_id] = event[:account_id]
           end
 
-          payload[:login] = event[:account_lookup] || event[:login] || event[:username] if event[:account_lookup] || event[:login] || event[:username]
+          raw_login = event[:account_lookup] || event[:login] || event[:username]
+          if raw_login
+            payload[:login] = log_login_identifiers? ? raw_login : redact_login(raw_login)
+          end
           payload[:auth_method] = event[:auth_method] if event[:auth_method]
           payload[:grant_type] = event[:grant_type] if event[:grant_type]
           payload[:provider] = event[:provider] if event[:provider]
@@ -119,6 +122,35 @@ module StandardId
           payload[:error_code] = event[:error_code] if event[:error_code]
 
           payload
+        end
+
+        def log_login_identifiers?
+          config = StandardId.config
+          return false unless config.respond_to?(:events)
+
+          config.events.log_login_identifiers
+        end
+
+        # Redact a login identifier for logging.
+        #
+        # Email-shaped values (`local@domain`): keep the first two characters of
+        # the local part, mask the rest as `***`, keep the domain verbatim.
+        # Everything else: keep the first two characters, mask the rest as `***`.
+        #
+        # The local part's length is not exposed (all masks are `***`), and the
+        # domain is kept so operators can still tell at a glance which service
+        # the attempt targeted (e.g. gmail.com vs corporate SSO).
+        def redact_login(value)
+          str = value.to_s
+          if (m = str.match(/\A(.+)@(.+)\z/))
+            local = m[1]
+            domain = m[2]
+            prefix = local.length > 2 ? local[0, 2] : local[0, 1]
+            "#{prefix}***@#{domain}"
+          else
+            prefix = str.length > 2 ? str[0, 2] : str[0, 1]
+            "#{prefix}***"
+          end
         end
       end
     end

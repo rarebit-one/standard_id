@@ -153,6 +153,20 @@ StandardId::ConfigSchema.define do
   scope :events do
     field :enable_logging, type: :boolean, default: false
 
+    # Whether to log the full login identifier (email / username) in
+    # `AUTHENTICATION_ATTEMPT_STARTED` and `AUTHENTICATION_FAILED` log lines.
+    #
+    # Defaults to `false`: a redacted form is logged instead
+    # (`local-part[0..1]***@domain` for email-shaped values, first two
+    # characters + *** for everything else). This prevents email addresses from
+    # accumulating in log sinks (Sentry, Datadog, etc.) on every failed login
+    # attempt, including attacker probes.
+    #
+    # Set to `true` only for apps that have already accepted the privacy
+    # trade-off and need the full value for debugging — typically behind an
+    # environment flag that is off in production.
+    field :log_login_identifiers, type: :boolean, default: false
+
     # Publish `<key>_id` / `<key>_gid` alongside every record-valued payload key
     # (rarebit-one/rarebit-ops#296).
     #

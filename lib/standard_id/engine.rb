@@ -81,10 +81,7 @@ module StandardId
       StandardId::Events::Subscribers::PasswordlessDeliverySubscriber.attach
       StandardId::Events::Subscribers::PasswordResetDeliverySubscriber.attach
 
-      if StandardId.config.issuer.blank?
-        Rails.logger.warn("[StandardId] No issuer configured. JWT tokens will not include or verify the 'iss' claim. " \
-                          "Set StandardId.config.issuer in your initializer for production use.")
-      end
+      StandardId::Engine.warn_about_issuer_config!
 
       # Fail loudly if `association_strict_loading` was assigned after the
       # host's Account class body already ran — that assignment has no effect,
@@ -174,6 +171,22 @@ module StandardId
         "JWT audience is not enforced globally. Set this to your expected " \
         "audiences (e.g., ['web', 'api']) to close cross-audience replay vectors."
       )
+    end
+
+    # Warn when the issuer configuration is missing or when `verify_issuer`
+    # is explicitly `false` with an issuer set (migration flag left behind).
+    # Extracted to a module method so specs can exercise it without booting
+    # a second Rails app.
+    def self.warn_about_issuer_config!
+      if StandardId.config.issuer.blank?
+        Rails.logger.warn("[StandardId] No issuer configured. JWT tokens will not include or verify the 'iss' claim. " \
+                          "Set StandardId.config.issuer in your initializer for production use.")
+      elsif StandardId.config.verify_issuer == false
+        Rails.logger.warn("[StandardId] verify_issuer is explicitly false but an issuer is configured " \
+                          "(#{StandardId.config.issuer.inspect}). Tokens will include the 'iss' claim but " \
+                          "incoming tokens are NOT required to carry it. This is a migration flag — remove " \
+                          "verify_issuer: false from your initializer once all in-flight tokens have expired.")
+      end
     end
   end
 end
