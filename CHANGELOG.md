@@ -7,20 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Inertia history is now cleared on sign-out** for hosts that set `use_inertia = true`.
-  `Web::LogoutController#create` and the current-session branch of
-  `Web::SessionsController#destroy` now pass `inertia: { clear_history: true }` on
-  the redirect, which stores a session flag that the next Inertia render consumes
-  (`clearHistory: true` in the page JSON). Without this, the old history-encryption
-  key remained in `sessionStorage` and `Back` could still decrypt pages viewed while
-  signed in. Hosts without `use_inertia` are unaffected.
-
-  Rolling this out requires a release followed by a `/rollout-gem` to all five
-  consumers (fundbright-web, nutripod-web, jumpdrive-web, luminality-web,
-  sidekick-web).
-
 ## [0.56.0] - 2026-10-26
 
 ### Added
@@ -35,6 +21,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning fires when `issuer` is blank; this companion fires when `issuer` is set but `verify_issuer` is
   explicitly `false`, reminding operators it is a migration flag to remove once all in-flight tokens have
   expired.
+
+### Fixed
+
+- **Inertia history is now cleared on sign-out** for hosts that set `use_inertia = true`.
+  `Web::LogoutController#create` and the current-session branch of
+  `Web::SessionsController#destroy` now pass `inertia: { clear_history: true }` on
+  the redirect, which stores a session flag that the next Inertia render consumes
+  (`clearHistory: true` in the page JSON). Without this, the old history-encryption
+  key remained in `sessionStorage` and `Back` could still decrypt pages viewed while
+  signed in. Hosts without `use_inertia` are unaffected.
+
+  Rolling this out requires a release followed by a `/rollout-gem` to all five
+  consumers (fundbright-web, nutripod-web, jumpdrive-web, luminality-web,
+  sidekick-web).
 
 ## [0.55.1] - 2026-10-23
 
