@@ -56,5 +56,21 @@ RSpec.describe StandardId::Web::SignupForm, type: :model do
       expect(form.submit).to eq(false)
       expect(form.errors[:base]).to be_present
     end
+
+    it "lets a CREDENTIAL_PASSWORD_CREATED subscriber walk the credential chain under strict loading" do
+      accounts = []
+      sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_CREATED) do |e|
+        accounts << e[:credential].credential.identifier.account
+      end
+      allow(Rails.error).to receive(:report).and_call_original
+
+      form = described_class.new(email: "walker@example.com", password: "Password1!", password_confirmation: "Password1!")
+      expect(form.submit).to eq(true)
+
+      expect(accounts).to eq([form.account])
+      expect(Rails.error).not_to have_received(:report)
+    ensure
+      ActiveSupport::Notifications.unsubscribe(sub) if sub
+    end
   end
 end
