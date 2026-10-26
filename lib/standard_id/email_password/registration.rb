@@ -105,7 +105,13 @@ module StandardId
               account: account, value: email, signup_source: EmailPassword::SIGNUP_SOURCE
             )
             password_credential = StandardId::PasswordCredential.create!(login: email, password: password)
-            StandardId::Credential.create!(identifier: identifier, credentialable: password_credential)
+            # Created through the association, not Credential.create!: the
+            # has_one's touch: true reads password_credential.credential in
+            # after_create, caching nil, so a subscriber walking
+            # credential.identifier.account would get nil. Going through the
+            # association leaves the whole chain loaded in memory, which also
+            # keeps strict-loading hosts from lazily loading identifier/account.
+            password_credential.create_credential!(identifier: identifier)
 
             StandardId::Events.publish(
               StandardId::Events::ACCOUNT_CREATED,

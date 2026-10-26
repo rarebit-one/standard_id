@@ -330,6 +330,21 @@ RSpec.describe "API email + password", type: :request do
       expect(response).to have_http_status(:conflict)
       expect(json["error"]).to eq("account_exists")
     end
+
+    it "lets a CREDENTIAL_PASSWORD_CREATED subscriber walk the credential chain under strict loading" do
+      accounts = []
+      sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_CREATED) do |e|
+        accounts << e[:credential].credential.identifier.account
+      end
+      allow(Rails.error).to receive(:report).and_call_original
+
+      register
+
+      expect(accounts).to eq([Account.find_by(email: email)])
+      expect(Rails.error).not_to have_received(:report)
+    ensure
+      ActiveSupport::Notifications.unsubscribe(sub) if sub
+    end
   end
 
   describe "an address that belongs to a social-only account" do

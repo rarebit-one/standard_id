@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`credential.password.created` from the API email + password sign-up now carries a usable
+  credential chain.** `EmailPassword::Registration` created the `Credential` row with
+  `Credential.create!`, but `PasswordCredential`'s `has_one :credential, touch: true` had already
+  read (and cached) the association as `nil` in `after_create`. A subscriber walking
+  `event[:credential].credential.identifier.account` got `nil`; it now gets the account, with the
+  whole chain loaded in memory, so strict-loading hosts never load it lazily.
+  `Web::SignupForm` was unaffected (it builds the chain with nested attributes); it now has the
+  same regression spec.
+
 ## [0.56.0] - 2026-10-26
 
 ### Added
