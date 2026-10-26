@@ -7,7 +7,7 @@ on:
 
 jobs:
   release:
-    uses: rarebit-one/.github/.github/workflows/reusable-gem-release.yml@v2
+    uses: rarebit-one/.github/.github/workflows/reusable-gem-release.yml@v3  # moving major tag, auto-advanced on .github main (sre-brain#831)
     with:
       gem-name: standard_id
       ruby-version: "4.0.4"
