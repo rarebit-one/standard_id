@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_22_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -151,6 +151,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_000000) do
     t.index ["account_id", "provider"], name: "index_standard_id_identifiers_on_account_id_and_provider"
     t.index ["account_id", "type", "value"], name: "index_standard_id_identifiers_on_account_id_and_type_and_value", unique: true
     t.index ["account_id"], name: "index_standard_id_identifiers_on_account_id"
+    t.index ["type", "value"], name: "index_standard_id_identifiers_on_type_and_value"
   end
 
   create_table "standard_id_password_credentials", force: :cascade do |t|
@@ -175,6 +176,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_22_000000) do
     t.datetime "updated_at", null: false
     t.index ["account_id", "revoked_at"], name: "idx_on_account_id_revoked_at_refresh_tokens"
     t.index ["account_id"], name: "index_standard_id_refresh_tokens_on_account_id"
+    t.index ["client_application_id"], name: "index_standard_id_refresh_tokens_on_client_application_id", where: "client_application_id IS NOT NULL"
     t.index ["expires_at", "revoked_at"], name: "idx_on_expires_at_revoked_at_refresh_tokens"
     t.index ["expires_at"], name: "index_standard_id_refresh_tokens_on_expires_at_where_active", where: "revoked_at IS NULL"
     t.index ["previous_token_id"], name: "index_standard_id_refresh_tokens_on_previous_token_id"

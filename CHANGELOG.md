@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Migration `20261028000000_add_value_lookup_indexes_to_standard_id_tables`.** Adds a
+  `[type, value]` index on `standard_id_identifiers`, which serves the `find_by(value:)` lookup behind
+  every sign-in, OTP start, social login and password reset (the only index containing `value` led
+  with `account_id`, so each lookup was a sequential scan). Also adds a partial
+  `client_application_id` index on `standard_id_refresh_tokens` for `PurgeStaleDynamicClientsJob`.
+  Both are built `CONCURRENTLY` on PostgreSQL and are idempotent. Run
+  `bin/rails standard_id:install:migrations && bin/rails db:migrate`.
+
 ## [0.56.1] - 2026-10-27
 
 ### Fixed
