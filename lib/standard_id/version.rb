@@ -1,3 +1,3 @@
 module StandardId
-  VERSION = "0.57.0"
+  VERSION = "0.58.0"
 end
