@@ -2,6 +2,8 @@ require "rails_helper"
 require_relative "../../db/migrate/20260924000000_add_unique_active_device_index_to_standard_id_sessions"
 
 RSpec.describe AddUniqueActiveDeviceIndexToStandardIdSessions do
+  include MigrationSpecSupport
+
   let(:connection) { ActiveRecord::Base.connection }
   let(:index_name) { described_class::INDEX_NAME }
   let(:account) { Account.create!(name: "Dup User", email: "dup-#{SecureRandom.hex(4)}@example.com") }
@@ -19,7 +21,7 @@ RSpec.describe AddUniqueActiveDeviceIndexToStandardIdSessions do
   end
 
   # SQLite DDL is transactional, so the per-example transaction restores the
-  # schema.rb index after each example.
+  # schema.rb index after each example (see MigrationSpecSupport for PG).
   before { run(:down) }
 
   it "detaches all but the newest duplicate active row, revoking nothing, then adds the index" do
@@ -42,7 +44,7 @@ RSpec.describe AddUniqueActiveDeviceIndexToStandardIdSessions do
     expect(index).to be_present
     expect(index.unique).to be(true)
     expect(index.columns).to eq(%w[account_id device_id])
-    expect(index.where).to eq("revoked_at IS NULL AND device_id IS NOT NULL")
+    expect(normalized_where(index)).to eq("revoked_at IS NULL AND device_id IS NOT NULL")
   end
 
   it "asserts the detach UPDATE safe for hosts running StrongMigrations" do

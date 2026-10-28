@@ -96,6 +96,7 @@ RSpec.describe "Passwordless OTP start rate limits", type: :model do
 
     it "issues no lock statement on other adapters" do
       connection = StandardId::CodeChallenge.connection
+      allow(connection).to receive(:adapter_name).and_return("SQLite")
       allow(connection).to receive(:execute).and_call_original
 
       start!("user@example.com")

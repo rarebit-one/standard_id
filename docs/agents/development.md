@@ -33,6 +33,10 @@ then runs `spec/dummy/Procfile.dev` (web + tailwindcss watcher) via overmind/hiv
 
 - **No FactoryBot in gem specs** — the gem's own specs use inline model creation. The published `StandardId::Testing` module ships FactoryBot factories for host-app convenience, but they are not used in the gem's test suite.
 - **Dummy app** at `spec/dummy/` - complete Rails app for integration tests
+- **PostgreSQL leg**: `DATABASE_URL=postgres://.../standard_id_test bundle exec rspec` runs the suite on PG
+  (CI job `test (postgres)`). `spec/rails_helper.rb` drops and rebuilds the schema from the migrations
+  (the database name must contain `test`); migration specs include `MigrationSpecSupport`, which runs
+  them outside the transaction there because PG refuses `CONCURRENTLY` inside one.
 - **Request helpers** in `spec/support/request_helpers.rb`
 
 ```ruby

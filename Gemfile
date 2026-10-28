@@ -12,6 +12,9 @@ gem "puma"
 
 gem "sqlite3"
 
+# The CI Postgres leg (DATABASE_URL=postgres://...). See spec/dummy/config/database.yml.
+gem "pg"
+
 gem "propshaft"
 
 # Rails 8.1.3.1 calls `JSON.parse(json, options)` positionally in

@@ -28,6 +28,56 @@ jobs:
         bin/rails app:tailwindcss:build
       upload-screenshots: true
 
+  # The suite again on PostgreSQL, which every consumer app runs (DBP-022).
+  # The matrix above is SQLite, so it never runs the migrations' PG-only
+  # branches (jsonb, GIN, partial and CONCURRENTLY indexes), the advisory
+  # lock in Passwordless, or a PG query plan. On this leg spec/rails_helper.rb
+  # builds the schema by running every migration instead of loading the
+  # SQLite-dumped schema.rb. Same pattern as standard_audit's `test (postgres)`.
+  #
+  # A separate job because the reusable gem CI has no `services:` hook.
+  test-postgres:
+    name: test (postgres)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:44c4ee9810eff91f7eab4d822642e01115b1a9eccce4bcbdde7604752d68eac6
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: standard_id_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+          --mount type=tmpfs,destination=/var/lib/postgresql/data
+    env:
+      RAILS_ENV: test
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/standard_id_test
+    steps:
+      - name: Install packages
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y build-essential git libyaml-dev pkg-config
+
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@26e5b7d197ebf60545ee9667bcbace0be11ccaec # v1.334.0
+        with:
+          ruby-version: 4.0.4
+          bundler-cache: true
+
+      - name: Run tests on PostgreSQL
+        run: bundle exec rspec
+
   test-rails-edge:
     # Early-warning canary against Rails `main`. Non-blocking: this job is allowed
     # to fail without breaking PRs. The point is to surface upstream breakage in
