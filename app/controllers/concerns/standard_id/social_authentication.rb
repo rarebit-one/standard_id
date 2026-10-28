@@ -538,15 +538,19 @@ module StandardId
       )
     end
 
+    # Raw provider tokens stay off the bus unless the host opts in: subscribers
+    # that persist the whole payload (audit) would otherwise store them. See
+    # events.publish_provider_tokens.
     def emit_social_auth_completed(provider, social_info, provider_tokens, account, original_request_params)
-      StandardId::Events.publish(
-        StandardId::Events::SOCIAL_AUTH_COMPLETED,
+      payload = {
         account: account,
         provider: provider,
         social_info: social_info,
-        tokens: provider_tokens,
         original_request_params: original_request_params
-      )
+      }
+      payload[:tokens] = provider_tokens if StandardId.config.events.publish_provider_tokens
+
+      StandardId::Events.publish(StandardId::Events::SOCIAL_AUTH_COMPLETED, payload)
     end
 
     def emit_account_creating_from_social(social_info)

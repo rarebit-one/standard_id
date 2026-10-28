@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`SOCIAL_AUTH_COMPLETED` no longer publishes the provider's raw OAuth tokens (DBP-028).** The
+  `tokens:` key (access_token, refresh_token, id_token) is gone from the payload by default. An audit
+  subscriber that copies the whole payload (`standard_audit` subscribed to `standard_id.social.*`)
+  wrote the id_token to append-only rows, because `standard_audit` redacts `access_token` and
+  `refresh_token` but not `id_token`. A host that needs the tokens gets `provider_tokens:` in the
+  `social.before_account` / `before_mint` hooks, or can set the new
+  `config.events.publish_provider_tokens = true` to restore `event[:tokens]`. Rows already written
+  are not touched.
+
 ## [0.57.0] - 2026-10-28
 
 ### Added

@@ -112,6 +112,36 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
       end
     end
 
+    # DBP-028: whatever SOCIAL_AUTH_COMPLETED carries, a whole-payload audit
+    # subscriber persists. The id_token arrives both as a request param and in
+    # the provider's tokens; neither may reach the event.
+    describe "provider tokens in SOCIAL_AUTH_COMPLETED" do
+      let(:raw_id_token) { "eyJ.raw-provider-id-token.sig" }
+
+      before do
+        allow_any_instance_of(described_class).to receive(:get_user_info_from_provider)
+          .and_return(user_info:, tokens: { id_token: raw_id_token, access_token: "raw-access-token" })
+      end
+
+      it "publishes no raw provider token" do
+        payload = nil
+        subscriber = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
+          payload = event.payload
+        end
+
+        begin
+          post :callback, params: { provider: "apple", id_token: raw_id_token, nonce: "raw-nonce" }
+        ensure
+          StandardId::Events.unsubscribe(subscriber)
+        end
+
+        expect(response).to have_http_status(:ok)
+        expect(payload).to include(provider: "apple")
+        expect(payload).not_to have_key(:tokens)
+        expect(payload.to_s).not_to include(raw_id_token, "raw-access-token", "raw-nonce")
+      end
+    end
+
     describe "original_request_params forwarding" do
       before do
         allow_any_instance_of(described_class).to receive(:get_user_info_from_provider)
