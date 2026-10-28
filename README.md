@@ -609,11 +609,17 @@ To handle social login completion (e.g., for analytics or audit logging), subscr
 StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
   Analytics.track_social_login(
     provider: event[:provider],
-    account_id: event[:account].id,
-    tokens: event[:tokens]
+    account_id: event[:account].id
   )
 end
 ```
+
+The event does not carry the provider's raw OAuth tokens (access, refresh or
+id_token) since 0.58: a subscriber that stores the whole payload, such as an
+audit log, would keep them. A host that needs them to call the provider's API
+gets `provider_tokens:` in the `social.before_account` / `before_mint` hooks.
+Setting `config.events.publish_provider_tokens = true` restores `event[:tokens]`;
+the subscriber that reads it then has to keep them out of audit rows and logs.
 
 ### Inertia.js Integration
 
@@ -1003,7 +1009,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `social.user_info.fetched` | `provider`, `social_info`, `email` | After fetching user info from the provider |
 |  | `social.account.created` | `account`, `provider`, `social_info` | When a social login creates a new account |
 |  | `social.account.linked` | `account`, `provider`, `identifier` | When a social login links to an existing account by email (published once the link is written, never for a refused login), or matches an existing link by `sub` |
-|  | `social.auth.completed` | `account`, `provider`, `tokens` | After social login completes |
+|  | `social.auth.completed` | `account`, `provider`, `social_info`, `original_request_params` (`tokens` only with `events.publish_provider_tokens`) | After social login completes |
 |  | `social.auth.failed` | `provider`, `error`, `error_class`, `account` | When social login fails due to an infrastructure error (HTTP/DNS/SSL/timeout) |
 | Credential | `credential.password.created` | `credential`, `account` | After a password credential is created |
 |  | `credential.password.reset_initiated` | `credential`, `account`, `reset_token_expires_at` | After a password reset is initiated |

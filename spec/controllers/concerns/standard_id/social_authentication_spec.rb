@@ -13,28 +13,48 @@ RSpec.describe StandardId::SocialAuthentication do
   let(:account) { double("Account") }
 
   describe "#run_social_callback" do
-    it "passes only the keys accepted by the callback" do
+    def capture_completed_event
       event_received = nil
       subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_COMPLETED) do |event|
         event_received = event
       end
 
-      begin
-        instance.send(
-          :run_social_callback,
-          provider: "google",
-          social_info: social_info,
-          provider_tokens: provider_tokens,
-          account: account
-        )
+      instance.send(
+        :run_social_callback,
+        provider: "google",
+        social_info: social_info,
+        provider_tokens: provider_tokens,
+        account: account
+      )
+      event_received
+    ensure
+      StandardId::Events.unsubscribe(subscription)
+    end
 
-        expect(event_received).to be_present
-        expect(event_received[:account]).to eq(account)
-        expect(event_received[:provider]).to eq("google")
-        expect(event_received[:social_info]).to match(social_info)
-        expect(event_received[:tokens]).to match(provider_tokens)
-      ensure
-        StandardId::Events.unsubscribe(subscription)
+    it "publishes the account, provider and social info" do
+      event_received = capture_completed_event
+
+      expect(event_received).to be_present
+      expect(event_received[:account]).to eq(account)
+      expect(event_received[:provider]).to eq("google")
+      expect(event_received[:social_info]).to match(social_info)
+    end
+
+    # DBP-028: an audit subscriber that copies the whole payload stored the
+    # provider's id_token (standard_audit does not redact that key).
+    it "keeps the provider's raw tokens off the bus by default" do
+      event_received = capture_completed_event
+
+      expect(event_received.payload).not_to have_key(:tokens)
+      expect(event_received.payload.to_s).not_to include("id-token")
+    end
+
+    context "with config.events.publish_provider_tokens = true" do
+      before { StandardId.config.events.publish_provider_tokens = true }
+      after { StandardId.config.events.publish_provider_tokens = false }
+
+      it "publishes the tokens for subscribers that need them" do
+        expect(capture_completed_event[:tokens]).to match(provider_tokens)
       end
     end
   end

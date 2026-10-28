@@ -4,11 +4,28 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Provider tokens leave SOCIAL_AUTH_COMPLETED (0.58)](#provider-tokens-leave-social_auth_completed-058)
 - [Adopting the email + password API (0.55)](#adopting-the-email--password-api-055)
 - [0.42 to 0.43: deprecated settings removed](#042-to-043-deprecated-settings-removed)
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Provider tokens leave SOCIAL_AUTH_COMPLETED (0.58)
+
+`SOCIAL_AUTH_COMPLETED` no longer carries `tokens:` (the provider's access,
+refresh and id tokens). An audit subscriber that copied the whole payload was
+storing the id_token. Check your subscribers for `event[:tokens]`:
+
+- None read it: nothing to do.
+- One needs the tokens to call the provider: read `provider_tokens:` in
+  `c.social.before_mint` / `before_account` instead (API callback), or set
+  `c.events.publish_provider_tokens = true` and make sure the payload that
+  subscriber sees is not also written to an audit log.
+
+Audit rows written before the upgrade are unchanged.
 
 ---
 

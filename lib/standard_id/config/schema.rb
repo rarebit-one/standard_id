@@ -194,6 +194,20 @@ StandardId::ConfigSchema.define do
     # the records going away in the one after. Until a host opts in, behaviour
     # is exactly as it was.
     field :publish_records, type: :boolean, default: true
+
+    # Whether SOCIAL_AUTH_COMPLETED carries the provider's raw OAuth tokens
+    # (`tokens:` — access_token, refresh_token, id_token).
+    #
+    # Off by default since 0.58 (DBP-028). An audit subscriber that copies the
+    # whole payload wrote them to append-only rows: `standard_audit` redacts
+    # `access_token`/`refresh_token` but not `id_token`, which is a bearer
+    # credential carrying the user's email. The bus is the wrong place for a
+    # secret; a host that needs the tokens (to call the provider's API) gets
+    # them as `provider_tokens:` in `social.before_account`/`before_mint`.
+    #
+    # Turn it on only if a subscriber of yours reads `event[:tokens]`, and keep
+    # that subscriber's output out of audit rows, logs and error reports.
+    field :publish_provider_tokens, type: :boolean, default: false
   end
 
   scope :passwordless do
