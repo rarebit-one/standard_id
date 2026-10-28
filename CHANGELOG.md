@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `config.events.publish_provider_tokens = true` to restore `event[:tokens]`. Rows already written
   are not touched.
 
+### Changed
+
+- **Migration `20261028100000_remove_redundant_standard_id_indexes` (DBP-009).** Drops 11 indexes the
+  gem's own migrations created that no query needs, which cuts write amplification on sessions, refresh
+  tokens and authorization codes. Eight are redundant: another index leads with the same columns, or
+  `lookup_hash` is already unique, or (on `client_applications`) the index exactly duplicates the one
+  `t.references` created. The other three are the never-queried GIN `metadata` indexes on sessions,
+  authorization_codes and client_applications (PostgreSQL only). No unique index is touched.
+  `CONCURRENTLY` on PostgreSQL and idempotent; `down` rebuilds them. Run
+  `bin/rails standard_id:install:migrations && bin/rails db:migrate`.
+
 ## [0.57.0] - 2026-10-28
 
 ### Added

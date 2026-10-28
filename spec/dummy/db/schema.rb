@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_28_100000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -48,7 +48,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
     t.string "scope"
     t.datetime "updated_at", null: false
     t.index ["account_id", "expires_at"], name: "idx_on_account_id_expires_at_22bee5ab05"
-    t.index ["account_id"], name: "index_standard_id_authorization_codes_on_account_id"
     t.index ["client_id", "expires_at"], name: "idx_on_client_id_expires_at_413231188c"
     t.index ["code_hash"], name: "index_standard_id_authorization_codes_on_code_hash", unique: true
     t.index ["consumed_at"], name: "index_standard_id_authorization_codes_on_consumed_at"
@@ -80,7 +79,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
     t.index ["active"], name: "index_standard_id_client_applications_on_active"
     t.index ["client_id"], name: "index_standard_id_client_applications_on_client_id", unique: true
     t.index ["client_type"], name: "index_standard_id_client_applications_on_client_type"
-    t.index ["owner_type", "owner_id"], name: "idx_on_owner_type_owner_id_936e856298"
     t.index ["owner_type", "owner_id"], name: "index_standard_id_client_applications_on_owner"
   end
 
@@ -91,7 +89,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
     t.string "scope"
     t.datetime "updated_at", null: false
     t.index ["account_id", "client_id"], name: "idx_standard_id_client_grants_on_account_client", unique: true
-    t.index ["account_id"], name: "index_standard_id_client_grants_on_account_id"
     t.index ["client_id"], name: "index_standard_id_client_grants_on_client_id"
   end
 
@@ -150,7 +147,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
     t.datetime "verified_at"
     t.index ["account_id", "provider"], name: "index_standard_id_identifiers_on_account_id_and_provider"
     t.index ["account_id", "type", "value"], name: "index_standard_id_identifiers_on_account_id_and_type_and_value", unique: true
-    t.index ["account_id"], name: "index_standard_id_identifiers_on_account_id"
     t.index ["type", "value"], name: "index_standard_id_identifiers_on_type_and_value"
   end
 
@@ -175,13 +171,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
     t.string "token_digest", null: false
     t.datetime "updated_at", null: false
     t.index ["account_id", "revoked_at"], name: "idx_on_account_id_revoked_at_refresh_tokens"
-    t.index ["account_id"], name: "index_standard_id_refresh_tokens_on_account_id"
     t.index ["client_application_id"], name: "index_standard_id_refresh_tokens_on_client_application_id", where: "client_application_id IS NOT NULL"
     t.index ["expires_at", "revoked_at"], name: "idx_on_expires_at_revoked_at_refresh_tokens"
     t.index ["expires_at"], name: "index_standard_id_refresh_tokens_on_expires_at_where_active", where: "revoked_at IS NULL"
     t.index ["previous_token_id"], name: "index_standard_id_refresh_tokens_on_previous_token_id"
     t.index ["session_id", "revoked_at"], name: "idx_on_session_id_revoked_at_refresh_tokens"
-    t.index ["session_id"], name: "index_standard_id_refresh_tokens_on_session_id"
     t.index ["token_digest"], name: "index_standard_id_refresh_tokens_on_token_digest", unique: true
   end
 
@@ -206,10 +200,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_000000) do
     t.text "user_agent"
     t.index ["account_id", "device_id"], name: "index_standard_id_sessions_on_active_account_device", unique: true, where: "revoked_at IS NULL AND device_id IS NOT NULL"
     t.index ["account_id", "type", "expires_at"], name: "idx_on_account_id_type_expires_at_fed5f68be5"
-    t.index ["account_id"], name: "index_standard_id_sessions_on_account_id"
     t.index ["expires_at", "revoked_at"], name: "index_standard_id_sessions_on_expires_at_and_revoked_at"
     t.index ["expires_at"], name: "index_standard_id_sessions_on_expires_at_where_active", where: "revoked_at IS NULL"
-    t.index ["lookup_hash", "expires_at", "revoked_at"], name: "idx_on_lookup_hash_expires_at_revoked_at_34a4504c19"
     t.index ["lookup_hash"], name: "index_standard_id_sessions_on_lookup_hash", unique: true
     t.index ["owner_type", "owner_id"], name: "index_standard_id_sessions_on_owner"
     t.index ["type"], name: "index_standard_id_sessions_on_type"
