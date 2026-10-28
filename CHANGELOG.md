@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-10-28
+
 ### Security
 
 - **`SOCIAL_AUTH_COMPLETED` no longer publishes the provider's raw OAuth tokens (DBP-028).** The
