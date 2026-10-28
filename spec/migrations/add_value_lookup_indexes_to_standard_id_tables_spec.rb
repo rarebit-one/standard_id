@@ -2,6 +2,8 @@ require "rails_helper"
 require_relative "../../db/migrate/20261028000000_add_value_lookup_indexes_to_standard_id_tables"
 
 RSpec.describe AddValueLookupIndexesToStandardIdTables do
+  include MigrationSpecSupport
+
   let(:connection) { ActiveRecord::Base.connection }
 
   def run(direction)
@@ -13,7 +15,7 @@ RSpec.describe AddValueLookupIndexesToStandardIdTables do
   end
 
   # SQLite DDL is transactional, so the per-example transaction restores the
-  # schema.rb indexes after each example.
+  # schema.rb indexes after each example (see MigrationSpecSupport for PG).
   before { run(:down) }
 
   it "adds a [type, value] index on identifiers for find_by(value:)" do
@@ -31,7 +33,7 @@ RSpec.describe AddValueLookupIndexesToStandardIdTables do
     index = index_named(:standard_id_refresh_tokens, "index_standard_id_refresh_tokens_on_client_application_id")
     expect(index).to be_present
     expect(index.columns).to eq(%w[client_application_id])
-    expect(index.where).to eq("client_application_id IS NOT NULL")
+    expect(normalized_where(index)).to eq("client_application_id IS NOT NULL")
   end
 
   it "is idempotent and reversible" do

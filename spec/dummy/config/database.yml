@@ -16,9 +16,17 @@ development:
 # Warning: The database defined as "test" will be erased and
 # re-generated from your development database when you run "rake".
 # Do not set this db to the same as development or production.
+# SQLite by default. Set DATABASE_URL (postgres://...) to run the suite against
+# PostgreSQL instead: the CI `test (postgres)` job does, so the PG-only branches
+# of the gem's migrations (jsonb, GIN, partial and CONCURRENTLY indexes) and the
+# queries every consumer app actually runs are exercised too.
 test:
+<% if ENV["DATABASE_URL"].to_s.start_with?("postgres") %>
+  url: <%= ENV["DATABASE_URL"] %>
+<% else %>
   <<: *default
   database: storage/test.sqlite3
+<% end %>
 
 
 # SQLite3 write its data on the local filesystem, as such it requires

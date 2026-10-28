@@ -2,6 +2,8 @@ require "rails_helper"
 require_relative "../../db/migrate/20260416180511_add_partial_indexes_for_active_session_and_challenge_lookups"
 
 RSpec.describe AddPartialIndexesForActiveSessionAndChallengeLookups do
+  include MigrationSpecSupport
+
   let(:index_name) { "index_code_challenges_on_active_target_created_at" }
 
   def run(migration, direction)
@@ -9,7 +11,7 @@ RSpec.describe AddPartialIndexesForActiveSessionAndChallengeLookups do
   end
 
   # SQLite DDL is transactional, so the per-example transaction restores the
-  # schema.rb indexes after each example.
+  # schema.rb indexes after each example (see MigrationSpecSupport for PG).
   it "asserts the 4-column code_challenges index safe for hosts running StrongMigrations" do
     # StrongMigrations rejects non-unique indexes over more than three columns;
     # every known host runs it. Stand in for its `safety_assured` and check the

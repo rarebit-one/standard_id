@@ -37,10 +37,32 @@ Rails.root.glob("../../spec/support/**/*.rb").sort.each { |f| require f }
 # If there are pending migrations it will invoke `db:test:prepare` to
 # recreate the test database by loading the schema.
 # If you are not using ActiveRecord, you can remove these lines.
-begin
-  ActiveRecord::Migration.maintain_test_schema!
-rescue ActiveRecord::PendingMigrationError => e
-  abort e.to_s.strip
+#
+# On PostgreSQL (DATABASE_URL, the CI `test (postgres)` job) the schema is
+# instead rebuilt by running every migration, the dummy app's and the gem's.
+# schema.rb is dumped from SQLite, so loading it would skip exactly what this
+# leg is for: the migrations' PG-only branches (jsonb, GIN, partial and
+# CONCURRENTLY indexes). Refuses any database whose name does not look like a
+# throwaway test database.
+connection = ActiveRecord::Base.connection
+if connection.adapter_name.match?(/postg/i)
+  database = connection.current_database
+  abort("Refusing to reset #{database.inspect}: not a test database") unless database.include?("test")
+
+  connection.execute("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public")
+  connection.schema_cache.clear!
+  ActiveRecord::Migration.verbose = false
+  ActiveRecord::MigrationContext.new([
+    Rails.root.join("db/migrate"),
+    File.expand_path("../db/migrate", __dir__)
+  ]).migrate
+  ActiveRecord::Base.descendants.each(&:reset_column_information)
+else
+  begin
+    ActiveRecord::Migration.maintain_test_schema!
+  rescue ActiveRecord::PendingMigrationError => e
+    abort e.to_s.strip
+  end
 end
 RSpec.configure do |config|
   # If you"re not using ActiveRecord, or you"d prefer not to run each of your
