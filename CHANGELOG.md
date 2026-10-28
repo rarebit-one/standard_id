@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-10-28
+
 ### Added
 
 - **Migration `20261028000000_add_value_lookup_indexes_to_standard_id_tables`.** Adds a
