@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.1] - 2026-10-30
+
 ### Fixed
 
 - **Inline scripts in the engine's web views now carry the CSP nonce.** The mobile callback
