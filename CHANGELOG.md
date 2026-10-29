@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Inline scripts in the engine's web views now carry the CSP nonce.** The mobile callback
+  bounce, the login page and the login-verify page each ran an un-nonced inline `<script>`, which a
+  host enforcing a nonce-based `script-src` (no `'unsafe-inline'`) blocks. On the mobile callback
+  that strands the user on "Returning to your app…" instead of returning them to the app. Hosts
+  without a nonce generator render an empty `nonce` attribute, which changes nothing.
+
 ## [0.58.0] - 2026-10-28
 
 ### Security

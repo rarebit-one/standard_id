@@ -38,7 +38,7 @@
       (non-AJAX) submit by then, so the request still goes through. Vanilla JS
       only; the gem ships no JS framework.
     %>
-    <script>
+    <script nonce="<%= content_security_policy_nonce %>">
       (function () {
         var form = document.getElementById("passwordless-login-form");
         if (!form) return;
