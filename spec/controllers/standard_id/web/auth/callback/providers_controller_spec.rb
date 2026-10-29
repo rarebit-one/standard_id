@@ -36,6 +36,16 @@ RSpec.describe StandardId::Web::Auth::Callback::ProvidersController, type: :cont
       expect(response.body).to include("code=abc123")
     end
 
+    # A host with a nonce-based script-src (no 'unsafe-inline') blocks an
+    # un-nonced inline script, stranding the user on this page.
+    it "nonces the redirect script for hosts that enforce a nonce-based CSP" do
+      allow(controller).to receive(:content_security_policy_nonce).and_return("test-nonce")
+      setup_oauth_session(state: state_token, redirect_uri: redirect_uri)
+      post :mobile_callback, params: { provider: "apple", state: state_token, code: "abc123" }
+
+      expect(response.body).to include('<script nonce="test-nonce">')
+    end
+
     it "keeps every relayed key intact in the redirect, not HTML-escaped" do
       setup_oauth_session(state: state_token, redirect_uri: redirect_uri)
       post :mobile_callback, params: { provider: "apple", state: state_token, code: "abc123", id_token: "tok" }

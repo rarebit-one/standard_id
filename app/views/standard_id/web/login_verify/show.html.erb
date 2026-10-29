@@ -56,7 +56,7 @@
   Client-side resend cooldown. Progressive enhancement: with JS off the button is
   always active and the server's retry_delay guard is the backstop. Vanilla JS only.
 %>
-<script>
+<script nonce="<%= content_security_policy_nonce %>">
   (function () {
     var btn = document.getElementById("resend-otp-button");
     if (!btn) return;

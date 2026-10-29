@@ -32,7 +32,7 @@
         color: #555;
       }
     </style>
-    <script>
+    <script nonce="<%= content_security_policy_nonce %>">
       document.addEventListener("DOMContentLoaded", function () {
         <%# to_json, not j(): ERB HTML-escapes the j() output, so every "&" in the
             query became "&amp;" and each key after the first arrived as "amp;<key>".
