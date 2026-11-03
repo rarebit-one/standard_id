@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-11-03
+
 ### Added
 
 - **E-mail addresses must end in an ICANN-registered TLD (on by default).** A sign-in code sent to
