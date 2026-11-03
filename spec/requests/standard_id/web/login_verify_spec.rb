@@ -41,6 +41,28 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       expect(challenge.target).to eq(email)
     end
 
+    it "rejects an e-mail domain without a registered TLD before any delivery event" do
+      events = capture_passwordless_start_events
+
+      http_post "/login", params: { login: { email: "  Jaryl@Rarebit.OME " } }
+
+      expect(response).to have_http_status(:unprocessable_content)
+      expect(flash[:alert]).to eq("rarebit.ome isn't a valid e-mail domain. Check the address.")
+      expect(events).to be_empty
+      expect(StandardId::CodeChallenge.count).to eq(0)
+      expect(session[StandardId::PasswordlessFlow::OTP_PAYLOAD_SESSION_KEY]).to be_nil
+    end
+
+    it "lets an unregistered TLD through when email.require_registered_tld is off" do
+      allow(StandardId.config.email).to receive(:require_registered_tld).and_return(false)
+      codes = capture_passwordless_codes
+
+      http_post "/login", params: { login: { email: "jaryl@rarebit.ome" } }
+
+      expect(response).to redirect_to("/login_verify")
+      expect(codes).to contain_exactly(["jaryl@rarebit.ome", kind_of(String)])
+    end
+
     it "renders error when email is blank" do
       http_post "/login", params: { login: { email: "" } }
 
@@ -117,6 +139,34 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       http_get "/login_verify"
 
       expect(response).to have_http_status(:not_found)
+    end
+  end
+
+  describe "GET /login_verify shows where the code went" do
+    before { initiate_passwordless_login! }
+
+    it "renders the address and a link back to change it" do
+      http_get "/login_verify"
+
+      expect(response).to have_http_status(:ok)
+      page = Nokogiri::HTML(response.body)
+      expect(page.at_css("#otp-identifier").text).to eq(email)
+      link = page.at_css("a#otp-change-identifier")
+      expect(link.text.strip).to eq("Use a different e-mail")
+      expect(link["href"]).to eq("/login")
+    end
+
+    it "passes identifier, channel and login_path to an Inertia front end" do
+      props = nil
+      allow_any_instance_of(StandardId::Web::LoginVerifyController)
+        .to receive(:render_with_inertia).and_wrap_original do |original, **kwargs|
+          props = kwargs[:props]
+          original.call(**kwargs)
+        end
+
+      http_get "/login_verify"
+
+      expect(props).to include(identifier: email, channel: "email", login_path: "/login")
     end
   end
 

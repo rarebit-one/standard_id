@@ -65,6 +65,28 @@ RSpec.describe "StandardId::Api::PasswordlessController", type: :request do
       expect(body["error_description"]).to include("Invalid email format")
     end
 
+    it "rejects an e-mail domain without a registered TLD before any delivery event" do
+      events = capture_passwordless_start_events
+
+      http_post_json path, params: { connection: "email", email: "jaryl@rarebit.ome" }
+
+      expect(response).to have_http_status(:bad_request)
+      body = json_body
+      expect(body["error"]).to eq("invalid_request")
+      expect(body["error_description"]).to eq("rarebit.ome isn't a valid e-mail domain. Check the address.")
+      expect(events).to be_empty
+      expect(StandardId::CodeChallenge.count).to eq(0)
+    end
+
+    it "accepts an uppercase address on a registered TLD" do
+      codes = capture_passwordless_codes
+
+      http_post_json path, params: { connection: "email", email: "User@Example.CO.UK" }
+
+      expect(response).to have_http_status(:ok)
+      expect(codes.size).to eq(1)
+    end
+
     it "validates phone format" do
       http_post_json path, params: { connection: "sms", phone_number: "555-1234" }
 

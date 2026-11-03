@@ -148,4 +148,52 @@ RSpec.describe StandardId::Passwordless::EmailStrategy do
       expect(identifier).to be_verified
     end
   end
+
+  describe "registered-TLD check on #start!" do
+    %w[jaryl@rarebit.ome user@example.con user@example.invalidtld].each do |email|
+      it "rejects #{email} before any code is generated or sent" do
+        events = capture_passwordless_start_events
+
+        expect {
+          strategy.start!(connection: "email", username: email)
+        }.to raise_error(StandardId::InvalidRequestError, "#{email.split("@").last} isn't a valid e-mail domain. Check the address.")
+
+        expect(events).to be_empty
+        expect(StandardId::CodeChallenge.count).to eq(0)
+      end
+    end
+
+    %w[user@rarebit.one user@example.sg user@example.co.uk user@example.app user@example.xn--p1ai].each do |email|
+      it "accepts #{email}" do
+        expect(strategy.start!(connection: "email", username: email)).to be_persisted
+      end
+    end
+
+    it "runs before the host's username_validator, which still runs after it" do
+      validator = ->(_username, _connection_type) { nil }
+      allow(StandardId.config.passwordless).to receive(:username_validator).and_return(validator)
+      allow(validator).to receive(:call).and_call_original
+
+      expect { strategy.start!(connection: "email", username: "user@rarebit.ome") }
+        .to raise_error(StandardId::InvalidRequestError, /isn't a valid e-mail domain/)
+      expect(validator).not_to have_received(:call)
+
+      strategy.start!(connection: "email", username: "user@rarebit.one")
+      expect(validator).to have_received(:call).with("user@rarebit.one", "email")
+    end
+
+    it "accepts a default special-use TLD (dev/test addresses)" do
+      expect(strategy.start!(connection: "email", username: "dev@example.test")).to be_persisted
+    end
+
+    it "is skipped when email.require_registered_tld is off" do
+      allow(StandardId.config.email).to receive(:require_registered_tld).and_return(false)
+
+      expect(strategy.start!(connection: "email", username: "user@rarebit.ome")).to be_persisted
+    end
+
+    it "does not apply when verifying or looking up an account" do
+      expect { strategy.find_account("user@rarebit.ome") }.not_to raise_error
+    end
+  end
 end

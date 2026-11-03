@@ -5,7 +5,15 @@
 <div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
   <div class="sm:mx-auto sm:w-full sm:max-w-md">
     <h2 class="mt-6 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white">Enter verification code</h2>
-    <p class="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">We sent you a verification code.</p>
+    <%# Show where the code went: a mistyped address otherwise looks exactly like a slow e-mail. %>
+    <p class="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
+      We sent a verification code to <span id="otp-identifier" class="font-semibold text-gray-900 dark:text-white"><%= @otp_data[:username] %></span>.
+    </p>
+    <p class="mt-1 text-center text-sm">
+      <%= link_to (@otp_data[:connection].to_s == "sms" ? "Use a different phone number" : "Use a different e-mail"),
+        login_path, id: "otp-change-identifier",
+        class: "font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" %>
+    </p>
   </div>
 
   <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">

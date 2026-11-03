@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **E-mail addresses must end in an ICANN-registered TLD (on by default).** A sign-in code sent to
+  `jaryl@rarebit.ome` was accepted by the ESP and bounced hours later on the missing MX, so the user
+  just never got a code: every format check in use (`EmailIdentifier::EMAIL_FORMAT`, Truemail's
+  `:regex`, `URI::MailTo::EMAIL_REGEXP`) accepts any run of letters as a TLD. The new
+  `StandardId::EmailDomain.registered_tld?(email_or_domain)` checks the domain against the ICANN
+  section of the Public Suffix List, offline (no DNS), including punycode IDN TLDs such as
+  `xn--p1ai`. It is applied (a) when a passwordless code is requested on an `email` connection, web
+  and API, before the code is generated or any delivery event fires, and before the host's
+  `passwordless.username_validator` (which still runs after), failing with "rarebit.ome isn't a
+  valid e-mail domain. Check the address."; and (b) when a `StandardId::EmailIdentifier`'s value is
+  set or changed (error `:unregistered_tld`). Existing identifier rows are never re-checked. The
+  special-use TLDs (`test`, `example`, `invalid`, `localhost`, `local`) still pass, since
+  they are never delegated and apps use them on purpose for bot accounts and fixtures; change the
+  list with `c.email.allowed_special_use_tlds`. Turn the check off with
+  `c.email.require_registered_tld = false`. Host e-mail validators should call
+  `StandardId::EmailDomain.allowed?` (the gem's rule) so every path agrees;
+  `StandardId::EmailDomain.registered_tld?` is the strict ICANN-only predicate. `public_suffix`
+  (`>= 5.0, < 8`) is now an explicit dependency.
+- **The login-verify page shows where the code went.** The built-in ERB view names the address and
+  links back to the login page ("Use a different e-mail"), and the Inertia props for
+  `login_verify/show` gain `identifier`, `channel` and `login_path` so host front ends can do the
+  same.
+
 ## [0.58.1] - 2026-10-30
 
 ### Fixed

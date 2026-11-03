@@ -24,5 +24,19 @@ module StandardId
     # actually edits the address. Without this, saving an unrelated attribute on
     # a grandfathered identifier would start raising.
     validates :value, format: { with: EMAIL_FORMAT }, if: :value_changed?
+
+    # The format above accepts any run of letters as a TLD, so "a@rarebit.ome"
+    # passes it. Same grandfathering: only a new or edited value is checked.
+    validate :value_has_registered_tld, if: :value_changed?
+
+    private
+
+    def value_has_registered_tld
+      return if value.blank? || errors.include?(:value)
+      return unless StandardId.config.email.require_registered_tld
+      return if StandardId::EmailDomain.allowed?(value)
+
+      errors.add(:value, :unregistered_tld, message: "has a domain that isn't a valid e-mail domain")
+    end
   end
 end

@@ -776,6 +776,8 @@ Authentication pages receive the following props:
 | `enabled_social_providers` | `string[]` | Names of the enabled providers, e.g. `["google"]` — iterate this rather than hard-coding provider names |
 | `errors` | `object` | Validation errors (on form submission failures) |
 
+The code-entry page (`login_verify/show`) instead receives `flash`, plus `identifier` (the address or phone number the code was sent to), `channel` (`"email"` or `"sms"`) and `login_path` (the engine's login page, mount path included). Show the address and link back to `login_path` ("Use a different e-mail"), so a user who mistyped it can see why no code arrived and start again; the built-in ERB view does this.
+
 #### Using Authentication in Host App Controllers
 
 You can use the `authenticate_account!` method in your own controllers to require authentication with Inertia-compatible redirects:

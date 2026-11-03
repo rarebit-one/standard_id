@@ -31,6 +31,7 @@ module StandardId
         delivery = attrs[:delivery]&.to_sym
 
         validate_username!(username)
+        validate_recipient!(username)
         run_username_validator!(username)
         enforce_start_rate_limits!(username)
         # Cooldown check and challenge creation in ONE transaction, serialised
@@ -174,6 +175,13 @@ module StandardId
       def validate_username!(_username)
         raise NotImplementedError
       end
+
+      # Checks that only make sense before a code is SENT (e.g. that an e-mail
+      # domain can receive mail), run after validate_username! and before the
+      # host's username_validator. Unlike validate_username! it is not applied
+      # when verifying or looking up an account, so tightening it never locks
+      # out a code already in flight. No-op by default.
+      def validate_recipient!(_username); end
 
       def find_or_create_account!(_username)
         raise NotImplementedError

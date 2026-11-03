@@ -4,12 +4,36 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [E-mail domains must have a registered TLD (0.59)](#e-mail-domains-must-have-a-registered-tld-059)
 - [Provider tokens leave SOCIAL_AUTH_COMPLETED (0.58)](#provider-tokens-leave-social_auth_completed-058)
 - [Adopting the email + password API (0.55)](#adopting-the-email--password-api-055)
 - [0.42 to 0.43: deprecated settings removed](#042-to-043-deprecated-settings-removed)
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## E-mail domains must have a registered TLD (0.59)
+
+A passwordless code request on an `email` connection, and a new or edited
+`StandardId::EmailIdentifier`, now fail when the address's domain does not end
+in an ICANN-registered TLD or an allowed special-use one
+(`StandardId::EmailDomain.allowed?`). Real addresses are unaffected; check your
+test suite and seeds:
+
+- **Special-use TLDs still pass.** `.test`, `.example`, `.invalid`,
+  `.localhost` and `.local` are accepted by default
+  (`c.email.allowed_special_use_tlds`), so `user@example.test` fixtures and
+  synthetic accounts such as `agent+1@agents.app.invalid` keep working. Other
+  TLDs outside the Public Suffix List (`.lan`, `.internal`, `.corp`) are
+  rejected: add them to that list or use a real TLD.
+- **Rows already stored are not re-checked** (the validation runs only when
+  the value changes), so existing accounts keep signing in.
+- **Your own e-mail validator** (a Truemail wrapper, a
+  `passwordless.username_validator`) can call
+  `StandardId::EmailDomain.allowed?(email)` so sign-up forms and the code
+  flow agree. The gem's check runs before `username_validator`.
 
 ---
 

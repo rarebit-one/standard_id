@@ -210,6 +210,24 @@ StandardId::ConfigSchema.define do
     field :publish_provider_tokens, type: :boolean, default: false
   end
 
+  scope :email do
+    # Reject an e-mail address whose domain does not end in an ICANN-registered
+    # TLD (StandardId::EmailDomain.allowed?), so "a@rarebit.ome" fails at once instead
+    # of bouncing hours later. Applied when a passwordless code is requested
+    # for an e-mail connection, before any code is generated or sent, and when
+    # a StandardId::EmailIdentifier's value is set or changed (existing rows
+    # are never re-checked). Turn it off only as an escape hatch, e.g. an app
+    # that signs in addresses on a private or not-yet-listed TLD.
+    field :require_registered_tld, type: :boolean, default: true
+    # TLDs that pass the check above although they are not in the PSL. The
+    # default is the special-use names of RFC 2606 / 6761 (test, example,
+    # invalid, localhost) and RFC 6762 (local), which are never delegated:
+    # nobody mistypes .com as .invalid, and apps use them on purpose for
+    # synthetic accounts (bots, demo data, e2e users) and test fixtures. Set
+    # [] to accept registered TLDs only; add e.g. "internal" for a private one.
+    field :allowed_special_use_tlds, type: :array, default: -> { %w[test example invalid localhost local] }
+  end
+
   scope :passwordless do
     # Removed in 0.43 (no effect since 0.8).
     removed :enabled, "it had no effect since 0.8. Use web.passwordless_login (WebEngine) instead, and delete this line."
