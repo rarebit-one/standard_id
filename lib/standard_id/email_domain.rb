@@ -26,6 +26,10 @@ module StandardId
   #   StandardId::EmailDomain.allowed?("bot@agents.app.invalid")   # => true
   #   StandardId::EmailDomain.registered_tld?("bot@agents.app.invalid") # => false
   module EmailDomain
+    # DNS limits (RFC 1035): a name of at most 253 octets, labels of at most 63.
+    MAX_DOMAIN_LENGTH = 253
+    MAX_LABEL_LENGTH = 63
+
     module_function
 
     # @param email_or_domain [String] an address ("a@b.com") or a bare domain ("b.com")
@@ -38,9 +42,15 @@ module StandardId
     # @return [Boolean]
     def registered_tld?(email_or_domain)
       domain = domain_of(email_or_domain)
-      return false if domain.blank?
+      return false if domain.blank? || domain.length > MAX_DOMAIN_LENGTH
 
-      unicode = domain.split(".").map { |label| to_unicode(label) }.join(".")
+      labels = domain.split(".")
+      # Checked before decoding: the punycode loop runs once per digit on
+      # arbitrary-precision integers, so an unbounded label from a public
+      # sign-in form is a cheap way to burn CPU.
+      return false if labels.any? { |label| label.length > MAX_LABEL_LENGTH }
+
+      unicode = labels.map { |label| to_unicode(label) }.join(".")
       # default_rule: nil — without it the PSL's implicit "*" rule matches any
       # unknown TLD, which is exactly what this exists to reject.
       # ignore_private: true — only ICANN suffixes count; a private entry such
@@ -98,6 +108,8 @@ module StandardId
       module_function
 
       def decode(input)
+        raise ArgumentError, "punycode label too long" if input.length > MAX_LABEL_LENGTH
+
         delimiter = input.rindex("-")
         output = delimiter ? input[0...delimiter].chars : []
         raise ArgumentError, "non-basic code point" unless output.all?(&:ascii_only?)

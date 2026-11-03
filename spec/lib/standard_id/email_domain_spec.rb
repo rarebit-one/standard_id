@@ -55,6 +55,18 @@ RSpec.describe StandardId::EmailDomain do
       expect(described_class.registered_tld?("user@")).to be(false)
     end
 
+    it "rejects an over-long label or domain without decoding it" do
+      expect(StandardId::EmailDomain::Punycode).not_to receive(:decode)
+
+      expect(described_class.registered_tld?("a@xn--#{"9" * 100_000}.com")).to be(false)
+      expect(described_class.registered_tld?("a@#{"a" * 64}.com")).to be(false)
+      expect(described_class.registered_tld?("a@#{(["a" * 60] * 5).join(".")}.com")).to be(false)
+    end
+
+    it "accepts a label of exactly 63 characters" do
+      expect(described_class.registered_tld?("a@#{"a" * 63}.com")).to be(true)
+    end
+
     it "is false for a malformed punycode label rather than raising" do
       expect(described_class.registered_tld?("user@example.xn--!!")).to be(false)
       expect(described_class.registered_tld?("user@example.xn--zzzzzzzzzz")).to be(false)
@@ -115,6 +127,10 @@ RSpec.describe StandardId::EmailDomain do
   end
 
   describe StandardId::EmailDomain::Punycode do
+    it "refuses input longer than a DNS label" do
+      expect { described_class.decode("9" * 64) }.to raise_error(ArgumentError, /too long/)
+    end
+
     # RFC 3492 section 7.1 and well-known IDN TLDs.
     {
       "p1ai" => "рф",
