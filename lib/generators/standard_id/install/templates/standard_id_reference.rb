@@ -258,8 +258,19 @@ StandardId.configure do |c|
   # to disable the cooldown.
   # c.passwordless.retry_delay = 30
 
+  # Default: true — reject an e-mail address whose domain does not end in an
+  # ICANN-registered TLD (a@rarebit.ome), before a passwordless code is sent
+  # and when an EmailIdentifier's value is set or changed. Checked offline
+  # against the Public Suffix List; existing identifiers are never re-checked.
+  # Your own validators can reuse StandardId::EmailDomain.allowed?(email).
+  # c.email.require_registered_tld = true
+  #
+  # Default: %w[test example invalid localhost local] — special-use TLDs that
+  # pass the check above anyway (never delegated; used for bots and fixtures).
+  # c.email.allowed_special_use_tlds = %w[test example invalid localhost local]
+
   # Custom username validator; return nil/false to accept, or an error message
-  # string to reject. Useful for domain allow-lists or truemail integration.
+  # string to reject. Runs after the registered-TLD check above. Useful for domain allow-lists or truemail integration.
   # Default: nil
   # c.passwordless.username_validator = ->(username, connection_type) {
   #   "Invalid email" unless TruemailValidator.valid?(username)

@@ -25,6 +25,8 @@ Gem::Specification.new do |spec|
   spec.add_dependency "bcrypt", "~> 3.1"
   spec.add_dependency "jwt", ">= 2.7", "< 4"
   spec.add_dependency "concurrent-ruby", "~> 1.3"
+  # EmailDomain: judges an address's TLD against the Public Suffix List.
+  spec.add_dependency "public_suffix", ">= 5.0", "< 8"
 
   spec.add_development_dependency "factory_bot", "~> 6.5"
   # Specs only (OpenStruct test doubles); no runtime code uses it.

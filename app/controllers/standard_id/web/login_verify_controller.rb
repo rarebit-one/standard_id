@@ -126,12 +126,18 @@ module StandardId
         )
       end
 
+      # identifier / channel / login_path let a front end show where the code
+      # went and offer a way back to correct it: a mistyped address otherwise
+      # looks exactly like a slow e-mail.
       def verify_page_props
         {
           flash: {
             notice: flash[:notice],
             alert: flash[:alert]
-          }.compact
+          }.compact,
+          identifier: @otp_data[:username],
+          channel: @otp_data[:connection],
+          login_path: engine_path(login_path)
         }
       end
     end

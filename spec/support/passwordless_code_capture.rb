@@ -20,6 +20,19 @@ module PasswordlessCodeCaptureHelper
     (@passwordless_code_subscriptions ||= []) << subscription
     codes
   end
+
+  # Every event the start path publishes on the way to delivery (requested,
+  # generated, sent). Empty means the request never reached code creation.
+  def capture_passwordless_start_events
+    events = []
+    subscriptions = StandardId::Events.subscribe(
+      StandardId::Events::PASSWORDLESS_CODE_REQUESTED,
+      StandardId::Events::PASSWORDLESS_CODE_GENERATED,
+      StandardId::Events::PASSWORDLESS_CODE_SENT
+    ) { |event| events << event }
+    (@passwordless_code_subscriptions ||= []).concat(subscriptions)
+    events
+  end
 end
 
 RSpec.configure do |config|
