@@ -16,13 +16,12 @@ jobs:
   ci:
     uses: rarebit-one/.github/.github/workflows/reusable-gem-ci.yml@v3
     with:
-      ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4"]'
-      # TEMPORARY until this gem moves to Ruby 4.0.9. Hosted ubuntu-latest is
-      # now ubuntu-26.04, where setup-ruby builds only the latest patch of each
-      # series (4.0.9): every Ruby above fails to install there. ubuntu-24.04
-      # still has them all.
+      ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4","4.0.9"]'
+      # ubuntu-24.04 because the matrix tests patch releases older than the
+      # newest 4.0.x, and ubuntu-26.04 (now ubuntu-latest) builds only the
+      # newest patch of each series. Drop it if the matrix narrows to 4.0.9.
       runner-label: ubuntu-24.04
-      lint-ruby-version: "4.0.4"
+      lint-ruby-version: "4.0.9"
       lint-command: bin/rubocop -f github
       extra-lint-commands: |
         bin/brakeman --no-pager
@@ -43,8 +42,7 @@ jobs:
   # A separate job because the reusable gem CI has no `services:` hook.
   test-postgres:
     name: test (postgres)
-    # TEMPORARY: ubuntu-24.04 until Ruby 4.0.9 (no 4.0.4 build on ubuntu-26.04).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: read
@@ -78,7 +76,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
         with:
-          ruby-version: 4.0.4
+          ruby-version: 4.0.9
           bundler-cache: true
 
       - name: Run tests on PostgreSQL
@@ -93,8 +91,7 @@ jobs:
     # to know about incompatibilities early. (Kept outside the reusable workflow
     # on purpose: it rewrites the Gemfile, which the shared CI has no hook for.)
     name: test (rails-edge)
-    # TEMPORARY: ubuntu-24.04 until Ruby 4.0.9 (no 4.0.4 build on ubuntu-26.04).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     timeout-minutes: 15
     continue-on-error: true
     steps:
@@ -119,7 +116,7 @@ jobs:
       - name: Set up Ruby
         uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
         with:
-          ruby-version: 4.0.4
+          ruby-version: 4.0.9
           bundler-cache: false
 
       - name: Install dependencies against Rails edge

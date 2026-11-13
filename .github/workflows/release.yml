@@ -10,7 +10,7 @@ jobs:
     uses: rarebit-one/.github/.github/workflows/reusable-gem-release.yml@v3  # moving major tag, auto-advanced on .github main (sre-brain#831)
     with:
       gem-name: standard_id
-      ruby-version: "4.0.4"
+      ruby-version: "4.0.9"
     secrets:
       slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
     permissions:
