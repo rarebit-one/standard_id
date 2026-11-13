@@ -14,9 +14,14 @@ jobs:
   # Shared gem CI (lint + Ruby matrix + rolled-up `test` aggregator), like the
   # rest of the standard_* family. Required checks: `ci / lint`, `ci / test`.
   ci:
-    uses: rarebit-one/.github/.github/workflows/reusable-gem-ci.yml@v2
+    uses: rarebit-one/.github/.github/workflows/reusable-gem-ci.yml@v3
     with:
       ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4"]'
+      # TEMPORARY until this gem moves to Ruby 4.0.9. Hosted ubuntu-latest is
+      # now ubuntu-26.04, where setup-ruby builds only the latest patch of each
+      # series (4.0.9): every Ruby above fails to install there. ubuntu-24.04
+      # still has them all.
+      runner-label: ubuntu-24.04
       lint-ruby-version: "4.0.4"
       lint-command: bin/rubocop -f github
       extra-lint-commands: |
@@ -38,7 +43,8 @@ jobs:
   # A separate job because the reusable gem CI has no `services:` hook.
   test-postgres:
     name: test (postgres)
-    runs-on: ubuntu-latest
+    # TEMPORARY: ubuntu-24.04 until Ruby 4.0.9 (no 4.0.4 build on ubuntu-26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
@@ -87,7 +93,8 @@ jobs:
     # to know about incompatibilities early. (Kept outside the reusable workflow
     # on purpose: it rewrites the Gemfile, which the shared CI has no hook for.)
     name: test (rails-edge)
-    runs-on: ubuntu-latest
+    # TEMPORARY: ubuntu-24.04 until Ruby 4.0.9 (no 4.0.4 build on ubuntu-26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     continue-on-error: true
     steps:
