@@ -7,7 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-11-22
+
+### Security
+
+- **One-time codes are stored as an HMAC, not in plaintext.** `standard_id_code_challenges.code`
+  held every passwordless and `StandardId::Otp` code, so anyone who could read the table (a
+  replica, a backup, a SQL console, audit rows that serialised the record) could sign in with any
+  active code. New challenges store only `code_digest`, an HMAC-SHA256 of the code keyed on
+  `secret_key_base` (a plain SHA256 of a 6-digit code is reversed by hashing a million
+  candidates), and `VerificationService` compares it in constant time; a request with no
+  challenge runs the same comparison, so timing still doesn't reveal one. **Install and run the
+  new migration** `20261122000000_add_code_digest_to_standard_id_code_challenges`
+  (`bin/rails standard_id:install:migrations && bin/rails db:migrate`), which adds the nullable
+  `code_digest` column and drops `NOT NULL` from `code`, both metadata-only on PostgreSQL. Until
+  it has run the gem keeps writing plaintext as before, so deploying the gem first breaks nothing.
+  Codes issued before the migration keep verifying against the plaintext column until they
+  expire (`passwordless.code_ttl`). **`CodeChallenge#code` now returns the raw code only on the
+  record the engine just created** (the one in `PASSWORDLESS_CODE_GENERATED`'s `code_challenge:`
+  and behind `Otp.issue(delivery: :manual).code`), so delivery subscribers that read
+  `event[:code_challenge].code` are unaffected; a challenge loaded from the database returns
+  `nil` (or a pre-migration row's plaintext). Host specs that read `CodeChallenge.last.code` must
+  capture the code as it is issued with the new `StandardId::Testing::OtpHelpers#capture_otp_code`
+  (or `#capture_otp_codes`); challenges created with `create!(code: "123456")` still verify with
+  that code. `CodeChallenge#serializable_hash` / `#as_json` leave out `code` and `code_digest`. A
+  later release drops the plaintext `code` column and its fallback. See `docs/MIGRATION_GUIDE.md`.
+
 ### Added
+
+- **`config.previous_secret_key_bases` (default `[]`) for rotating `secret_key_base`.** Session
+  tokens, one-time code digests, authorization codes and RFC 7592 registration access tokens are
+  all keyed on `secret_key_base`, so rotating it signed everyone out. Secrets listed here are
+  still accepted on read while everything new is written under the current one.
+  `Session.by_token` checks every candidate in one indexed query (`lookup_hash IN (...)`), and with
+  nothing listed does the same work as before. Rails' own derived secrets (encrypted cookies,
+  message verifiers) need Rails' rotations as well, and HS256-signed JWTs are not covered: see the
+  README, "Rotating `secret_key_base`". The shared helper is `StandardId::KeyedDigest`.
 
 - **Passwords are re-hashed on login when the bcrypt cost has changed (on by default).** Stored
   digests were never upgraded, so raising `BCrypt::Engine.cost` only reached passwords set
