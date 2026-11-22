@@ -5,10 +5,10 @@ module StandardId
     # A challenge stores only an HMAC of its code (migration 20261122000000),
     # so `StandardId::CodeChallenge.last.code` is nil once the row is read back
     # from the database. The raw code exists only on the record the engine has
-    # just created, which it publishes as PASSWORDLESS_CODE_GENERATED's
-    # `code_challenge:`; these helpers capture it from there, exactly as a
-    # delivery subscriber does. (With `config.events.publish_records = false`
-    # the record is not published, and there is nothing to capture.)
+    # just created; these helpers capture it from PASSWORDLESS_CODE_GENERATED
+    # with StandardId::Passwordless.issued_code, exactly as a delivery
+    # subscriber does, so they work whether or not
+    # `config.events.publish_records` publishes the record.
     #
     # Usage in rails_helper.rb:
     #
@@ -31,7 +31,7 @@ module StandardId
       def capture_otp_codes
         codes = []
         subscription = StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
-          code = event[:code_challenge]&.code
+          code = StandardId::Passwordless.issued_code(event)
           next if code.blank?
 
           codes << IssuedCode.new(identifier: event[:identifier], channel: event[:channel], realm: event[:realm], code: code)

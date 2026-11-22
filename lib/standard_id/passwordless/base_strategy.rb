@@ -261,7 +261,11 @@ module StandardId
           skip_sender: skip_sender,
           delivery: delivery
         }
-        StandardId::Events.publish(StandardId::Events::PASSWORDLESS_CODE_GENERATED, payload)
+        # The raw code reaches subscribers through CodeHandoff, never the
+        # payload, so it is there even when publish_records drops the record.
+        CodeHandoff.with(challenge) do
+          StandardId::Events.publish(StandardId::Events::PASSWORDLESS_CODE_GENERATED, payload)
+        end
         payload
       end
 

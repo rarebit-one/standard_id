@@ -5,6 +5,7 @@ This guide helps you migrate between StandardId versions.
 ## Table of Contents
 
 - [Password pepper (unreleased, opt-in)](#password-pepper-unreleased-opt-in)
+- [Reading the OTP code in delivery subscribers (unreleased)](#reading-the-otp-code-in-delivery-subscribers-unreleased)
 - [One-time codes stored as digests; secret_key_base rotation (0.60)](#one-time-codes-stored-as-digests-secret_key_base-rotation-060)
 - [E-mail domains must have a registered TLD (0.59)](#e-mail-domains-must-have-a-registered-tld-059)
 - [Provider tokens leave SOCIAL_AUTH_COMPLETED (0.58)](#provider-tokens-leave-social_auth_completed-058)
@@ -44,6 +45,28 @@ with it has, or has been made to reset.
 If you check a current password through `has_secure_password`'s
 `password_challenge`, switch to `password_credential.authenticate(password)`:
 the built-in challenge does not know about the pepper.
+
+---
+
+## Reading the OTP code in delivery subscribers (unreleased)
+
+No action is needed while `c.events.publish_records` is on (the default):
+`event[:code_challenge].code` keeps working. Before turning it off, change
+every `PASSWORDLESS_CODE_GENERATED` subscriber that reads the code to
+`StandardId::Passwordless.issued_code(event)`:
+
+```ruby
+code = StandardId::Passwordless.issued_code(event)
+```
+
+With records off the payload has no `code_challenge`, and since 0.60 the
+database holds only a digest, so before this release there was no way left to
+reach the code. `issued_code` hands it over out of band, only while the event
+is being published, so it never enters the payload that audit and logging
+subscribers serialise. Call it inside the subscriber and pass the string on: it
+returns `nil` in a job that received the payload. The built-in mailer
+(`passwordless.delivery = :built_in`) and `StandardId::Testing::OtpHelpers` use
+it already, so both now work with records off.
 
 ---
 
@@ -470,9 +493,9 @@ StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do
   next if event[:skip_sender] # Otp.issue(delivery: :manual) — the caller delivers
   case event[:channel]
   when "email"
-    UserMailer.send_code(event[:identifier], event[:code_challenge].code).deliver_now
+    UserMailer.send_code(event[:identifier], StandardId::Passwordless.issued_code(event)).deliver_now
   when "sms"
-    SmsService.send_code(event[:identifier], event[:code_challenge].code)
+    SmsService.send_code(event[:identifier], StandardId::Passwordless.issued_code(event))
   end
 end
 ```
@@ -483,7 +506,7 @@ end
 |-------|------|-------------|
 | `channel` | `String` | `"email"` or `"sms"` |
 | `identifier` | `String` | The email address or phone number |
-| `code_challenge` | `CodeChallenge` | Object with `.code` method returning the OTP |
+| `code_challenge` | `CodeChallenge` | The challenge record (left out under `events.publish_records = false`); read the OTP with `StandardId::Passwordless.issued_code(event)` |
 | `expires_at` | `Time` | When the code expires |
 | `realm` | `String` | The OTP realm (`"authentication"` for sign-in) |
 | `skip_sender` | `Boolean` | `true` for `Otp.issue(delivery: :manual)` — don't deliver |

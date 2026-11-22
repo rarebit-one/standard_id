@@ -307,11 +307,16 @@ StandardId.configure do |c|
   # 0.43). It runs synchronously in the request, so I18n.locale etc. are still
   # available. The same subscriber delivers Otp.issue(delivery: :custom) codes.
   #
+  # Read the code with StandardId::Passwordless.issued_code(event), inside the
+  # subscriber: it is never part of the payload, and it works with
+  # c.events.publish_records = false too.
+  #
   # StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
   #   next if event[:skip_sender] # Otp.issue(delivery: :manual)
+  #   code = StandardId::Passwordless.issued_code(event)
   #   case event[:channel]
-  #   when "email" then PasswordlessMailer.with(code: event[:code_challenge].code, to: event[:identifier]).deliver_later
-  #   when "sms"   then SmsProvider.send_code(phone: event[:identifier], code: event[:code_challenge].code)
+  #   when "email" then PasswordlessMailer.with(code: code, to: event[:identifier]).deliver_later
+  #   when "sms"   then SmsProvider.send_code(phone: event[:identifier], code: code)
   #   end
   # end
 

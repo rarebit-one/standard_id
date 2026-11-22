@@ -17,7 +17,7 @@ module PasswordlessCodeCaptureHelper
     codes.define_singleton_method(:events) { events }
     subscription = StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
       events << event
-      codes << [event[:identifier], event[:code_challenge]&.code] unless event[:skip_sender]
+      codes << [event[:identifier], StandardId::Passwordless.issued_code(event)] unless event[:skip_sender]
     end
     (@passwordless_code_subscriptions ||= []) << subscription
     codes
@@ -56,7 +56,7 @@ RSpec.configure do |config|
   config.before(:each) do
     @issued_otp_codes = []
     (@passwordless_code_subscriptions ||= []) << StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
-      code = event[:code_challenge]&.code
+      code = StandardId::Passwordless.issued_code(event)
       next if code.blank?
 
       @issued_otp_codes << StandardId::Testing::OtpHelpers::IssuedCode.new(

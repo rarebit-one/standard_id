@@ -862,14 +862,22 @@ Subscribe to the `PASSWORDLESS_CODE_GENERATED` event to deliver OTP codes:
 # config/initializers/standard_id_events.rb
 StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
   next if event[:skip_sender] # Otp.issue(delivery: :manual) — the caller delivers
+  code = StandardId::Passwordless.issued_code(event)
   case event[:channel]
   when "email"
-    UserMailer.send_code(event[:identifier], event[:code_challenge].code).deliver_now
+    UserMailer.send_code(event[:identifier], code).deliver_now
   when "sms"
-    SmsService.send_code(event[:identifier], event[:code_challenge].code)
+    SmsService.send_code(event[:identifier], code)
   end
 end
 ```
+
+`StandardId::Passwordless.issued_code(event)` returns the raw code while the event is being
+published, and `nil` afterwards or on another thread, so read it in the subscriber and pass the
+string on. The code is never part of the payload: audit and event-logging subscribers serialise
+payloads, and the code would end up in their rows. It works with `c.events.publish_records = false`,
+where the payload carries `code_challenge_id` instead of the record. `event[:code_challenge].code`
+still works while records are published.
 
 Set `c.passwordless.delivery = :custom` (the default) so the engine's built-in
 `PasswordlessMailer` stays out of the way; with `:built_in` the engine emails
@@ -894,10 +902,12 @@ parent's `default from:` does not apply to them.
 Event payload includes:
 - `channel` - `"email"` or `"sms"`
 - `identifier` - The email address or phone number
-- `code_challenge` - The code challenge object with `.code` method. The raw code exists only on
-  this in-memory record: the database stores an HMAC of it (`code_digest`), so read `.code` in the
-  subscriber and pass the string on; a challenge reloaded later (e.g. in a job that received the
-  record) returns `nil`
+- `code_challenge` - The code challenge record (left out under `c.events.publish_records = false`).
+  The raw code exists only on this in-memory record: the database stores an HMAC of it
+  (`code_digest`), and the record does not serialise it. Read the code with
+  `StandardId::Passwordless.issued_code(event)` (or `.code` on the record) in the subscriber and
+  pass the string on; a challenge reloaded later (e.g. in a job that received the record) returns
+  `nil`
 - `expires_at` - When the code expires
 - `realm` - The OTP realm (`"authentication"` for sign-in)
 - `skip_sender` - `true` for `Otp.issue(delivery: :manual)`; don't deliver
@@ -2257,8 +2267,9 @@ patch "/login_verify", params: { code: code }
 codes = capture_otp_codes { ... }  # every code issued in the block: identifier, channel, realm, code
 ```
 
-They read `PASSWORDLESS_CODE_GENERATED`, as a delivery subscriber does, so they see nothing when
-`c.events.publish_records = false`. A challenge you create yourself
+They read `PASSWORDLESS_CODE_GENERATED` with `StandardId::Passwordless.issued_code`, as a delivery
+subscriber does, so they work whether or not `c.events.publish_records` is on. A challenge you
+create yourself
 (`CodeChallenge.create!(code: "123456", ...)` or the `:standard_id_code_challenge` factory) still
 verifies with the code you gave it.
 

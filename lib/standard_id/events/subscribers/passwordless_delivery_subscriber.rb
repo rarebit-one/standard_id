@@ -34,7 +34,9 @@ module StandardId
           return unless self.class.handles?(event.payload)
 
           identifier = event[:identifier]
-          challenge = event[:code_challenge]
+          # The record, or (under events.publish_records = false) the one
+          # being published, from CodeHandoff.
+          challenge = StandardId::Passwordless::CodeHandoff.challenge_for(event)
           code = challenge&.code
 
           return if identifier.blank? || code.blank?
