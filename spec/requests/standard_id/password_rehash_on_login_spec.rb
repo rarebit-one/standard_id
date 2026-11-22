@@ -121,8 +121,6 @@ RSpec.describe "Re-hashing the password on login", type: :request do
   end
 
   describe "email + password API" do
-    let(:realm) { StandardId.config.email_password.verification_realm }
-
     before { StandardId.config.email_password.enabled = true }
 
     def register
@@ -130,8 +128,9 @@ RSpec.describe "Re-hashing the password on login", type: :request do
     end
 
     def verify(pw)
-      code = StandardId::CodeChallenge.where(realm: realm, target: email).order(created_at: :desc).first.code
-      http_post_json("/api/auth/verify-email", params: { email: email, code: code, password: pw })
+      # Challenges store only a digest of the code (#464), so take the code
+      # register just sent from the recorder, not the database.
+      http_post_json("/api/auth/verify-email", params: { email: email, code: issued_otp_code(email), password: pw })
     end
 
     def expect_signed_in
