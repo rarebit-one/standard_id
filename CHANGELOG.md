@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Publishes `authentication.step_up.started`, `.succeeded` and `.failed`. Sign-ins stamp the new
   `Session#authenticated_at`, never remember-me. `auth_time` is carried through `/authorize`, the
   authorization-code grant and every refresh (`RefreshToken#authenticated_at`).
-  `TokenMinter.mint(authenticated_at:)` sets it for a direct mint. Needs migration
+  `TokenMinter.mint(authenticated_at:)` sets it for a direct mint; while step-up is on, no custom
+  claim can. `c.step_up.token_profile_resolver` names the profile the API step-up re-mints for when
+  an account may hold several of the audience's bound type. Needs migration
   `20261123000000_add_authenticated_at_to_standard_id_sessions` and `c.step_up.enabled = true`;
   until then no routes are drawn, no claim is minted, and the guard raises a
   `ConfigurationError`. See README, "Step-up authentication".

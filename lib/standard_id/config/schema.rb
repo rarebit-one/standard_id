@@ -428,6 +428,14 @@ StandardId::ConfigSchema.define do
     # the web engine's page when it is mounted at "/"; set it when the engine
     # is mounted elsewhere or the host draws its own page.
     field :url, type: :string, default: nil
+    # The profile the API step-up re-mints the access token for, when its
+    # audience is bound to a profile type (oauth.audience_profile_types) and
+    # the account may hold several: a callable taking `account:` and
+    # `claims:` (the current token's decoded claims, e.g. your own `gid`)
+    # and returning the profile, passed to TokenMinter.mint(profile:). nil
+    # (default) uses the strict audience → profile lookup, which refuses an
+    # account with several active profiles of the bound type.
+    field :token_profile_resolver, type: :any, default: nil
   end
 
   scope :reset_password do

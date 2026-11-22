@@ -14,8 +14,9 @@ module StandardId
     # client_id, scope and audience, under grant_type "step_up"
     # (oauth.token_lifetimes[:step_up], else the default lifetime). No refresh
     # token is issued: the client keeps its own, and tokens refreshed from it
-    # carry the original sign-in's auth_time. Routed only while
-    # c.step_up.enabled is true.
+    # carry the original sign-in's auth_time. For an audience bound to a
+    # profile type, set c.step_up.token_profile_resolver when an account may
+    # hold several such profiles. Routed only while c.step_up.enabled is true.
     class StepUpController < BaseController
       authenticated_controller
 
@@ -26,6 +27,9 @@ module StandardId
                  store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
 
       before_action :verify_access_token!
+      # A token whose account config.account_scope no longer finds is no
+      # longer anyone's to step up.
+      before_action -> { render_bearer_unauthorized! if current_account.nil? }
 
       def create
         result = StandardId::StepUp.start(account: current_account, request: request)
@@ -52,7 +56,8 @@ module StandardId
           scopes: Array(current_session.scopes).join(" ").presence,
           client_id: current_session.client_id,
           grant_type: "step_up",
-          authenticated_at: Time.current
+          authenticated_at: Time.current,
+          profile: token_profile
         )
         render json: {
           access_token: minted.access_token,
@@ -63,6 +68,15 @@ module StandardId
       end
 
       private
+
+      # c.step_up.token_profile_resolver's choice, for an audience whose
+      # account may hold several profiles of the bound type.
+      def token_profile
+        resolver = StandardId.config.step_up.token_profile_resolver
+        return nil unless resolver.respond_to?(:call)
+
+        resolver.call(account: current_account, claims: current_session.claims.to_h.with_indifferent_access)
+      end
 
       def string_param(key)
         value = params[key]

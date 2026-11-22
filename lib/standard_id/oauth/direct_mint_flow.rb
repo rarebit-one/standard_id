@@ -176,12 +176,12 @@ module StandardId
       # resolver-derived claims, but can never override a reserved JWT key or a
       # base session field (same rule as config.oauth.custom_claims).
       #
-      # A host claim cannot override the `auth_time` the flow set either; pass
+      # Under c.step_up nor can it set `auth_time`, recorded or not: pass
       # +authenticated_at:+ instead.
       def build_jwt_payload(expires_in)
         payload = super(expires_in)
         extra = @claims.except(*StandardId::JwtService::RESERVED_JWT_KEYS, *StandardId::JwtService::BASE_SESSION_FIELDS)
-        extra = extra.except(:auth_time) if payload.key?(:auth_time)
+        extra = extra.except(:auth_time) if StandardId::StepUp.enabled?
         payload.merge(extra).compact
       end
 

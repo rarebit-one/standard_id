@@ -183,8 +183,9 @@ module StandardId
 
       # With c.step_up on, the OIDC `auth_time` claim (seconds since the epoch)
       # says when the account last proved its identity, for
-      # ApiAuthentication#require_recent_authentication!. Set last, so a
-      # custom claim cannot claim a fresher authentication than happened.
+      # ApiAuthentication#require_recent_authentication!. Only the recorded
+      # time may set it: a custom claim of that name is dropped, even when no
+      # time was recorded, so no claim can stand in for an authentication.
       def build_jwt_payload(expires_in)
         base_payload = {
           sub: subject_id,
@@ -195,7 +196,10 @@ module StandardId
         }.compact
 
         payload = base_payload.merge(claims_from_scope_mapping).merge(claims_from_custom_claims)
-        authenticated_at = token_authenticated_at if StandardId::StepUp.enabled?
+        return payload unless StandardId::StepUp.enabled?
+
+        payload = payload.except(:auth_time, "auth_time")
+        authenticated_at = token_authenticated_at
         payload[:auth_time] = authenticated_at.to_i if authenticated_at
         payload
       end

@@ -92,6 +92,16 @@ RSpec.describe "API step-up authentication", type: :request do
       expect(claims(stamped.access_token)[:auth_time]).to eq(1.minute.ago.to_i)
     end
 
+    it "cannot be supplied by a claim when no time was recorded" do
+      minted = StandardId::TokenMinter.mint(account: account, audience: nil, grant_type: "harness.mint",
+        claims: { auth_time: Time.current.to_i })
+      expect(claims(minted.access_token)).not_to have_key(:auth_time)
+
+      StandardId.config.oauth.custom_claims = ->(**) { { "auth_time" => Time.current.to_i } }
+      client_token = StandardId::TokenMinter.mint(account: account, audience: nil, grant_type: "harness.mint")
+      expect(claims(client_token.access_token)).not_to have_key(:auth_time)
+    end
+
     it "is not minted while c.step_up.enabled is false" do
       StandardId.config.step_up.enabled = false
 
@@ -160,6 +170,19 @@ RSpec.describe "API step-up authentication", type: :request do
       expect(response).to have_http_status(:ok)
     end
 
+    it "re-mints for the profile c.step_up.token_profile_resolver names" do
+      seen = nil
+      StandardId.config.step_up.token_profile_resolver = ->(account:, claims:) { seen = [account.id, claims[:client_id]]; nil }
+      allow(StandardId::TokenMinter).to receive(:mint).and_call_original
+
+      step_up_post("/api/step_up", stale_token)
+      step_up_post("/api/step_up/verify", stale_token, code: issued_otp_code(email), password: password)
+
+      expect(response).to have_http_status(:ok)
+      expect(seen).to eq([account.id, "test-client"])
+      expect(StandardId::TokenMinter).to have_received(:mint).with(hash_including(profile: nil, grant_type: "step_up"))
+    end
+
     it "refuses a wrong code or password with 422 and no token" do
       step_up_post("/api/step_up", stale_token)
       step_up_post("/api/step_up/verify", stale_token, code: issued_otp_code(email), password: "Wr0ng-password!")
@@ -170,7 +193,15 @@ RSpec.describe "API step-up authentication", type: :request do
     end
 
     it "needs a valid access token" do
-      post "/api/step_up", as: :json
+      post "/api/step_up", params: {}, as: :json
+
+      expect(response).to have_http_status(:unauthorized)
+      expect(json["error"]).to eq("invalid_token")
+    end
+
+    it "refuses a token whose account account_scope no longer finds" do
+      StandardId.config.account_scope = ->(scope) { scope.where.not(id: account.id) }
+      step_up_post("/api/step_up", stale_token)
 
       expect(response).to have_http_status(:unauthorized)
       expect(json["error"]).to eq("invalid_token")

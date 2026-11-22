@@ -198,11 +198,11 @@ RSpec.describe StandardId::StepUp do
     end
 
     it "needs only the code for an account without a password" do
-      passwordless = Account.create!(name: "No Password", email: "nopw-#{SecureRandom.hex(4)}@example.com")
-      StandardId::EmailIdentifier.create!(account: passwordless, value: passwordless.email, verified_at: Time.current)
-      described_class.start(account: passwordless)
+      code_only = Account.create!(name: "Code Only", email: "code-only-#{SecureRandom.hex(4)}@example.com")
+      StandardId::EmailIdentifier.create!(account: code_only, value: code_only.email, verified_at: Time.current)
+      described_class.start(account: code_only)
 
-      result = described_class.verify(account: passwordless, code: issued_otp_code(passwordless.email))
+      result = described_class.verify(account: code_only, code: issued_otp_code(code_only.email))
       expect(result).to be_success
     end
 

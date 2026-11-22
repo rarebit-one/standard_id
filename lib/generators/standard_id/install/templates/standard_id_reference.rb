@@ -255,6 +255,7 @@ StandardId.configure do |c|
   # c.step_up.delivery = :built_in
   # c.step_up.require_password = true
   # c.step_up.url = nil
+  # c.step_up.token_profile_resolver = ->(account:, claims:) { account.profiles.find_by(id: claims[:gid]) }
 
   # ---------------------------------------------------------------------------
   # Passwordless (OTP)

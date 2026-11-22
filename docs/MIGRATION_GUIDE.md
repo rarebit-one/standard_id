@@ -41,7 +41,7 @@ What changes only once you enable it:
   They 404 otherwise.
 - Access tokens gain the OIDC `auth_time` claim. A `custom_claims` or
   `TokenMinter` `claims:` value named `auth_time` no longer reaches the token
-  while the flow sets one; pass `TokenMinter.mint(authenticated_at:)` instead.
+  at all; pass `TokenMinter.mint(authenticated_at:)` instead.
 - Sessions and refresh tokens from before the migration carry no time, so
   their holders step up once before a guarded action. So does any
   remember-me session, by design.
