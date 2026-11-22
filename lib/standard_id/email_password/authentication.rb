@@ -31,7 +31,7 @@ module StandardId
 
           password_credential = EmailPassword.find_password_credential(email)
           unless password_credential
-            BCrypt::Password.new(DUMMY_PASSWORD_DIGEST.value).is_password?(password)
+            StandardId::PasswordPepper.dummy_authenticate(password)
             failed!(email)
           end
 

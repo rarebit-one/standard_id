@@ -177,6 +177,41 @@ Password digests are made by `has_secure_password` at `BCrypt::Engine.cost` (bcr
 
 The digest is also the fingerprint of the remember-me cookie and the password-reset link, so the first login after a cost change signs that user out of remember-me on their other browsers and voids any reset link they have not used yet. The login itself, and a remember-me cookie it sets, are unaffected. The rewrite happens one user at a time as each signs in, never on deploy. Turn it off with `config.password.rehash_on_login = false`.
 
+### Password pepper
+
+Off by default. A pepper is a secret mixed into every password before bcrypt, so a dump of `standard_id_password_credentials` alone is not enough to crack the digests: the attacker also needs the pepper, which lives in your credentials, not your database.
+
+```ruby
+StandardId.configure do |c|
+  c.password.pepper = Rails.application.credentials.password_pepper # SecureRandom.hex(32)
+end
+```
+
+> [!WARNING]
+> **If you lose the pepper, every password hashed under it is gone.** There is no way to verify those digests without it, so each of those users has to reset their password. Store it with `secret_key_base`, back it up the same way, and never commit it. Once it is set, removing it or changing it without the steps below locks those users out.
+
+How it works:
+
+- New digests are `bcrypt(HMAC-SHA256(pepper, password))`, hex-encoded. The pepper is never appended to the password: bcrypt reads only the first 72 bytes, so an appended pepper would be cut off long passwords.
+- Verification tries the current pepper, then each of `c.password.previous_peppers`, then no pepper at all. So **turning the pepper on locks nobody out**: existing digests still verify.
+- A successful password login (web, OAuth password grant, email + password API) that matched anything but the current pepper re-hashes the password under it, through the same path as a bcrypt cost change ([above](#raising-the-bcrypt-cost)): one conditional `UPDATE`, `credential.password.rehashed` with `pepper_changed: true`, and no `credential.password.changed` event or e-mail, because the password itself did not change. Like a cost change, **the re-hash voids that user's outstanding remember-me cookies and password-reset links**, one user at a time as each signs in. It needs `c.password.rehash_on_login` (on by default); with it off, digests stay where they are and keep verifying.
+- A login for an address with no account pays for the same number of bcrypt comparisons as a wrong password (one per candidate pepper), so timing does not reveal which addresses exist. Each extra candidate costs one more bcrypt comparison per wrong password.
+
+**Rotating the pepper.** Move the current pepper into `previous_peppers` and set the new one:
+
+```ruby
+c.password.pepper = Rails.application.credentials.password_pepper_2026
+c.password.previous_peppers = [Rails.application.credentials.password_pepper_2025]
+```
+
+Users move to the new pepper as they sign in. Keep the old pepper listed for as long as anyone who has not signed in since might come back. Dropping it sooner forces those users to reset their password. There is no per-row record of which pepper a digest used, so the safe way to retire an old pepper is to wait out your inactivity window, then force a reset for the accounts that have not signed in since the rotation.
+
+**Retiring unpeppered digests.** `c.password.accept_unpeppered_passwords` (default `true`) keeps digests made before the pepper was turned on verifiable. Set it to `false` only once none can be left, on the same terms as dropping an old pepper. It is ignored while no pepper is set.
+
+**Turning the pepper off.** Set `pepper = nil` and list the old value in `previous_peppers`. Users move back to bare digests as they sign in.
+
+`has_secure_password`'s own `password_challenge` attribute compares the bare password and does not know about the pepper. To check a user's current password, call `password_credential.authenticate(password)`.
+
 ### OAuth Hardening Options
 
 Two spec-conformance settings default to the historical (looser) behaviour so
@@ -1055,7 +1090,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `credential.password.reset_initiated` | `credential`, `account`, `reset_token_expires_at` | After a password reset is initiated |
 |  | `credential.password.reset_completed` | `credential`, `account` | After a password reset is confirmed |
 |  | `credential.password.changed` | `credential`, `credential_id` (sent even with `events.publish_records = false`), `account`, `reason` (`:password_reset` / `:changed`) | After a new password is committed: by a reset, or by host code assigning `password` (never for a re-hash of the same password). Drives `password.changed_notice_delivery` |
-|  | `credential.password.rehashed` | `credential`, `account`, `previous_cost`, `cost` | After a login re-hashed the password at the current bcrypt cost (`password.rehash_on_login`); the password is unchanged |
+|  | `credential.password.rehashed` | `credential`, `account`, `previous_cost`, `cost`, `pepper_changed` | After a login re-hashed the password at the current bcrypt cost or under the current `password.pepper` (`password.rehash_on_login`); the password is unchanged |
 |  | `credential.client_secret.created` | `credential`, `client_id` | After a client secret is created |
 |  | `credential.client_secret.rotated` | `credential`, `client_id`, `old_secret_revoked_at` | After a client secret rotation |
 

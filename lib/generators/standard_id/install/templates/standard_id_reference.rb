@@ -228,6 +228,16 @@ StandardId.configure do |c|
   # Default: true
   # c.password.require_numbers = true
 
+  # Pepper: a secret mixed into every password before bcrypt, as
+  # bcrypt(HMAC-SHA256(pepper, password)). Off (nil) by default. Turning it on
+  # locks nobody out: old digests still verify and move to the pepper as each
+  # user signs in. LOSING THE PEPPER FORCES EVERY PASSWORD HASHED UNDER IT TO
+  # BE RESET. To rotate, move the old value into previous_peppers.
+  # See README "Password pepper".
+  # c.password.pepper = Rails.application.credentials.password_pepper
+  # c.password.previous_peppers = []
+  # c.password.accept_unpeppered_passwords = true
+
   # ---------------------------------------------------------------------------
   # Passwordless (OTP)
   # ---------------------------------------------------------------------------

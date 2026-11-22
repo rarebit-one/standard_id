@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Password pepper (unreleased, opt-in)](#password-pepper-unreleased-opt-in)
 - [One-time codes stored as digests; secret_key_base rotation (0.60)](#one-time-codes-stored-as-digests-secret_key_base-rotation-060)
 - [E-mail domains must have a registered TLD (0.59)](#e-mail-domains-must-have-a-registered-tld-059)
 - [Provider tokens leave SOCIAL_AUTH_COMPLETED (0.58)](#provider-tokens-leave-social_auth_completed-058)
@@ -12,6 +13,37 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Password pepper (unreleased, opt-in)
+
+Nothing changes unless you set `c.password.pepper`. With no pepper, digests,
+verification and the timing of failed logins are exactly as before. A
+`credential.password.rehashed` subscriber gets one new payload key,
+`pepper_changed` (always `false` without a pepper).
+
+To turn it on:
+
+1. Generate a pepper (`SecureRandom.hex(32)`) and store it in your
+   credentials next to `secret_key_base`, backed up the same way. **Losing it
+   forces every password hashed under it to be reset.**
+2. Set `c.password.pepper = Rails.application.credentials.password_pepper`
+   and deploy. Nobody is locked out: existing digests still verify, and each
+   user's next password login re-hashes under the pepper. That re-hash voids
+   the user's other remember-me cookies and unused reset links, as a bcrypt
+   cost change does. It needs `c.password.rehash_on_login`, which is on by
+   default.
+3. Leave `c.password.accept_unpeppered_passwords` on until no unpeppered
+   digest can be left (see README, "Password pepper").
+
+To rotate, move the old value into `c.password.previous_peppers` and set the
+new one; keep the old value listed until everyone who might still sign in
+with it has, or has been made to reset.
+
+If you check a current password through `has_secure_password`'s
+`password_challenge`, switch to `password_credential.authenticate(password)`:
+the built-in challenge does not know about the pepper.
 
 ---
 

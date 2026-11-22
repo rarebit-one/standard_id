@@ -357,6 +357,34 @@ StandardId::ConfigSchema.define do
     # signs that user out of remember-me cookies and voids their reset links.
     # See StandardId::PasswordCredential#rehash_password.
     field :rehash_on_login, type: :boolean, default: true
+    # A secret mixed into every password before bcrypt, as
+    # bcrypt(HMAC-SHA256(pepper, password)), so the digests cannot be cracked
+    # from a database dump alone. nil (default) hashes the bare password, as
+    # has_secure_password always has. Read it from credentials, never from
+    # source; at least 32 random bytes (`SecureRandom.hex(32)`).
+    #
+    # LOSING THE PEPPER FORCES EVERY PASSWORD HASHED UNDER IT TO BE RESET:
+    # there is no way to verify those digests without it.
+    #
+    # Turning it on locks nobody out: existing (unpeppered) digests still
+    # verify, and each user's next password login re-hashes under the pepper
+    # (needs rehash_on_login). See StandardId::PasswordPepper and the README,
+    # "Password pepper".
+    field :pepper, type: :string, default: nil
+    # Peppers that were current before, newest first, still ACCEPTED when
+    # verifying a password; a login that matches one re-hashes under the
+    # current pepper. To rotate, move the old pepper here and set the new one.
+    # Keep an entry until no digest made under it can be left (every user has
+    # signed in since, or the rest have reset); dropping it early forces those
+    # users to reset. Each entry costs one more bcrypt comparison on a wrong
+    # password.
+    field :previous_peppers, type: :array, default: -> { [] }
+    # Whether a password with no pepper still verifies while a pepper is set:
+    # digests made before the pepper was turned on. On by default so turning
+    # it on locks nobody out. Turn it off only once no unpeppered digest can be
+    # left, or those users must reset; it saves one bcrypt comparison per
+    # wrong password. Ignored while no pepper is set.
+    field :accept_unpeppered_passwords, type: :boolean, default: true
     # Who tells the owner, by email, that their password was changed or reset
     # (CREDENTIAL_PASSWORD_CHANGED):
     #   :custom   — (default) the engine sends nothing; subscribe to the event

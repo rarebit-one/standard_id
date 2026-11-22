@@ -1,12 +1,10 @@
-require "concurrent/delay"
-
 module StandardId
   module Oauth
     class PasswordFlow < TokenGrantFlow
       expect_params :username, :password, :client_id
       permit_params :client_secret, :audience, :scope, :realm
 
-      DUMMY_PASSWORD_DIGEST = Concurrent::Delay.new { BCrypt::Password.create("").freeze }
+      DUMMY_PASSWORD_DIGEST = StandardId::PasswordPepper::DUMMY_DIGEST
 
       def authenticate!
         validate_client_secret!(params[:client_id], params[:client_secret]) if params[:client_secret].present?
@@ -103,9 +101,9 @@ module StandardId
           .includes(credential: { identifier: :account })
           .find_by(login: username)
 
-        # Perform a dummy bcrypt comparison when the credential doesn't exist
-        # to prevent user enumeration via response timing differences.
-        BCrypt::Password.new(dummy_password_digest).is_password?(password) unless @credential
+        # Perform the dummy bcrypt comparisons when the credential doesn't
+        # exist to prevent user enumeration via response timing differences.
+        StandardId::PasswordPepper.dummy_authenticate(password) unless @credential
 
         # has_secure_password's authenticate returns false (not nil) on a wrong
         # password, so `&.account` would call false.account → NoMethodError (500).
@@ -122,10 +120,6 @@ module StandardId
         if invalid_tokens.any?
           raise StandardId::InvalidScopeError, "Invalid scope tokens: #{invalid_tokens.join(', ')}"
         end
-      end
-
-      def dummy_password_digest
-        DUMMY_PASSWORD_DIGEST.value
       end
 
       def default_scope
