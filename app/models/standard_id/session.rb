@@ -53,8 +53,10 @@ module StandardId
 
       session = by_token(token).first
       return nil if session.nil?
+      return nil unless session.authenticate_token(token)
 
-      session.authenticate_token(token) ? session : nil
+      session.rekey_token(token)
+      session
     end
 
     # Keyed digest of an opaque session token — the default scheme.
@@ -108,6 +110,39 @@ module StandardId
       end
     rescue BCrypt::Errors::InvalidHash, BCrypt::Errors::InvalidSalt
       false
+    end
+
+    # Re-keys a session that authenticated with +token+ under a previous
+    # `secret_key_base`: rewrites `lookup_hash`, and an HMAC `token_digest`,
+    # under the current secret in one conditional UPDATE (StandardId::KeyedDigest.rekey).
+    # Without it an old secret would have to stay in
+    # `config.previous_secret_key_bases` for the longest session lifetime.
+    #
+    # Call it only once +token+ has been accepted for this session. It writes
+    # nothing when both values are already current (always so with no
+    # previous secrets configured), when +token+ is not the one the stored
+    # lookup hash was derived from, or for a BCrypt digest (not keyed), and it
+    # never raises.
+    #
+    # @return [Boolean] whether the row was rewritten
+    def rekey_token(token)
+      return false if token.blank? || StandardId::KeyedDigest.previous_secrets.empty?
+      return false unless self.class.lookup_hashes_for(token).include?(lookup_hash)
+
+      updates = {}
+      current_lookup_hash = self.class.lookup_hash_for(token)
+      updates[:lookup_hash] = current_lookup_hash unless lookup_hash == current_lookup_hash
+      updates[:token_digest] = self.class.hmac_token_digest(token) if token_digest_under_previous_secret?(token)
+      return false if updates.empty?
+
+      rekeyed = StandardId::KeyedDigest.rekey(
+        StandardId::Session, id: id, from: { lookup_hash: lookup_hash, token_digest: token_digest }, to: updates
+      )
+      if rekeyed
+        updates.each { |attribute, value| self[attribute] = value }
+        clear_attribute_changes(updates.keys)
+      end
+      rekeyed
     end
 
     # Counts returned by the bulk-revocation class methods. Callers use these to
@@ -276,6 +311,15 @@ module StandardId
 
     def generate_lookup_hash
       self.lookup_hash = self.class.lookup_hash_for(token)
+    end
+
+    # An HMAC digest of +token+ that is not the current secret's but verifies
+    # under a previous one.
+    def token_digest_under_previous_secret?(token)
+      return false if token_digest.blank? || token_digest.start_with?("$2")
+      return false if token_digest == self.class.hmac_token_digest(token)
+
+      authenticate_token(token)
     end
 
     # Revoke any still-active refresh tokens before the session row is deleted,

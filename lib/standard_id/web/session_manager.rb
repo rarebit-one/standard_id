@@ -219,7 +219,9 @@ module StandardId
         session_token ||= session[:session_token] if rails_session_loaded? || rails_session_cookie_present?
         return if session_token.blank?
 
-        StandardId::BrowserSession.eager_load(:account).by_token(session_token).first
+        browser_session = StandardId::BrowserSession.eager_load(:account).by_token(session_token).first
+        browser_session.rekey_token(session_token) if browser_session&.active?
+        browser_session
       end
 
       def load_session_from_remember_token

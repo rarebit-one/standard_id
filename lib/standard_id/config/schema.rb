@@ -97,8 +97,11 @@ StandardId::ConfigSchema.define do
     #
     # Empty (default) means rotating `secret_key_base` invalidates all of them
     # at once, which is what it always did. To rotate without signing everyone
-    # out, list the old secret here for at least the longest session lifetime,
-    # alongside Rails' own rotations for its cookies and message verifiers
+    # out, list the old secret here. A session or registration access token
+    # that authenticates under it is re-keyed to the current secret on that
+    # use, so the entry is needed only until the credentials you want to keep
+    # have been used once (at most the longest session lifetime). Rotate Rails'
+    # own cookies and message verifiers alongside it
     # (README "Rotating secret_key_base"). Each extra entry costs one more
     # candidate per lookup and one more HMAC per verification (for a JWT, only
     # when it fails to verify under the newer secrets).

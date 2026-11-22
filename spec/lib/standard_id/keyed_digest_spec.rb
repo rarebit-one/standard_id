@@ -33,6 +33,40 @@ RSpec.describe StandardId::KeyedDigest do
     end
   end
 
+  describe ".rekey" do
+    let(:account) { Account.create!(name: "Rekey", email: "keyed-rekey@example.com") }
+    let(:session) do
+      StandardId::DeviceSession.create!(account: account, device_id: "d-#{SecureRandom.hex(4)}", device_agent: "x", expires_at: 1.day.from_now)
+    end
+
+    it "updates the row when it still holds the expected values" do
+      expect(described_class.rekey(StandardId::Session, id: session.id, from: { lookup_hash: session.lookup_hash }, to: { lookup_hash: "new" }))
+        .to be(true)
+      expect(session.reload.lookup_hash).to eq("new")
+    end
+
+    it "updates nothing, and says so, when the row has changed" do
+      expect(described_class.rekey(StandardId::Session, id: session.id, from: { lookup_hash: "stale" }, to: { lookup_hash: "new" }))
+        .to be(false)
+      expect(session.reload.lookup_hash).not_to eq("new")
+    end
+
+    it "ignores the caller's scope" do
+      StandardId::Session.where(id: nil).scoping do
+        expect(described_class.rekey(StandardId::Session, id: session.id, from: { lookup_hash: session.lookup_hash }, to: { lookup_hash: "new" }))
+          .to be(true)
+      end
+    end
+
+    it "swallows and logs errors" do
+      allow(StandardId::Session).to receive(:unscoped).and_raise(ActiveRecord::ReadOnlyError, "Write query attempted while in readonly mode")
+      allow(StandardId.logger).to receive(:warn)
+
+      expect(described_class.rekey(StandardId::Session, id: session.id, from: {}, to: { lookup_hash: "new" })).to be(false)
+      expect(StandardId.logger).to have_received(:warn).with(/ActiveRecord::ReadOnlyError/)
+    end
+  end
+
   describe ".hmac_hexdigest" do
     it "is HMAC-SHA256 under the current secret by default" do
       expect(described_class.hmac_hexdigest("data")).to eq(OpenSSL::HMAC.hexdigest("SHA256", current, "data"))

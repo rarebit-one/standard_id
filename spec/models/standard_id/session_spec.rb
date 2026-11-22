@@ -363,6 +363,172 @@ RSpec.describe StandardId::Session, type: :model do
     end
   end
 
+  describe "re-keying on authentication (#rekey_token)" do
+    let(:account) { Account.create!(name: "Rekey", email: "rekey@example.com") }
+    let(:old_secret) { "old-secret-key-base-#{SecureRandom.hex(8)}" }
+    let(:current_secret) { Rails.configuration.secret_key_base }
+
+    let!(:session) do
+      StandardId::DeviceSession.create!(
+        account: account,
+        device_id: "device-#{SecureRandom.hex(4)}",
+        device_agent: "MyApp/1.0",
+        expires_at: 30.days.from_now
+      )
+    end
+
+    let(:token) { session.token }
+
+    def write_under_old_secret!(digest: described_class.hmac_token_digest(token, secret: old_secret))
+      session.update_columns(lookup_hash: described_class.lookup_hash_for(token, secret: old_secret), token_digest: digest)
+    end
+
+    def stored
+      described_class.where(id: session.id).pick(:lookup_hash, :token_digest)
+    end
+
+    def current_values
+      [described_class.lookup_hash_for(token, secret: current_secret), described_class.hmac_token_digest(token, secret: current_secret)]
+    end
+
+    # SQL UPDATEs on the sessions table while the block runs.
+    def session_updates
+      statements = []
+      subscription = ActiveSupport::Notifications.subscribe("sql.active_record") do |*, payload|
+        statements << payload[:sql] if payload[:sql].match?(/\AUPDATE\b.*standard_id_sessions/i)
+      end
+      yield
+      statements
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscription)
+    end
+
+    it "rewrites a session that authenticated under a previous secret to the current one" do
+      write_under_old_secret!
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      authenticated = described_class.authenticate_by_token(token)
+
+      expect(authenticated).to eq(session)
+      expect(stored).to eq(current_values)
+      expect([authenticated.lookup_hash, authenticated.token_digest]).to eq(current_values)
+      expect(authenticated.changed?).to be(false)
+    end
+
+    it "keeps authenticating once the old secret is dropped" do
+      write_under_old_secret!
+      StandardId.config.previous_secret_key_bases = [old_secret]
+      described_class.authenticate_by_token(token)
+
+      StandardId.config.previous_secret_key_bases = []
+
+      expect(described_class.authenticate_by_token(token)).to eq(session)
+    end
+
+    it "does it in a single conditional UPDATE" do
+      write_under_old_secret!
+      StandardId.config.previous_secret_key_bases = [old_secret]
+      updates = session_updates { described_class.authenticate_by_token(token) }
+
+      expect(updates.size).to eq(1)
+      expect(updates.first).to match(/WHERE .*"lookup_hash" = .* AND .*"token_digest" = /)
+    end
+
+    it "writes nothing when the session already matched under the current secret" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(session_updates { described_class.authenticate_by_token(token) }).to be_empty
+    end
+
+    it "writes nothing when no previous secret is configured" do
+      expect(session_updates { described_class.authenticate_by_token(token) }).to be_empty
+    end
+
+    it "writes nothing when authentication fails" do
+      write_under_old_secret!
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(session_updates { described_class.authenticate_by_token("#{token}x") }).to be_empty
+      expect(session_updates { expect(session.rekey_token("#{token}x")).to be(false) }).to be_empty
+    end
+
+    it "rewrites only the lookup hash of a BCrypt session (BCrypt digests are not keyed)" do
+      bcrypt = BCrypt::Password.create(token, cost: BCrypt::Engine::MIN_COST).to_s
+      write_under_old_secret!(digest: bcrypt)
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.authenticate_by_token(token)).to eq(session)
+      expect(stored).to eq([current_values.first, bcrypt])
+    end
+
+    it "rewrites a token digest left under a previous secret even when the lookup hash is current" do
+      session.update_column(:token_digest, described_class.hmac_token_digest(token, secret: old_secret))
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.authenticate_by_token(token)).to eq(session)
+      expect(stored).to eq(current_values)
+    end
+
+    it "does not overwrite a row that changed after it was read" do
+      write_under_old_secret!
+      StandardId.config.previous_secret_key_bases = [old_secret]
+      loaded = described_class.by_token(token).first
+      described_class.where(id: session.id).update_all(token_digest: "changed-concurrently")
+
+      expect(loaded.rekey_token(token)).to be(false)
+      expect(stored.last).to eq("changed-concurrently")
+    end
+
+    context "when the write fails" do
+      before do
+        write_under_old_secret!
+        StandardId.config.previous_secret_key_bases = [old_secret]
+        allow(StandardId::Session).to receive(:unscoped).and_raise(ActiveRecord::StatementInvalid, "database is read-only")
+      end
+
+      it "still authenticates" do
+        expect(described_class.authenticate_by_token(token)).to eq(session)
+      end
+
+      it "leaves the row under the previous secret, so it authenticates next time too" do
+        described_class.authenticate_by_token(token)
+
+        expect(stored.first).to eq(described_class.lookup_hash_for(token, secret: old_secret))
+        expect(described_class.authenticate_by_token(token)).to eq(session)
+      end
+
+      it "logs the failure without the token or its digests" do
+        logged = []
+        allow(StandardId.logger).to receive(:warn) { |message| logged << message }
+
+        described_class.authenticate_by_token(token)
+
+        expect(logged.join).to include("Could not re-key StandardId::Session")
+        [token, *stored, *current_values].each { |value| expect(logged.join).not_to include(value) }
+      end
+    end
+
+    # A real constraint violation from the database, not a stub: on PostgreSQL
+    # a failed statement aborts the whole transaction unless it ran in a
+    # savepoint, and the auth path's caller may be inside one.
+    it "keeps a surrounding transaction usable when the UPDATE itself fails" do
+      write_under_old_secret!
+      StandardId.config.previous_secret_key_bases = [old_secret]
+      # Another row already holds the current-secret lookup hash (unique index).
+      other = StandardId::DeviceSession.create!(
+        account: account, device_id: "device-#{SecureRandom.hex(4)}", device_agent: "MyApp/1.0", expires_at: 1.day.from_now
+      )
+      other.update_column(:lookup_hash, described_class.lookup_hash_for(token, secret: current_secret))
+      allow(StandardId.logger).to receive(:warn)
+
+      described_class.transaction do
+        expect(session.rekey_token(token)).to be(false)
+        expect(described_class.where(id: session.id).count).to eq(1)
+      end
+      expect(StandardId.logger).to have_received(:warn).with(/ActiveRecord::RecordNotUnique/)
+    end
+  end
+
   describe "#generate_token_digest" do
     let(:account) { Account.create!(name: "Digest Cost Test", email: "digest@example.com") }
 
