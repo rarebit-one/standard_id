@@ -14,21 +14,26 @@ module StandardId
     module OauthSessionPersistence
       module_function
 
-      def persist!(session_class:, account:, request:, audience:, grant_type:)
+      # +authenticated_at+ (when the account last proved its identity, see
+      # StandardId::StepUp) is stamped on the row; a reused row keeps the later
+      # of its own and this one.
+      def persist!(session_class:, account:, request:, audience:, grant_type:, authenticated_at: nil)
         case session_class.name
         when "StandardId::DeviceSession"
           upsert_device_session!(
             account: account,
             request: request,
             audience: audience,
-            grant_type: grant_type
+            grant_type: grant_type,
+            authenticated_at: authenticated_at
           )
         when "StandardId::BrowserSession"
           StandardId::BrowserSession.create!(
             account: account,
             ip_address: StandardId::Utils::IpNormalizer.normalize(request.remote_ip),
             user_agent: request.user_agent.presence || "OAuth:#{grant_type}",
-            expires_at: StandardId::BrowserSession.expiry
+            expires_at: StandardId::BrowserSession.expiry,
+            **authenticated_at_attributes(authenticated_at)
           )
         else
           raise StandardId::ConfigurationError,
@@ -49,7 +54,7 @@ module StandardId
       # audit trail and admin session lists still read it); a new sign-in gets
       # a new row. Expiry is deliberately NOT part of eligibility: an expired
       # but unrevoked row is reused with its expires_at bumped, as before.
-      def upsert_device_session!(account:, request:, audience:, grant_type:)
+      def upsert_device_session!(account:, request:, audience:, grant_type:, authenticated_at: nil)
         user_agent = request.user_agent
         device_id = stable_device_id(account: account, user_agent: user_agent, audience: audience)
         ip_address = StandardId::Utils::IpNormalizer.normalize(request.remote_ip)
@@ -69,7 +74,7 @@ module StandardId
         account.class.where(id: account.id).lock.first
 
         existing = active_device_session(account: account, device_id: device_id)
-        return refresh_device_session!(existing, ip_address: ip_address, user_agent: user_agent) if existing
+        return refresh_device_session!(existing, ip_address: ip_address, user_agent: user_agent, authenticated_at: authenticated_at) if existing
 
         begin
           # Savepoint, so a unique violation does not abort the enclosing token
@@ -81,7 +86,8 @@ module StandardId
               device_id: device_id,
               device_agent: user_agent.presence || "OAuth:#{grant_type}",
               ip_address: ip_address || "0.0.0.0",
-              expires_at: StandardId::DeviceSession.expiry
+              expires_at: StandardId::DeviceSession.expiry,
+              **authenticated_at_attributes(authenticated_at)
             )
           end
         rescue ActiveRecord::RecordNotUnique
@@ -90,7 +96,7 @@ module StandardId
           winner = active_device_session(account: account, device_id: device_id)
           raise unless winner
 
-          refresh_device_session!(winner, ip_address: ip_address, user_agent: user_agent)
+          refresh_device_session!(winner, ip_address: ip_address, user_agent: user_agent, authenticated_at: authenticated_at)
         end
       end
 
@@ -105,13 +111,22 @@ module StandardId
           .first
       end
 
-      def refresh_device_session!(session, ip_address:, user_agent:)
+      def refresh_device_session!(session, ip_address:, user_agent:, authenticated_at: nil)
+        latest = [session.try(:authenticated_at), authenticated_at].compact.max
         session.update!(
           expires_at: StandardId::DeviceSession.expiry,
           ip_address: ip_address || session.ip_address,
-          device_agent: user_agent || session.device_agent
+          device_agent: user_agent || session.device_agent,
+          **authenticated_at_attributes(latest)
         )
         session
+      end
+
+      # Nothing is written before migration 20261123000000 has run.
+      def authenticated_at_attributes(authenticated_at)
+        return {} if authenticated_at.nil? || !StandardId::StepUp.session_column?
+
+        { authenticated_at: authenticated_at }
       end
 
       def stable_device_id(account:, user_agent:, audience:)

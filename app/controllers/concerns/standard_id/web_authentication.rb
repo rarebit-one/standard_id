@@ -23,6 +23,12 @@ module StandardId
   #   session creation (for lifecycle hooks). Returns the PasswordCredential on
   #   success, nil on failure.
   #
+  # - `require_recent_authentication!(within:)` -- Step-up guard (opt-in, see
+  #   StandardId::StepUp): lets the action run only when the current session
+  #   proved the account's identity within `within` (default
+  #   c.step_up.max_age), else redirects to the step-up page and returns here
+  #   after it.
+  #
   # - `session_manager` -- Returns the StandardId::Web::SessionManager instance
   #   for the current request. Useful for direct session operations like
   #   `session_manager.sign_in_account(account)` in passwordless flows.
@@ -77,6 +83,26 @@ module StandardId
 
       store_location_for_redirect
       redirect_to_login
+    end
+
+    # Step-up guard for a sensitive action, as a before_action:
+    #
+    #   before_action -> { require_recent_authentication!(within: 5.minutes) }, only: %i[edit update]
+    #
+    # Signed out: the same redirect to login as authenticate_account!. Signed
+    # in, but the session last proved the account's identity longer ago than
+    # +within+ (or never, as for a remember-me session): redirects to
+    # c.step_up.url (default "/step_up"), remembering a GET's URL so the
+    # step-up comes back to it. Needs c.step_up.enabled; raises
+    # StandardId::ConfigurationError otherwise rather than silently passing or
+    # refusing.
+    def require_recent_authentication!(within: StandardId::StepUp.max_age)
+      StandardId::StepUp.ensure_usable!
+      return authenticate_account! unless authenticated?
+      return if StandardId::StepUp.recent?(current_session, within: within)
+
+      session[:return_to_after_step_up] = request.url if request.get?
+      redirect_with_inertia(StandardId.config.step_up.url.presence || "/step_up")
     end
 
     # Store the current URL to redirect back after authentication

@@ -23,6 +23,10 @@
     {
       "fingerprint": "413b5740add2c365198a540734a9e8c12b1c0483f521e2db145a80f3d582a4cc",
       "note": "after_sign_in hook redirect is controlled by the host app configuration, not user input"
+    },
+    {
+      "fingerprint": "e0a31d4fea6dd6a6d5caccc8565feea1b03d1d031bd585e56729e5e82437c41c",
+      "note": "HEAD vs GET distinction is inconsequential here; require_recent_authentication! remembers the return URL on GET only, and a HEAD simply returns to the default after step-up"
     }
   ],
   "updated": "2026-03-21",

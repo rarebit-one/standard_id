@@ -24,6 +24,13 @@ StandardId::ApiEngine.routes.draw do
       end
     end
 
+    # Step-up (recent) authentication for bearer clients, StandardId::StepUp.
+    # Matched only while c.step_up.enabled is true.
+    constraints(->(_request) { StandardId::StepUp.enabled? }) do
+      post "step_up", to: "step_up#create", as: :step_up
+      post "step_up/verify", to: "step_up#verify", as: :step_up_verify
+    end
+
     namespace :oidc do
       resource :logout, only: [:show], controller: :logout
     end

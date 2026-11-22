@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Step-up authentication (unreleased, opt-in)](#step-up-authentication-unreleased-opt-in)
 - [Password pepper (unreleased, opt-in)](#password-pepper-unreleased-opt-in)
 - [Reading the OTP code in delivery subscribers (unreleased)](#reading-the-otp-code-in-delivery-subscribers-unreleased)
 - [One-time codes stored as digests; secret_key_base rotation (0.60)](#one-time-codes-stored-as-digests-secret_key_base-rotation-060)
@@ -14,6 +15,41 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Step-up authentication (unreleased, opt-in)
+
+One additive migration, then nothing changes until you set
+`c.step_up.enabled = true` and call `require_recent_authentication!`.
+
+```bash
+bin/rails standard_id:install:migrations
+bin/rails db:migrate
+```
+
+`20261123000000_add_authenticated_at_to_standard_id_sessions` adds a nullable
+`authenticated_at` to `standard_id_sessions` and `standard_id_refresh_tokens`
+(metadata-only on PostgreSQL). Until it has run, the gem writes neither
+column. Once it has, interactive sign-ins stamp the session, and token grants
+stamp their refresh tokens. That is one extra `UPDATE` per web sign-in and no
+change to anything a client sees.
+
+What changes only once you enable it:
+
+- `/step_up` (web) and `POST /step_up`, `/step_up/verify` (API) are drawn.
+  They 404 otherwise.
+- Access tokens gain the OIDC `auth_time` claim. A `custom_claims` or
+  `TokenMinter` `claims:` value named `auth_time` no longer reaches the token
+  at all; pass `TokenMinter.mint(authenticated_at:)` instead.
+- Sessions and refresh tokens from before the migration carry no time, so
+  their holders step up once before a guarded action. So does any
+  remember-me session, by design.
+
+Host code that wraps or replaces `StandardId::Oauth::OauthSessionPersistence.persist!`
+should accept its new `authenticated_at:` keyword. The testing helper `create_browser_session` now stamps
+`authenticated_at: Time.current`; pass `authenticated_at: nil` (or an older
+time) to exercise the step-up path.
 
 ---
 

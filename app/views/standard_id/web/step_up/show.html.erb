@@ -1,0 +1,65 @@
+<%# ERB fallback for non-Inertia rendering. Inertia clients receive the same
+    data through step_up_page_props. %>
+<% props = step_up_page_props %>
+<% content_for :title, "Confirm it's you" %>
+
+<div class="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
+  <div class="sm:mx-auto sm:w-full sm:max-w-md">
+    <h2 class="mt-6 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white">Confirm it's you</h2>
+    <p class="mt-2 text-center text-sm text-gray-500 dark:text-gray-400">
+      <% if props[:target] %>
+        For your security, we need to check it's you before continuing. We'll send a code to
+        <span id="step-up-target" class="font-semibold text-gray-900 dark:text-white"><%= props[:target] %></span>.
+      <% else %>
+        There is no verified e-mail address or phone number on your account to send a code to.
+      <% end %>
+    </p>
+  </div>
+
+  <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-[480px]">
+    <div class="bg-white px-6 py-12 shadow sm:rounded-lg sm:px-12 dark:bg-gray-800/50 dark:shadow-none dark:outline dark:outline-1 dark:-outline-offset-1 dark:outline-white/10">
+
+      <% if flash[:alert].present? %>
+        <div class="mb-4 rounded-md bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300"><%= flash[:alert] %></div>
+      <% end %>
+      <% if flash[:notice].present? %>
+        <div class="mb-4 rounded-md bg-green-50 p-4 text-sm text-green-700 dark:bg-green-900/20 dark:text-green-300"><%= flash[:notice] %></div>
+      <% end %>
+
+      <% if props[:target] && props[:code_sent] %>
+        <%= form_with url: step_up_path, method: :patch, local: true, html: { id: "step-up-verify-form", class: "space-y-6" } do |form| %>
+          <div>
+            <%= form.label :code, "Verification code", class: "block text-sm/6 font-medium text-gray-900 dark:text-white" %>
+            <div class="mt-2">
+              <%= form.text_field :code, required: true, autofocus: true, autocomplete: "one-time-code", inputmode: "numeric", maxlength: otp_code_length, class: "block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500" %>
+            </div>
+          </div>
+
+          <% if props[:password_required] %>
+            <div>
+              <%= form.label :password, "Password", class: "block text-sm/6 font-medium text-gray-900 dark:text-white" %>
+              <div class="mt-2">
+                <%= form.password_field :password, required: true, autocomplete: "current-password", class: "block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500" %>
+              </div>
+            </div>
+          <% end %>
+
+          <div>
+            <%= form.submit "Confirm", class: "flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" %>
+          </div>
+        <% end %>
+      <% end %>
+
+      <% if props[:target] %>
+        <%= form_with url: step_up_path, method: :post, local: true, html: { id: "step-up-send-form", class: props[:code_sent] ? "mt-6 text-center text-sm/6" : "" } do |send_form| %>
+          <% if props[:code_sent] %>
+            <span class="text-gray-500 dark:text-gray-400">Didn't get a code?</span>
+            <button type="submit" id="step-up-resend-button" class="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300">Resend code</button>
+          <% else %>
+            <%= send_form.submit "Send code", id: "step-up-send-button", class: "flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" %>
+          <% end %>
+        <% end %>
+      <% end %>
+    </div>
+  </div>
+</div>

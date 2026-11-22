@@ -9,6 +9,12 @@ StandardId::WebEngine.routes.draw do
 
     resource :login_verify, only: [:show, :update], controller: :login_verify
     resource :logout, only: [:create], controller: :logout
+
+    # Step-up (recent) authentication, StandardId::StepUp. Drawn always but
+    # matched only while c.step_up.enabled is true, so /step_up 404s otherwise.
+    constraints(->(_request) { StandardId::StepUp.enabled? }) do
+      resource :step_up, only: [:show, :create, :update], controller: :step_up
+    end
     resource :signup, only: [:show, :create], controller: :signup
 
     # Social authentication callbacks (web flow)

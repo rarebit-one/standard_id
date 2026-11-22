@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Step-up authentication (opt-in).** `require_recent_authentication!(within:)` in
+  `WebAuthentication` and `ApiAuthentication` lets an action run only when the session (or the
+  bearer token's new OIDC `auth_time` claim) proved the account's identity recently. Otherwise
+  the web guard redirects to `/step_up`, and the API guard answers RFC 9470's
+  `insufficient_user_authentication` 401 with `max_age`. The step-up re-proves identity with a
+  fresh `StandardId::Otp` code in its own realm (`c.step_up.realm`, default `"step_up"`), sent to
+  the account's verified e-mail or phone, plus the password where the account has one. It stamps
+  the session, or (API, `POST /step_up` then `/step_up/verify`) returns a fresh access token.
+  Publishes `authentication.step_up.started`, `.succeeded` and `.failed`. Sign-ins stamp the new
+  `Session#authenticated_at`, never remember-me. `auth_time` is carried through `/authorize`, the
+  authorization-code grant and every refresh (`RefreshToken#authenticated_at`).
+  `TokenMinter.mint(authenticated_at:)` sets it for a direct mint; while step-up is on, no custom
+  claim can. `c.step_up.token_profile_resolver` names the profile the API step-up re-mints for when
+  an account may hold several of the audience's bound type. Needs migration
+  `20261123000000_add_authenticated_at_to_standard_id_sessions` and `c.step_up.enabled = true`;
+  until then no routes are drawn, no claim is minted, and the guard raises a
+  `ConfigurationError`. See README, "Step-up authentication".
 - **Password pepper (opt-in).** `c.password.pepper` hashes new passwords as
   bcrypt(HMAC-SHA256(pepper, password)), so the digests cannot be cracked from
   a database dump alone. Verification tries the current pepper, then

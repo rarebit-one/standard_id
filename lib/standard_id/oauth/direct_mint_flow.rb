@@ -17,7 +17,7 @@ module StandardId
 
       def initialize(account:, audience:, grant_type:, scopes: nil, client_id: nil, claims: {}, expires_in: nil,
         refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise,
-        requested_scopes: nil)
+        requested_scopes: nil, authenticated_at: nil)
         super({ audience: audience }, request || NullRequest.new)
         @profile = profile
         @audit_requested_scopes = normalize_audit_scopes(requested_scopes)
@@ -36,6 +36,7 @@ module StandardId
         @request_given = !request.nil?
         @auth_method = auth_method
         @auth_provider = auth_provider
+        @authenticated_at = authenticated_at
       end
 
       # Public so TokenMinter can report the jti the audit event carried.
@@ -162,7 +163,7 @@ module StandardId
       # later refresh; nil is recorded as :unspecified, which such a policy
       # refuses — so pass it when a policy is configured.
       def refresh_token_auth_lineage
-        StandardId::AuthLineage.build(@auth_method, @auth_provider)
+        StandardId::AuthLineage.build(@auth_method, @auth_provider, authenticated_at: @authenticated_at)
       end
 
       # Resolvers and custom_claims see `request: nil` for a sessionless mint,
@@ -174,9 +175,14 @@ module StandardId
       # Host-supplied claims ride on top of the standard payload and the
       # resolver-derived claims, but can never override a reserved JWT key or a
       # base session field (same rule as config.oauth.custom_claims).
+      #
+      # Under c.step_up nor can it set `auth_time`, recorded or not: pass
+      # +authenticated_at:+ instead.
       def build_jwt_payload(expires_in)
+        payload = super(expires_in)
         extra = @claims.except(*StandardId::JwtService::RESERVED_JWT_KEYS, *StandardId::JwtService::BASE_SESSION_FIELDS)
-        super(expires_in).merge(extra).compact
+        extra = extra.except(:auth_time) if StandardId::StepUp.enabled?
+        payload.merge(extra).compact
       end
 
       # A session is only materialised when the caller passed a real request:
