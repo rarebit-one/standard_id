@@ -162,6 +162,32 @@ StandardId::ConfigSchema.define do
     #   Raise StandardId::LoginMethodDenied.new("message") to refuse with your own.
     # nil (the default) allows every method, i.e. no behaviour change.
     field :login_method_policy, type: :any, default: nil
+
+    # network_wrapper: wraps every outbound HTTP connection StandardId::HttpClient
+    # makes (social-provider token, userinfo and JWKS calls), e.g. in a circuit
+    # breaker or a tracing span.
+    #   Receives: provider: (Symbol — :google, :apple, ...; :standard_id when the
+    #             caller names none) and a block that performs the request.
+    #   Must call the block and return its result. Whatever the block raises
+    #   (timeouts, refused connections) raises inside the wrapper; whatever the
+    #   wrapper raises reaches the caller unchanged.
+    # nil (the default) runs the block directly.
+    #
+    #   c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }
+    field :network_wrapper, type: :any, default: nil
+
+    # error_reporter: receives errors StandardId handles and carries on from —
+    # today, an event subscriber that raised after the change it reports had
+    # already committed (a completed password reset, a password rehash, a
+    # social link).
+    #   Receives: (error, context), where context is a Hash with at least
+    #             source: "standard_id" and handled: true, and may also name
+    #             what failed (event:, action:).
+    # nil (the default) reports to Rails.error, as StandardId always has:
+    # `Rails.error.report(error, handled: true, source: "standard_id")`.
+    #
+    #   c.error_reporter = ->(error, context) { Sentry.capture_exception(error, extra: context) }
+    field :error_reporter, type: :any, default: nil
   end
 
   scope :events do

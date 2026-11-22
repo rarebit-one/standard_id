@@ -27,6 +27,13 @@ module StandardId
       CALLABLE_FIELDS = {
         "profile_resolver"        => { signature: "(account, profile_type)",            arity: 2, kind: :positional },
         "sentry_context"          => { signature: "(account, session)",                 arity: 2, kind: :positional },
+        "error_reporter"          => { signature: "(error, context)",                   arity: 2, kind: :positional },
+        "network_wrapper" => {
+          signature: "(provider:, &block)",
+          kind: :keyword,
+          keywords: %i[provider],
+          block: true
+        },
         "after_account_created"   => { signature: "(account, request, context)",        arity: 3, kind: :positional },
         "before_sign_in"          => { signature: "(account, request, context)",        arity: 3, kind: :positional },
         "after_sign_in"           => { signature: "(account, request, context)",        arity: 3, kind: :positional },
@@ -142,6 +149,21 @@ module StandardId
           when :positional then validate_positional!(path, callable, spec)
           when :keyword    then validate_keyword!(path, callable, spec[:keywords], spec[:signature])
           end
+          validate_block_param!(path, callable, spec[:signature]) if spec[:block]
+        end
+
+        # A wrapper callable (network_wrapper) runs the work it is handed as a
+        # block. A Proc can only receive that block through an explicit `&`
+        # parameter; without one the block is dropped and the work never runs.
+        # (A method or `#call` object can `yield` without declaring it, so only
+        # Procs are checked.)
+        def validate_block_param!(path, callable, signature)
+          return unless callable.is_a?(Proc)
+          return if callable.parameters.any? { |type, _| type == :block }
+
+          raise StandardId::ConfigurationError,
+            "StandardId config: `#{path}` must take the wrapped work as a block " \
+            "(e.g. `->(provider:, &block) { block.call }`). Expected signature #{signature}."
         end
 
         def validate_positional!(path, callable, spec)
@@ -205,10 +227,11 @@ module StandardId
 
         # EmailPassword.call_hook passes only the keywords a hook declares, so a
         # lambda with a required positional argument (`->(request) { }`) would
-        # raise on its first call. Limited to the email_password hooks, which
-        # are new: older keyword hooks keep accepting what they always did.
+        # raise on its first call. Limited to the email_password hooks and
+        # network_wrapper, which are new: older keyword hooks keep accepting
+        # what they always did.
         def validate_no_required_positional!(path, callable, params, signature)
-          return unless path.start_with?("email_password.") && lambda_callable?(callable)
+          return unless (path.start_with?("email_password.") || path == "network_wrapper") && lambda_callable?(callable)
           return unless params.any? { |type, _| type == :req }
 
           raise StandardId::ConfigurationError,

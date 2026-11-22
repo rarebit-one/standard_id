@@ -23,19 +23,26 @@ module StandardId
       IPAddr.new("fe80::/10")
     ].freeze
 
+    # Provider name passed to `StandardId.config.network_wrapper` when a caller
+    # does not name one.
+    DEFAULT_PROVIDER = :standard_id
+
     class << self
-      def post_form(endpoint, params)
+      # `provider:` names the remote service (`:google`, `:apple`, ...) for
+      # `StandardId.config.network_wrapper`, e.g. to keep one circuit per
+      # provider. It has no other effect on the request.
+      def post_form(endpoint, params, provider: DEFAULT_PROVIDER)
         uri, resolved_ip = validate_url!(endpoint)
         request = Net::HTTP::Post.new(uri)
         request.set_form_data(params)
-        start_connection(uri, resolved_ip:) { |http| http.request(request) }
+        start_connection(uri, resolved_ip:, provider:) { |http| http.request(request) }
       end
 
-      def get_with_bearer(endpoint, access_token)
+      def get_with_bearer(endpoint, access_token, provider: DEFAULT_PROVIDER)
         uri, resolved_ip = validate_url!(endpoint)
         request = Net::HTTP::Get.new(uri)
         request["Authorization"] = "Bearer #{access_token}"
-        start_connection(uri, resolved_ip:) { |http| http.request(request) }
+        start_connection(uri, resolved_ip:, provider:) { |http| http.request(request) }
       end
 
       private
@@ -59,7 +66,26 @@ module StandardId
         [uri, addresses.first]
       end
 
-      def start_connection(uri, resolved_ip: nil, &block)
+      # Private, but provider plugins call it through `send` to fetch a JWKS
+      # with a plain GET, so its signature is part of the plugin contract:
+      # `provider:` is optional and new keywords must stay optional.
+      def start_connection(uri, resolved_ip: nil, provider: DEFAULT_PROVIDER, &block)
+        with_network_wrapper(provider) { open_connection(uri, resolved_ip:, &block) }
+      end
+
+      # Runs the block through `StandardId.config.network_wrapper`, or
+      # directly when none is configured. The wrapper sees the whole
+      # connection (connect, request, response), so a timeout or refused
+      # connection raises inside it; whatever it raises or returns is the
+      # caller's.
+      def with_network_wrapper(provider, &block)
+        wrapper = StandardId.config.network_wrapper
+        return yield unless wrapper.respond_to?(:call)
+
+        wrapper.call(**StandardId::Utils::CallableParameterFilter.filter(wrapper, { provider: provider&.to_sym }), &block)
+      end
+
+      def open_connection(uri, resolved_ip: nil, &block)
         http = Net::HTTP.new(uri.host, uri.port)
         http.use_ssl = (uri.scheme == "https")
         http.verify_mode = OpenSSL::SSL::VERIFY_PEER if http.use_ssl?

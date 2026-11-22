@@ -627,6 +627,23 @@ gets `provider_tokens:` in the `social.before_account` / `before_mint` hooks.
 Setting `config.events.publish_provider_tokens = true` restores `event[:tokens]`;
 the subscriber that reads it then has to keep them out of audit rows and logs.
 
+**Wrapping provider calls.** Every outbound request StandardId makes for a
+provider (token exchange, userinfo, JWKS) goes through `StandardId::HttpClient`,
+and `config.network_wrapper` wraps each one, given the provider's name. Use it
+for a circuit breaker, so a provider outage fails fast instead of holding
+request threads for the full timeout, or for a tracing span:
+
+```ruby
+c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }
+```
+
+It must call the block and return its result. A timeout or refused connection
+raises inside the wrapper, and whatever the wrapper raises (an open circuit,
+say) reaches the provider's caller as is. `provider` is the plugin's name
+(`:google`, `:apple`, ...), or `:standard_id` for a plugin release that does not
+pass one yet. A lambda must take the block as `&block`; the boot check rejects
+one that doesn't, since it would silently skip the request.
+
 ### Inertia.js Integration
 
 StandardId supports [Inertia.js](https://inertiajs.com/) for modern React, Vue, or Svelte frontends. When enabled, web controllers render Inertia components instead of ERB views.
@@ -1072,6 +1089,19 @@ StandardId::Events.subscribe(/social/) do |event|
 end
 ```
 
+#### When a subscriber raises after the change has committed
+
+A subscriber to an event that reports something already written (a completed
+password reset, a password rehash, a social link) cannot undo it, so StandardId
+logs its error and reports it instead of failing the request. Reports go to
+`Rails.error.report(error, handled: true, source: "standard_id")` unless you set
+`config.error_reporter`, a callable taking `(error, context)`; `context` carries
+`source:` and `handled:` plus what failed (`event:` or `action:`):
+
+```ruby
+c.error_reporter = ->(error, context) { Sentry.capture_exception(error, extra: context) }
+```
+
 ### Audit Logging
 
 For production audit trails, use the [standard_audit](https://github.com/rarebit-one/standard_audit) gem. StandardId and StandardAudit have zero direct references to each other — the host application wires them together.
@@ -1094,12 +1124,12 @@ rails db:migrate
 
 #### Wiring StandardId events to StandardAudit
 
-Configure StandardAudit to subscribe to StandardId's event namespace and map its payload conventions:
+Configure StandardAudit to subscribe to the events StandardId marks as worth auditing, and map its payload conventions:
 
 ```ruby
 # config/initializers/standard_audit.rb
 StandardAudit.configure do |config|
-  config.subscribe_to /\Astandard_id\./
+  config.subscribe_to(*StandardId::Events.auditable)
 
   # StandardId uses :account and :current_account rather than :actor/:target.
   # Map them so StandardAudit extracts the right records.
@@ -1118,7 +1148,9 @@ StandardAudit.configure do |config|
 end
 ```
 
-That's it. Every StandardId authentication event will now be persisted as an audit log entry. No changes are needed inside StandardId itself.
+That's it. Every security-relevant StandardId event will now be persisted as an audit log entry. No changes are needed inside StandardId itself.
+
+`StandardId::Events.auditable` is a frozen list of Regexps and full event names: authentication, account, social and passwordless events; session created, revoked and expired; password and client-secret lifecycle; refresh-token reuse, token revocation, audience mismatches and OAuth client registration changes. It leaves out per-request noise (`session.validating`/`validated`) and high-volume token minting (`oauth.token.issued`/`refreshed`). New releases may add to it, so an app that splats it picks those up. To audit everything instead, subscribe to `/\Astandard_id\./`.
 
 #### Querying audit logs
 
@@ -1998,7 +2030,7 @@ module StandardId
           rescue_to_oauth_error do
             raise StandardId::InvalidRequestError, "Missing authorization code" if code.blank?
 
-            response = HttpClient.post_form(TOKEN_ENDPOINT, { code:, redirect_uri:, ... })
+            response = HttpClient.post_form(TOKEN_ENDPOINT, { code:, redirect_uri:, ... }, provider: :github)
             parsed = JSON.parse(response.body)
             build_response(fetch_profile(parsed["access_token"]), tokens: extract_tokens(parsed))
           end
@@ -2008,6 +2040,8 @@ module StandardId
   end
 end
 ```
+
+Pass `provider:` to every `HttpClient` call so the host's `config.network_wrapper` can tell providers apart (see [Social Login Setup](#social-login-setup)). The keyword is new in the release after 0.60.0; a plugin that supports older standard_id releases should check for it, e.g. `HttpClient.method(:post_form).parameters.include?([:key, :provider])`, and leave it out when absent.
 
 **Required interface:** `provider_name`, `authorization_url`, `get_user_info`.
 
@@ -2283,11 +2317,13 @@ address with a PostgreSQL advisory lock, so two concurrent starts cannot both is
 
 - **At boot** (file-system only, no database): `config.missing_migrations` — `:warn` (default in development/test: logs and prints to stderr), `:raise` (fails boot with `StandardId::ConfigurationError`), or `:ignore` (default in every other environment — it never raises in production unless you opt in).
 - **`StandardId::MigrationCheck.pending(check_database: true)`** returns every gem migration that is `:not_installed` or installed but `:not_run` (one `schema_migrations` read).
-- **Health check** — `StandardId::Checks::Migrations` is [standard_health](https://github.com/rarebit-one/standard_health)-compatible (duck-typed, no dependency). Register it non-critical so a missing migration degrades `/health/ready` without failing it:
+- **Health check** — `StandardId::Checks::Migrations` is [standard_health](https://github.com/rarebit-one/standard_health)-compatible (duck-typed, no dependency). With a standard_health that supports contributions, StandardId offers it through standard_health's load hook, so `c.register_default_checks` registers it, non-critical: a missing migration degrades `/health/ready` without failing it. Opt out with `c.register_default_checks standard_id_migrations: false`. With an older standard_health, register it yourself:
 
   ```ruby
   c.register_check :standard_id_migrations, StandardId::Checks::Migrations, critical: false
   ```
+
+The same hook declares the env vars StandardId cares about for `/diagnostics/env`: `APP_ENVIRONMENT` (recommended; it decides StandardId's production-only guards) and `STANDARD_ID_BYPASS_CODE` (forbidden in production). An entry your app declares in its own `env_spec` wins. StandardId does not depend on standard_health; without it the hook never runs.
 
 Two cases are built in and documented in `StandardId::MigrationCheck`:
 

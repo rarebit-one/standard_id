@@ -312,4 +312,107 @@ RSpec.describe StandardId::HttpClient do
       }.to raise_error(Net::OpenTimeout)
     end
   end
+
+  describe "network_wrapper" do
+    let(:calls) { [] }
+
+    before do
+      stub_request(:post, "https://example.com/token").to_return(status: 200, body: "{}")
+      stub_request(:get, "https://example.com/api").to_return(status: 200, body: "{}")
+      recorded = calls
+      StandardId.config.network_wrapper = lambda do |provider:, &block|
+        recorded << provider
+        block.call
+      end
+    end
+
+    it "runs the request directly when no wrapper is configured" do
+      StandardId.config.network_wrapper = nil
+
+      response = described_class.post_form("https://example.com/token", {})
+
+      expect(response.code).to eq("200")
+    end
+
+    it "passes the provider to the wrapper and returns the block's response" do
+      response = described_class.post_form("https://example.com/token", { a: 1 }, provider: :google)
+
+      expect(calls).to eq([:google])
+      expect(response.code).to eq("200")
+    end
+
+    it "wraps get_with_bearer" do
+      described_class.get_with_bearer("https://example.com/api", "token", provider: :apple)
+
+      expect(calls).to eq([:apple])
+      expect(WebMock).to have_requested(:get, "https://example.com/api").with(headers: { "Authorization" => "Bearer token" })
+    end
+
+    it "names :standard_id when the caller names no provider" do
+      described_class.post_form("https://example.com/token", {})
+      described_class.get_with_bearer("https://example.com/api", "token")
+
+      expect(calls).to eq(%i[standard_id standard_id])
+    end
+
+    it "wraps start_connection, which plugins call through send for a JWKS" do
+      uri, resolved_ip = described_class.send(:validate_url!, "https://example.com/api")
+
+      response = described_class.send(:start_connection, uri, resolved_ip: resolved_ip, provider: :google) do |http|
+        http.request(Net::HTTP::Get.new(uri))
+      end
+
+      expect(calls).to eq([:google])
+      expect(response.code).to eq("200")
+    end
+
+    it "keeps start_connection callable without provider:, as older plugins call it" do
+      uri, resolved_ip = described_class.send(:validate_url!, "https://example.com/api")
+
+      described_class.send(:start_connection, uri, resolved_ip: resolved_ip) { |http| http.request(Net::HTTP::Get.new(uri)) }
+
+      expect(calls).to eq([:standard_id])
+    end
+
+    it "accepts a wrapper that declares no provider keyword" do
+      StandardId.config.network_wrapper = ->(&block) { block.call }
+
+      expect(described_class.post_form("https://example.com/token", {}, provider: :google).code).to eq("200")
+    end
+
+    it "propagates an error raised by the request through the wrapper" do
+      stub_request(:post, "https://example.com/token").to_timeout
+      seen = []
+      StandardId.config.network_wrapper = lambda do |provider:, &block|
+        block.call
+      rescue StandardError => e
+        seen << e.class
+        raise
+      end
+
+      expect {
+        described_class.post_form("https://example.com/token", {}, provider: :google)
+      }.to raise_error(Net::OpenTimeout)
+      expect(seen).to eq([Net::OpenTimeout])
+    end
+
+    it "propagates an error the wrapper raises itself, without making the request" do
+      circuit_open = Class.new(StandardError)
+      StandardId.config.network_wrapper = ->(provider:, &_block) { raise circuit_open, "#{provider} open" }
+
+      expect {
+        described_class.post_form("https://example.com/token", {}, provider: :google)
+      }.to raise_error(circuit_open, "google open")
+      expect(WebMock).not_to have_requested(:post, "https://example.com/token")
+    end
+
+    it "validates the URL before the wrapper runs, so an SSRF refusal never counts against a provider" do
+      allow(Resolv).to receive(:getaddresses).with("evil.com").and_return(["127.0.0.1"])
+
+      expect {
+        described_class.post_form("https://evil.com/token", {}, provider: :google)
+      }.to raise_error(StandardId::HttpClient::SsrfError)
+      expect(calls).to be_empty
+    end
+  end
 end
