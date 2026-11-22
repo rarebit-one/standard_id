@@ -399,6 +399,37 @@ StandardId::ConfigSchema.define do
     field :changed_notice_delivery, type: :symbol, default: :custom
   end
 
+  # Step-up (recent) authentication: `require_recent_authentication!` in web
+  # and API controllers, and the flow that re-proves identity with a fresh
+  # one-time code (and the password, where the account has one). Off by
+  # default: the step-up routes 404, access tokens carry no `auth_time`, and
+  # nothing changes unless a controller calls the guard. See StandardId::StepUp
+  # and the README, "Step-up authentication".
+  scope :step_up do
+    # Draws the step-up endpoints (web /step_up, API /step_up and
+    # /step_up/verify) and adds the OIDC `auth_time` claim to access tokens.
+    # The guard refuses to run while this is false.
+    field :enabled, type: :boolean, default: false
+    # The default `within:` of require_recent_authentication!, in seconds.
+    field :max_age, type: :integer, default: 300
+    # The StandardId::Otp realm step-up codes are issued and verified in, kept
+    # apart from sign-in codes so one can never stand in for the other.
+    field :realm, type: :string, default: "step_up"
+    # How the code is delivered (StandardId::Otp delivery modes):
+    #   :built_in — (default) follow c.passwordless.delivery: the engine's
+    #               PasswordlessMailer when that is :built_in, else your
+    #               PASSWORDLESS_CODE_GENERATED subscriber (realm "step_up")
+    #   :custom   — always your subscriber, so the message can say why
+    field :delivery, type: :symbol, default: :built_in
+    # Also ask for the password when the account has one. Off only for hosts
+    # whose second factor is the code alone.
+    field :require_password, type: :boolean, default: true
+    # Where the web guard sends a stale session. nil (default) is "/step_up",
+    # the web engine's page when it is mounted at "/"; set it when the engine
+    # is mounted elsewhere or the host draws its own page.
+    field :url, type: :string, default: nil
+  end
+
   scope :reset_password do
     # Password reset email delivery mode:
     #   :custom   — (default) host app handles delivery via event subscriber for

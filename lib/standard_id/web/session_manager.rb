@@ -71,6 +71,9 @@ module StandardId
         lineage = StandardId::AuthLineage.build(auth_method || :unspecified, provider)
         token_manager.create_browser_session(account, auth_lineage: lineage).tap do |browser_session|
           @created_session = browser_session
+          # An interactive sign-in proves the account's identity now
+          # (StandardId::StepUp). Remember-me, below, does not.
+          StandardId::StepUp.mark!(browser_session)
           # Store in both session and encrypted cookie for backward compatibility
           # Action Cable will use the encrypted cookie
           session[:session_token] = browser_session.token
@@ -255,7 +258,9 @@ module StandardId
         @reset_session&.call
 
         # Recorded as :remember_me, the method the policy approved above, so
-        # tokens later derived from this session are re-checked as such.
+        # tokens later derived from this session are re-checked as such. No
+        # authenticated_at: a cookie is not a fresh proof of identity, so a
+        # step-up guard asks a remembered visitor to step up.
         lineage = StandardId::AuthLineage.build(:remember_me)
         token_manager.create_browser_session(password_credential.account, auth_lineage: lineage).tap do |browser_session|
           # Store in both session and encrypted cookie for backward compatibility

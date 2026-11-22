@@ -19,6 +19,7 @@ Rails.application.routes.draw do
     namespace :v1 do
       get :protected, to: "protected#show"
       get :mcp, to: "mcp#show"
+      get :sensitive, to: "sensitive#show"
     end
   end
 
@@ -27,6 +28,9 @@ Rails.application.routes.draw do
   end
 
   get "/test_api", to: "test_api#show"
+
+  # Behind require_recent_authentication! (step-up specs).
+  resource :sensitive, only: [:show, :update], controller: :sensitive
 
   # Demo playground namespaces
   namespace :demos do

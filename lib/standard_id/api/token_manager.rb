@@ -94,11 +94,14 @@ module StandardId
 
       private
 
+      # The caller has just authenticated `account`, so the session proved its
+      # identity now (StandardId::StepUp).
       def create_session_for(session_class, account:, device_id: nil, device_agent: nil)
         base_attrs = {
           account: account,
           ip_address: StandardId::Utils::IpNormalizer.normalize(@request.remote_ip)
         }
+        base_attrs[:authenticated_at] = Time.current if StandardId::StepUp.session_column?
 
         case session_class.name
         when "StandardId::DeviceSession"

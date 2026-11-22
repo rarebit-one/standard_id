@@ -212,6 +212,71 @@ Users move to the new pepper as they sign in. Keep the old pepper listed for as 
 
 `has_secure_password`'s own `password_challenge` attribute compares the bare password and does not know about the pepper. To check a user's current password, call `password_credential.authenticate(password)`.
 
+### Step-up authentication
+
+Off by default. Before a sensitive action (changing an e-mail address, deleting an account, viewing recovery codes), ask a signed-in user to prove it is them again, unless they did so a moment ago. Nothing changes for a host that never calls the guard.
+
+**1. Run the migration and turn it on.**
+
+```bash
+bin/rails standard_id:install:migrations
+bin/rails db:migrate   # 20261123000000_add_authenticated_at_to_standard_id_sessions
+```
+
+```ruby
+StandardId.configure do |c|
+  c.step_up.enabled = true
+  # c.step_up.max_age = 300               # default `within:`, in seconds
+  # c.step_up.require_password = true     # also ask for the password when the account has one
+  # c.step_up.delivery = :built_in        # or :custom: your PASSWORDLESS_CODE_GENERATED subscriber, realm "step_up"
+  # c.step_up.url = "/step_up"            # where the web guard redirects
+end
+```
+
+**2. Guard the action.**
+
+```ruby
+class AccountSettingsController < ApplicationController
+  include StandardId::WebAuthentication
+  before_action :authenticate_account!
+  before_action -> { require_recent_authentication!(within: 5.minutes) }, only: %i[edit update]
+end
+
+class Api::RecoveryCodesController < ActionController::API
+  include StandardId::ApiAuthentication
+  before_action -> { require_recent_authentication!(within: 5.minutes) }
+end
+```
+
+The guard raises `StandardId::ConfigurationError` while `c.step_up.enabled` is off or the migration has not run. It never passes or refuses silently.
+
+**What counts as recent.** Each session row records `authenticated_at`, the last time it proved the account's identity. Every interactive sign-in sets it (password, passwordless, social, sign-up), and so does a step-up. Remember-me does not: a cookie is not a fresh proof, so a remembered visitor steps up before a guarded action. Sessions created before the migration have no time and step up once. Bearer tokens carry the OIDC `auth_time` claim, minted only while `c.step_up.enabled` is on:
+
+| Token | `auth_time` |
+| --- | --- |
+| password, passwordless OTP, social, email + password grants | the grant itself |
+| `authorization_code` | the browser session's `authenticated_at` at `/authorize` |
+| `refresh_token` | the original grant's, carried on each refresh token (never refreshed into a newer time) |
+| `TokenMinter.mint` | `authenticated_at:` when you pass it, else none |
+| `client_credentials`, implicit | none |
+
+A token with no `auth_time` is never recent. Custom claims cannot override it.
+
+**Web flow.** A stale session is redirected to `/step_up`, and a GET's URL is remembered. The page sends a one-time code to the account's verified e-mail address, or its verified phone number if it has no e-mail. The user enters the code and, when the account has a password, the password. On success the session's `authenticated_at` is set to now and the user returns to the guarded page. Inertia apps render `<namespace>/step_up/show` with `channel`, `target`, `code_sent`, `password_required`, `step_up_path` and `flash`. Signed-out visitors go to login, as before.
+
+**API flow.** A stale or `auth_time`-less token gets RFC 9470's challenge:
+
+```http
+HTTP/1.1 401 Unauthorized
+WWW-Authenticate: Bearer realm="StandardId", error="insufficient_user_authentication", error_description="A more recent authentication is required", max_age=300
+
+{"error":"insufficient_user_authentication","error_description":"A more recent authentication is required","max_age":300}
+```
+
+The client steps up with its current token. `POST /step_up` sends the code and answers `202 {"channel":"email","password_required":true}`. `POST /step_up/verify` with `{"code":"123456","password":"…"}` answers with a new access token whose `auth_time` is now. That token keeps the old one's `client_id`, `scope` and `aud`, under `grant_type: "step_up"` (lifetime `oauth.token_lifetimes[:step_up]`, else the default). The client then retries with it. No refresh token is issued, so tokens refreshed later carry the original sign-in time. Override `render_step_up_required(error)` to answer differently.
+
+**The code.** It is a `StandardId::Otp` code in its own realm (`c.step_up.realm`, default `"step_up"`), so a sign-in code cannot stand in for it, and it is bound to the account it was issued to. It is checked before the password, so each code buys at most one password guess, and a wrong password spends it. Issuing is limited by `passwordless.retry_delay` and the `rate_limits.otp_start_*` limits; verifying by `rate_limits.otp_verify_per_ip`. Events: `authentication.step_up.started`, `.succeeded` and `.failed` (see the event table).
+
 ### OAuth Hardening Options
 
 Two spec-conformance settings default to the historical (looser) behaviour so
@@ -1055,6 +1120,9 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `authentication.password.failed` | `account_lookup`, `error_code`, `error_message` | After password verification fails |
 |  | `authentication.otp.failed` | `identifier`, `channel`, `error_code`, `error_message` | After OTP verification fails |
 |  | `authentication.method.denied` | `account`, `auth_method`, `provider`, `flow`, `error_message` | `config.login_method_policy` refused the method, after the credential was proven and before any session or token was created (0.45+) |
+|  | `authentication.step_up.started` | `account`, `channel` | A step-up code was issued to a signed-in account (`c.step_up`) |
+|  | `authentication.step_up.succeeded` | `account`, `channel`, `methods` | The account re-proved its identity (`methods`: `["otp"]` or `["otp", "password"]`) |
+|  | `authentication.step_up.failed` | `account`, `stage`, `channel`, `error_code` | A step-up could not start (`stage: :start`, e.g. `no_verified_identifier`) or was refused (`stage: :verify`: `invalid_code`, `invalid_password`, `max_attempts`, …) |
 | Session | `session.creating` | `account`, `session_type`, `ip_address`, `user_agent` | Before a session record is created |
 |  | `session.created` | `session`, `account`, `session_type`, `token_issued`, `ip_address`, `user_agent` | After session persistence completes |
 |  | `session.validating` | `session` | Before validating an existing session |

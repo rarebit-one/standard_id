@@ -176,10 +176,15 @@ module StandardId
           account: account,
           request: request,
           audience: audience,
-          grant_type: grant_type
+          grant_type: grant_type,
+          authenticated_at: token_authenticated_at
         )
       end
 
+      # With c.step_up on, the OIDC `auth_time` claim (seconds since the epoch)
+      # says when the account last proved its identity, for
+      # ApiAuthentication#require_recent_authentication!. Set last, so a
+      # custom claim cannot claim a fresher authentication than happened.
       def build_jwt_payload(expires_in)
         base_payload = {
           sub: subject_id,
@@ -189,7 +194,22 @@ module StandardId
           aud: audience
         }.compact
 
-        base_payload.merge(claims_from_scope_mapping).merge(claims_from_custom_claims)
+        payload = base_payload.merge(claims_from_scope_mapping).merge(claims_from_custom_claims)
+        authenticated_at = token_authenticated_at if StandardId::StepUp.enabled?
+        payload[:auth_time] = authenticated_at.to_i if authenticated_at
+        payload
+      end
+
+      # When the account behind this token last proved its identity: now for a
+      # grant that authenticates it (one with a login_method_policy_context),
+      # the recorded time for one derived from an earlier authentication
+      # (authorization_code, refresh_token), nil when unknown or when there is
+      # no account. Read off refresh_token_auth_lineage, which already says how
+      # the authentication was made, so both travel together.
+      def token_authenticated_at
+        return @token_authenticated_at if defined?(@token_authenticated_at)
+
+        @token_authenticated_at = refresh_token_auth_lineage[:authenticated_at]
       end
 
       def token_expiry
@@ -261,7 +281,8 @@ module StandardId
         context = login_method_policy_context
         return StandardId::AuthLineage.empty if context.nil?
 
-        StandardId::AuthLineage.build(context[:auth_method], context[:provider])
+        @authenticating_at ||= Time.current
+        StandardId::AuthLineage.build(context[:auth_method], context[:provider], authenticated_at: @authenticating_at)
       end
 
       # The parent session for the refresh token issued by THIS grant, when the

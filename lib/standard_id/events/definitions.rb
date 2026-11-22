@@ -11,6 +11,11 @@ module StandardId
       # config.login_method_policy refused the method for the account, after
       # the credential was proven and before any session was created.
       AUTHENTICATION_METHOD_DENIED = "authentication.method.denied"
+      # Step-up authentication (StandardId::StepUp): a code was issued to a
+      # signed-in account, the account re-proved its identity, or it did not.
+      STEP_UP_STARTED = "authentication.step_up.started"
+      STEP_UP_SUCCEEDED = "authentication.step_up.succeeded"
+      STEP_UP_FAILED = "authentication.step_up.failed"
 
       SESSION_CREATING = "session.creating"
       SESSION_CREATED = "session.created"
@@ -86,7 +91,10 @@ module StandardId
         PASSWORD_VALIDATION_FAILED,
         OTP_VALIDATED,
         OTP_VALIDATION_FAILED,
-        AUTHENTICATION_METHOD_DENIED
+        AUTHENTICATION_METHOD_DENIED,
+        STEP_UP_STARTED,
+        STEP_UP_SUCCEEDED,
+        STEP_UP_FAILED
       ].freeze
 
       SESSION_EVENTS = [
@@ -173,6 +181,8 @@ module StandardId
         PASSWORD_VALIDATION_FAILED,
         OTP_VALIDATION_FAILED,
         AUTHENTICATION_METHOD_DENIED,
+        STEP_UP_SUCCEEDED,
+        STEP_UP_FAILED,
         # Session
         SESSION_CREATED,
         SESSION_REVOKED,

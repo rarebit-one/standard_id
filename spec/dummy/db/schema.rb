@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_11_22_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_23_000000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -171,6 +171,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_22_000000) do
     t.integer "session_id"
     t.string "token_digest", null: false
     t.datetime "updated_at", null: false
+    t.datetime "authenticated_at"
     t.index ["account_id", "revoked_at"], name: "idx_on_account_id_revoked_at_refresh_tokens"
     t.index ["client_application_id"], name: "index_standard_id_refresh_tokens_on_client_application_id", where: "client_application_id IS NOT NULL"
     t.index ["expires_at", "revoked_at"], name: "idx_on_expires_at_revoked_at_refresh_tokens"
@@ -199,6 +200,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_11_22_000000) do
     t.string "type", null: false
     t.datetime "updated_at", null: false
     t.text "user_agent"
+    t.datetime "authenticated_at"
     t.index ["account_id", "device_id"], name: "index_standard_id_sessions_on_active_account_device", unique: true, where: "revoked_at IS NULL AND device_id IS NOT NULL"
     t.index ["account_id", "type", "expires_at"], name: "idx_on_account_id_type_expires_at_fed5f68be5"
     t.index ["expires_at", "revoked_at"], name: "index_standard_id_sessions_on_expires_at_and_revoked_at"

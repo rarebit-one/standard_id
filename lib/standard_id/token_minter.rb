@@ -78,15 +78,19 @@ module StandardId
     #   A String is split on whitespace. Changes the event only, never the
     #   token — so for a direct mint, the event's requested_scopes may be
     #   caller-supplied rather than what the token's `scope` claim says.
+    # @param authenticated_at [Time, nil] when the host last saw the account
+    #   prove its identity: the token's `auth_time` claim (under
+    #   c.step_up.enabled) and the refresh token's authenticated_at. nil
+    #   (default) claims nothing, so require_recent_authentication! refuses it.
     # @return [Result]
     def mint(account:, audience:, grant_type:, scopes: nil, client_id: nil, claims: {}, expires_in: nil,
       refresh_token: false, request: nil, auth_method: nil, auth_provider: nil, profile: nil, audit_errors: :raise,
-      requested_scopes: nil)
+      requested_scopes: nil, authenticated_at: nil)
       flow = StandardId::Oauth::DirectMintFlow.new(
         account: account, audience: audience, grant_type: grant_type, scopes: scopes, client_id: client_id,
         claims: claims, expires_in: expires_in, refresh_token: refresh_token, request: request,
         auth_method: auth_method, auth_provider: auth_provider, profile: profile, audit_errors: audit_errors,
-        requested_scopes: requested_scopes
+        requested_scopes: requested_scopes, authenticated_at: authenticated_at
       )
       response = flow.execute
       Result.new(

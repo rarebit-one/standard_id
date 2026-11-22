@@ -242,6 +242,21 @@ StandardId.configure do |c|
   # c.password.accept_unpeppered_passwords = true
 
   # ---------------------------------------------------------------------------
+  # Step-up (recent) authentication
+  # ---------------------------------------------------------------------------
+
+  # Off by default. Draws /step_up (web) and POST /step_up, /step_up/verify
+  # (API), mints the OIDC auth_time claim, and lets controllers call
+  # require_recent_authentication!(within: 5.minutes). Needs migration
+  # 20261123000000. See README "Step-up authentication".
+  # c.step_up.enabled = false
+  # c.step_up.max_age = 300
+  # c.step_up.realm = "step_up"
+  # c.step_up.delivery = :built_in
+  # c.step_up.require_password = true
+  # c.step_up.url = nil
+
+  # ---------------------------------------------------------------------------
   # Passwordless (OTP)
   # ---------------------------------------------------------------------------
 

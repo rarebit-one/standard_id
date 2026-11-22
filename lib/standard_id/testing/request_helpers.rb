@@ -19,13 +19,18 @@ module StandardId
       # @param user_agent [String] the user agent string (default: "RSpec")
       # @return [StandardId::BrowserSession] the created session
       #
-      def create_browser_session(account, user_agent: "RSpec")
-        StandardId::BrowserSession.create!(
+      # The session counts as a fresh sign-in for require_recent_authentication!
+      # (StandardId::StepUp); pass +authenticated_at:+ an older time, or nil, to
+      # exercise the step-up path.
+      def create_browser_session(account, user_agent: "RSpec", authenticated_at: Time.current)
+        attributes = {
           account: account,
           ip_address: "127.0.0.1",
           user_agent: user_agent,
           expires_at: StandardId::BrowserSession.expiry
-        )
+        }
+        attributes[:authenticated_at] = authenticated_at if StandardId::StepUp.session_column?
+        StandardId::BrowserSession.create!(**attributes)
       end
 
       # Build a JWT token for API/service authentication.

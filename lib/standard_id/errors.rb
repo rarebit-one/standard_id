@@ -6,6 +6,22 @@ module StandardId
   class ExpiredSessionError < InvalidSessionError; end
   class RevokedSessionError < InvalidSessionError; end
 
+  # The session is valid but did not prove the account's identity recently
+  # enough for this action (require_recent_authentication!). Not an
+  # InvalidSessionError: signing in again is not the remedy, a step-up is, and
+  # a host's `rescue_from InvalidSessionError` must not swallow it into a
+  # sign-out. ApiAuthentication renders it as RFC 9470's
+  # `insufficient_user_authentication` challenge.
+  class StepUpRequiredError < StandardError
+    # @return [Integer] the age, in seconds, the authentication may have
+    attr_reader :max_age
+
+    def initialize(message = "A more recent authentication is required", max_age: nil)
+      @max_age = max_age&.to_i
+      super(message)
+    end
+  end
+
   # Account errors
   #
   # These deliberately do NOT descend from InvalidSessionError, even though
