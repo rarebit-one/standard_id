@@ -99,7 +99,7 @@ StandardId.config.session.browser_session_lifetime  # 24.hours
 | `standard_id_sessions` | Auth sessions (STI) |
 | `standard_id_client_applications` | OAuth clients |
 | `standard_id_authorization_codes` | OAuth auth codes |
-| `standard_id_code_challenges` | OTP codes |
+| `standard_id_code_challenges` | OTP codes (stored as `code_digest`, an HMAC; `code` is the legacy plaintext column) |
 
 ## Key Files
 

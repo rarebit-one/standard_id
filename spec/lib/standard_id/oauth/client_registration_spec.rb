@@ -250,6 +250,23 @@ RSpec.describe StandardId::Oauth::ClientRegistration do
       expect(StandardId::ClientApplication.dynamically_registered).to include(client)
     end
 
+    it "accepts a token digested under a previous secret_key_base only when it is listed" do
+      old_secret = "old-secret-key-base-#{SecureRandom.hex(8)}"
+      result = described_class.call(redirect_uris: ["https://app.example.com/cb"])
+      token = result.registration_access_token
+      client = result.client
+      client.update_column(
+        :registration_access_token_digest,
+        StandardId::ClientApplication.digest_registration_access_token(token, secret: old_secret)
+      )
+
+      expect(client.authenticate_registration_access_token(token)).to be(false)
+
+      StandardId.config.previous_secret_key_bases = [old_secret]
+      expect(client.authenticate_registration_access_token(token)).to be(true)
+      expect(client.authenticate_registration_access_token("nope")).to be(false)
+    end
+
     it "hands the owner resolver the document when it asks for it" do
       seen = nil
       allow(StandardId.config.oauth).to receive(:dynamic_registration_owner).and_return(->(metadata:) { seen = metadata; owner })

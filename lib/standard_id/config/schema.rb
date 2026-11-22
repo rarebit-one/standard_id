@@ -86,6 +86,20 @@ StandardId::ConfigSchema.define do
     # deliberately superseded or deferred.
     field :ignored_migrations, type: :array, default: -> { [] }
 
+    # Previous `secret_key_base` values, newest first, still ACCEPTED when
+    # looking up and verifying the engine's keyed digests: session tokens
+    # (lookup_hash and the HMAC token_digest), passwordless code digests,
+    # authorization codes and RFC 7592 registration access tokens. New digests
+    # are always written under the current secret. See StandardId::KeyedDigest.
+    #
+    # Empty (default) means rotating `secret_key_base` invalidates all of them
+    # at once, which is what it always did. To rotate without signing everyone
+    # out, list the old secret here for at least the longest session lifetime,
+    # alongside Rails' own rotations for its cookies and message verifiers
+    # (README "Rotating secret_key_base"). Each extra entry costs one more
+    # candidate per lookup and one more HMAC per verification.
+    field :previous_secret_key_bases, type: :array, default: -> { [] }
+
     # Scope-aware authentication: maps scope names to profile-based access config.
     # Each scope is a hash with keys: :profile_types (Array<String>), :after_sign_in_path,
     # :no_profile_message, :label, :allow_registration, :authorizer.

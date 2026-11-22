@@ -115,21 +115,23 @@ module StandardId
           challenge = lock_active_challenge
 
           unless challenge
-            # Constant-time compare even when no challenge exists to prevent
-            # timing-based enumeration of valid target+realm pairs. We compare
-            # the submitted code against a random value of the same digit
-            # length so an observer cannot distinguish "no challenge" from
-            # "wrong code" by response time.
+            # Same comparison even when no challenge exists to prevent
+            # timing-based enumeration of valid target+realm pairs. We check
+            # the submitted code against an unsaved challenge for a random
+            # value of the same digit length, so the work (an HMAC per accepted
+            # secret and a constant-time compare) matches the wrong-code path
+            # and an observer cannot distinguish "no challenge" from "wrong
+            # code" by response time.
             padded_length = @code.length.clamp(4, 10)
             fabricated_code = SecureRandom.random_number(10**padded_length).to_s.rjust(padded_length, "0")
-            secure_compare(fabricated_code, @code)
+            StandardId::CodeChallenge.new(code: fabricated_code).code_matches?(@code)
             # No event — matches prior behavior: we do not publish failure
             # events for probes that never triggered a real challenge.
             result = failure("Invalid or expired verification code", error_code: :not_found, attempts: 0)
             next
           end
 
-          code_matches = secure_compare(challenge.code, @code)
+          code_matches = challenge.code_matches?(@code)
 
           unless code_matches
             attempts = record_failed_attempt!(challenge)

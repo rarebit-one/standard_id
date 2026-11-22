@@ -44,7 +44,7 @@ RSpec.describe "StandardId Web post-authentication Inertia redirects", :inertia,
     end
 
     def verify_otp!(headers: {})
-      code = StandardId::CodeChallenge.last.code.to_s
+      code = issued_otp_code
       http_patch "/login_verify", params: { code: code }, headers: headers
     end
 

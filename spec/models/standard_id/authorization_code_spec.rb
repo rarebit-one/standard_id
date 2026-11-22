@@ -29,6 +29,19 @@ RSpec.describe StandardId::AuthorizationCode, type: :model do
       expect(rec.consumed_at).to be_nil
       expect(rec.expires_at).to be > Time.current
     end
+
+    it "finds a code hashed under a previous secret_key_base only when it is listed" do
+      old_secret = "old-secret-key-base-#{SecureRandom.hex(8)}"
+      rec = described_class.issue!(
+        plaintext_code: plaintext_code, client_id: client_id, redirect_uri: redirect_uri, account: account
+      )
+      rec.update_column(:code_hash, described_class.hash_for(plaintext_code, secret: old_secret))
+
+      expect(described_class.lookup(plaintext_code)).to be_nil
+
+      StandardId.config.previous_secret_key_bases = [old_secret]
+      expect(described_class.lookup(plaintext_code)).to eq(rec)
+    end
   end
 
   describe "nonce storage" do

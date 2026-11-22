@@ -290,6 +290,79 @@ RSpec.describe StandardId::Session, type: :model do
     end
   end
 
+  describe "secret_key_base rotation (config.previous_secret_key_bases)" do
+    let(:account) { Account.create!(name: "Rotation", email: "rotation@example.com") }
+    let(:old_secret) { "old-secret-key-base-#{SecureRandom.hex(8)}" }
+
+    let!(:session) do
+      StandardId::DeviceSession.create!(
+        account: account,
+        device_id: "device-#{SecureRandom.hex(4)}",
+        device_agent: "MyApp/1.0",
+        expires_at: 30.days.from_now
+      )
+    end
+
+    let(:token) { session.token }
+
+    # A session written before the app rotated secret_key_base: both stored
+    # values were keyed on what is now the old secret.
+    def write_under_old_secret!
+      session.update_columns(
+        lookup_hash: described_class.lookup_hash_for(token, secret: old_secret),
+        token_digest: described_class.hmac_token_digest(token, secret: old_secret)
+      )
+    end
+
+    it "does not find a session written under an old secret by default" do
+      write_under_old_secret!
+
+      expect(described_class.authenticate_by_token(token)).to be_nil
+      expect(described_class.by_token(token)).to be_empty
+    end
+
+    it "authenticates it once the old secret is listed" do
+      write_under_old_secret!
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.authenticate_by_token(token)).to eq(session)
+      expect(described_class.by_token(token).to_a).to eq([session])
+    end
+
+    it "still authenticates sessions written under the current secret" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.authenticate_by_token(token)).to eq(session)
+    end
+
+    it "looks up every candidate lookup hash in one query" do
+      StandardId.config.previous_secret_key_bases = [old_secret, "older-#{SecureRandom.hex(8)}"]
+
+      sql = described_class.by_token(token).to_sql
+
+      expect(described_class.lookup_hashes_for(token).size).to eq(3)
+      described_class.lookup_hashes_for(token).each { |hash| expect(sql).to include(hash) }
+    end
+
+    it "rejects a found row whose digest is under a secret that is not listed" do
+      # lookup_hash under the current secret, token_digest under an unlisted one
+      session.update_column(:token_digest, described_class.hmac_token_digest(token, secret: old_secret))
+
+      expect(described_class.authenticate_by_token(token)).to be_nil
+    end
+
+    it "writes new sessions under the current secret only" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      fresh = StandardId::DeviceSession.create!(
+        account: account, device_id: "device-#{SecureRandom.hex(4)}", device_agent: "MyApp/1.0", expires_at: 1.day.from_now
+      )
+
+      expect(fresh.lookup_hash).to eq(described_class.lookup_hash_for(fresh.token, secret: Rails.configuration.secret_key_base))
+      expect(fresh.token_digest).to eq(described_class.hmac_token_digest(fresh.token, secret: Rails.configuration.secret_key_base))
+    end
+  end
+
   describe "#generate_token_digest" do
     let(:account) { Account.create!(name: "Digest Cost Test", email: "digest@example.com") }
 

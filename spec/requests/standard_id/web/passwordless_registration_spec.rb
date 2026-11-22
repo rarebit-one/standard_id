@@ -43,10 +43,8 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
         account = create_existing_account
 
         initiate_passwordless_login!(existing_email)
-        challenge = StandardId::CodeChallenge.last
-
         expect {
-          http_patch "/login_verify", params: { code: challenge.code.to_s }
+          http_patch "/login_verify", params: { code: issued_otp_code }
         }.not_to change(Account, :count)
 
         expect(response).to have_http_status(:see_other)
@@ -62,10 +60,8 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
         account = create_existing_account
 
         initiate_passwordless_login!(existing_email)
-        challenge = StandardId::CodeChallenge.last
-
         expect {
-          http_patch "/login_verify", params: { code: challenge.code.to_s }
+          http_patch "/login_verify", params: { code: issued_otp_code }
         }.not_to change(Account, :count)
 
         expect(response).to have_http_status(:see_other)
@@ -84,8 +80,6 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
 
       it "creates a new account when no account exists for the email" do
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-
         # The dummy app's Account model requires `name` and `email`, so
         # we stub Account.create! to return a valid record, similar to
         # the VerificationService spec pattern.
@@ -95,7 +89,7 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
           .with(hash_including(identifiers_attributes: kind_of(Array)))
           .and_return(new_account)
 
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to have_http_status(:see_other)
         expect(response).to redirect_to("/")
@@ -110,10 +104,8 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
           .and_return(new_account)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-
         expect {
-          http_patch "/login_verify", params: { code: challenge.code.to_s }
+          http_patch "/login_verify", params: { code: issued_otp_code }
         }.to change(StandardId::BrowserSession, :count).by(1)
       end
     end
@@ -123,10 +115,8 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
 
       it "does NOT create an account for an unknown email" do
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-
         expect {
-          http_patch "/login_verify", params: { code: challenge.code.to_s }
+          http_patch "/login_verify", params: { code: issued_otp_code }
         }.not_to change(Account, :count)
 
         expect(response).to have_http_status(:unprocessable_content)
@@ -135,10 +125,8 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
 
       it "does not create a browser session for an unknown email" do
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-
         expect {
-          http_patch "/login_verify", params: { code: challenge.code.to_s }
+          http_patch "/login_verify", params: { code: issued_otp_code }
         }.not_to change(StandardId::BrowserSession, :count)
       end
     end
@@ -166,13 +154,11 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
         activate_scope!(allow_registration: scoped)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-
         expect(StandardId::Passwordless).to receive(:verify)
           .with(hash_including(allow_registration: expected))
           .and_call_original
 
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         unless expected
           expect(response).to have_http_status(:unprocessable_content)
@@ -186,13 +172,11 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
       allow(StandardId.config).to receive(:scopes).and_return(members: { allow_registration: false })
 
       initiate_passwordless_login!
-      challenge = StandardId::CodeChallenge.last
-
       expect(StandardId::Passwordless).to receive(:verify)
         .with(hash_including(allow_registration: true))
         .and_call_original
 
-      http_patch "/login_verify", params: { code: challenge.code.to_s }
+      http_patch "/login_verify", params: { code: issued_otp_code }
     end
   end
 
@@ -217,8 +201,7 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
       end
 
       initiate_passwordless_login!(existing_email)
-      challenge = StandardId::CodeChallenge.last
-      http_patch "/login_verify", params: { code: challenge.code.to_s }
+      http_patch "/login_verify", params: { code: issued_otp_code }
 
       expect(events).to be_empty
     ensure
@@ -249,8 +232,7 @@ RSpec.describe "StandardId Web Passwordless Registration (RAR-74)", type: :reque
       allow(StandardId.config).to receive(:after_account_created).and_return(account_hook)
 
       initiate_passwordless_login!(existing_email)
-      challenge = StandardId::CodeChallenge.last
-      http_patch "/login_verify", params: { code: challenge.code.to_s }
+      http_patch "/login_verify", params: { code: issued_otp_code }
 
       expect(account_hook).not_to have_received(:call)
     end

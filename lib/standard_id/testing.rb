@@ -1,6 +1,7 @@
 require "standard_id/testing/authentication_helpers"
 require "standard_id/testing/request_helpers"
 require "standard_id/testing/config_helpers"
+require "standard_id/testing/otp_helpers"
 require "standard_id/testing/provider_examples" if defined?(RSpec)
 
 module StandardId

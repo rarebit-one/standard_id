@@ -62,12 +62,15 @@ module StandardId
 
     # Preloads :account — every caller (the token exchange) reads it, and hosts
     # running strict_loading_by_default would otherwise raise on the lazy read.
+    # Matches the hash under the current secret or any of
+    # `config.previous_secret_key_bases`, in one indexed query.
     def self.lookup(plaintext_code)
-      includes(:account).find_by(code_hash: hash_for(plaintext_code))
+      hashes = StandardId::KeyedDigest.candidates { |secret| hash_for(plaintext_code, secret:) }
+      includes(:account).find_by(code_hash: hashes)
     end
 
-    def self.hash_for(plaintext_code)
-      Digest::SHA256.hexdigest("#{plaintext_code}:#{Rails.configuration.secret_key_base}")
+    def self.hash_for(plaintext_code, secret: StandardId::KeyedDigest.current_secret)
+      Digest::SHA256.hexdigest("#{plaintext_code}:#{secret}")
     end
 
     def self.default_ttl

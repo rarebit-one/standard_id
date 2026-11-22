@@ -293,8 +293,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(received_context[:mechanism]).to eq("passwordless")
         expect(received_context[:provider]).to be_nil
@@ -307,8 +306,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:after_account_created).and_return(account_hook)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(account_hook).not_to have_received(:call)
       end
@@ -318,8 +316,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to redirect_to("/welcome-back")
       end
@@ -337,8 +334,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         http_post "/login", params: { login: { email: email }, redirect_uri: "/oauth/authorize?client_id=harness" }
         expect(response).to have_http_status(:see_other)
 
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(received_context[:redirect_uri]).to eq("/oauth/authorize?client_id=harness")
       end
@@ -352,8 +348,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         enable_passwordless!
 
         http_post "/login", params: { login: { email: email }, redirect_uri: "/oauth/authorize?client_id=harness" }
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to redirect_to("/oauth/authorize?client_id=harness")
       end
@@ -364,8 +359,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         enable_passwordless!
 
         http_post "/login", params: { login: { email: email }, redirect_uri: ["/a", "/b"] }
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to have_http_status(:see_other)
         expect(response).to redirect_to("/")
@@ -378,8 +372,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         enable_passwordless!
 
         http_post "/login", params: { login: { email: email }, redirect_uri: "https://evil.example.com/phish" }
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to have_http_status(:see_other)
         expect(response).to redirect_to("/")
@@ -390,8 +383,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:after_sign_in).and_return(hook)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to redirect_to("/login")
         expect(flash[:alert]).to eq("Not allowed")
@@ -406,8 +398,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(received_context).to include(mechanism: "passwordless", provider: nil)
       end
@@ -417,8 +408,7 @@ RSpec.describe "StandardId Web Lifecycle Hooks", type: :request do
         allow(StandardId.config).to receive(:before_sign_in).and_return(hook)
 
         initiate_passwordless_login!
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to redirect_to("/login")
         expect(flash[:alert]).to eq("Passwordless denied")

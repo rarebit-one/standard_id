@@ -222,4 +222,42 @@ RSpec.describe StandardId::Testing do
       end
     end
   end
+
+  describe "OtpHelpers" do
+    include StandardId::Testing::OtpHelpers
+
+    let(:request) { instance_double("ActionDispatch::Request", remote_ip: "127.0.0.1", user_agent: "RSpec") }
+
+    def issue(target)
+      StandardId::Otp.issue(realm: "verification", target: target, request: request, delivery: :manual)
+    end
+
+    it "captures the raw code of every challenge issued in the block" do
+      results = nil
+      codes = capture_otp_codes { results = [issue("a@example.com"), issue("b@example.com")] }
+
+      expect(codes.map(&:identifier)).to eq(%w[a@example.com b@example.com])
+      expect(codes.map(&:code)).to eq(results.map(&:code))
+      expect(codes.map(&:realm)).to all(eq("verification"))
+    end
+
+    it "returns the code a submission would need, though the database holds only its digest" do
+      code = capture_otp_code("a@example.com") { issue("a@example.com") }
+
+      challenge = StandardId::CodeChallenge.where(target: "a@example.com").last
+      expect(challenge.code).to be_nil
+      expect(challenge.code_matches?(code)).to be(true)
+    end
+
+    it "raises when no code was issued" do
+      expect { capture_otp_code { nil } }.to raise_error(/No one-time code was issued/)
+    end
+
+    it "stops capturing after the block" do
+      codes = capture_otp_codes { nil }
+      issue("late@example.com")
+
+      expect(codes).to be_empty
+    end
+  end
 end

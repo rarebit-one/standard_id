@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [One-time codes stored as digests; secret_key_base rotation (0.60)](#one-time-codes-stored-as-digests-secret_key_base-rotation-060)
 - [E-mail domains must have a registered TLD (0.59)](#e-mail-domains-must-have-a-registered-tld-059)
 - [Provider tokens leave SOCIAL_AUTH_COMPLETED (0.58)](#provider-tokens-leave-social_auth_completed-058)
 - [Adopting the email + password API (0.55)](#adopting-the-email--password-api-055)
@@ -11,6 +12,88 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## One-time codes stored as digests; secret_key_base rotation (0.60)
+
+Passwordless and `StandardId::Otp` codes were stored in plaintext in
+`standard_id_code_challenges.code`, so anyone who could read the table could
+sign in with any active code. Challenges now store only `code_digest`, an
+HMAC-SHA256 of the code keyed on `secret_key_base`.
+
+**1. Install and run the migration.**
+
+```bash
+bin/rails standard_id:install:migrations
+bin/rails db:migrate
+```
+
+`20261122000000_add_code_digest_to_standard_id_code_challenges` adds the
+nullable `code_digest` column and drops `NOT NULL` from `code`. Both are
+metadata-only on PostgreSQL, so it is safe on a busy table. Until it has run,
+the gem keeps writing the plaintext column exactly as before, so deploying the
+gem first breaks nothing (the boot-time missing-migration check reports it).
+
+**2. Codes already sent keep working.** A challenge issued before the
+migration has only the plaintext `code`, and is verified against it until it
+expires (`passwordless.code_ttl`, 10 minutes by default). Two edges of a
+rolling deploy: a code issued by an upgraded process and submitted to a
+not-yet-upgraded one is refused as invalid (the user asks for a new code), and
+the same is true of every code issued after the upgrade if you roll the gem
+back. Rolling the migration back fails while digest-only rows exist; delete
+them first (none is older than `code_ttl` if you are rolling back promptly).
+
+**3. Read the raw code where it is issued, not from the database.**
+`CodeChallenge#code` returns the raw code only on the record the engine just
+created, which is the one in `PASSWORDLESS_CODE_GENERATED`'s `code_challenge:`
+and behind `Otp.issue(delivery: :manual).code`. A challenge loaded from the
+database returns `nil` (or, for a pre-migration row, its plaintext code). So:
+
+- A delivery subscriber that reads `event[:code_challenge].code` and passes the
+  **string** on (to a mailer, an SMS job) is unaffected.
+- One that passes the **record** to a background job and reads `.code` there
+  must pass the code string instead.
+- Specs that read `StandardId::CodeChallenge.last.code` (or
+  `.where(target:).last.code`) get `nil`. Capture the code as it is issued:
+  `capture_otp_code(email) { post "/login", ... }` from
+  `StandardId::Testing::OtpHelpers` (README, "Reading one-time codes in
+  specs"). Challenges you create with `CodeChallenge.create!(code: "123456")`
+  or the `:standard_id_code_challenge` factory still verify with that code.
+
+`CodeChallenge#as_json` / `serializable_hash` no longer include `code` or
+`code_digest`, so a subscriber that serialises the whole record stops writing
+the code to audit rows and logs.
+
+**4. Dropping the plaintext column.** A later release removes the `code`
+column and the plaintext fallback, in a migration that is only safe once every
+process runs this version (or later) and `code_ttl` has passed. Until then the
+column holds only pre-migration codes, which expire within minutes and are
+deleted by `CleanupExpiredCodeChallengesJob` (expired codes are kept 7 days).
+To clear them sooner, once every process is upgraded and `code_ttl` has
+passed:
+
+```ruby
+StandardId::CodeChallenge.where.not(code: nil).update_all(code: nil)
+```
+
+### Rotating secret_key_base without signing everyone out (opt-in)
+
+Session tokens, the new code digests, authorization codes and RFC 7592
+registration access tokens are all keyed on `secret_key_base`, so rotating it
+used to invalidate every one of them. List the old secret in
+`c.previous_secret_key_bases` and they are still accepted, while everything
+new is written under the current secret:
+
+```ruby
+c.previous_secret_key_bases = [Rails.application.credentials.old_secret_key_base]
+```
+
+Keep the entry until the longest session lifetime you issue has passed. Rails'
+own derived secrets (encrypted cookies, including the web session cookie, and
+message verifiers) need Rails' rotations as well, and HS256-signed JWTs are not
+covered: see README, "Rotating `secret_key_base`". Nothing changes unless you
+set it.
 
 ---
 
