@@ -46,7 +46,7 @@
 #
 # What it deliberately does NOT block:
 #   * pristine-RESTORING commands (git checkout HEAD -- ., git restore,
-#     git clean) and branch switches — /cleanup and /start need those on main;
+#     git clean) and branch switches — /cleanup and branch-switching flows need those on main;
 #   * git commit / merge / pull / fetch — they introduce no foreign content
 #     into the working tree, and /cleanup + /ship legitimately run them on main;
 #   * reading anything, anywhere;
@@ -1144,7 +1144,16 @@ if (( BLOCKED )); then
   echo "   The worktree-only mandate covers Bash writes too — rsync," >&2
   echo "   bin/devcontainer-exec, git stash pop/apply, git apply, patch, sed -i," >&2
   echo "   plus redirections / tee / cp / mv whose destination is a main checkout." >&2
-  echo "   Create a worktree first: /worktree or /start <issue>, and run it there." >&2
+  # The launcher sits beside this hook in agent-estate; hooks reach us through symlinks.
+  _src=${BASH_SOURCE[0]}
+  while [ -L "$_src" ]; do
+    _dir=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
+    case $_src in /*) ;; *) _src=$_dir/$_src ;; esac
+  done
+  EWT=$(cd -P "$(dirname "$_src")/.." 2>/dev/null && pwd)/bin/estate-wt
+  command -v estate-wt >/dev/null 2>&1 && EWT=estate-wt
+  echo "   Create a worktree first, and run it there:" >&2
+  echo "     $EWT -C <repo> new <slug>     (prints the new worktree's path)" >&2
   exit 2
 fi
 
