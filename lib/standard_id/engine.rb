@@ -80,6 +80,7 @@ module StandardId
       StandardId::Events::Subscribers::AccountLockingSubscriber.attach
       StandardId::Events::Subscribers::PasswordlessDeliverySubscriber.attach
       StandardId::Events::Subscribers::PasswordResetDeliverySubscriber.attach
+      StandardId::Events::Subscribers::PasswordChangedNoticeSubscriber.attach
 
       StandardId::Engine.warn_about_issuer_config!
 

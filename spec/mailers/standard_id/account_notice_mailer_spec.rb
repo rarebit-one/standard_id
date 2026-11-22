@@ -25,4 +25,21 @@ RSpec.describe StandardId::AccountNoticeMailer, type: :mailer do
       I18n.reload!
     end
   end
+
+  describe "#password_changed" do
+    let(:mail) { described_class.with(email: "owner@example.com").password_changed }
+
+    it "goes to the address's owner, from the passwordless sender" do
+      expect(mail.to).to eq(["owner@example.com"])
+      expect(mail.from).to eq([StandardId.config.passwordless.mailer_from])
+      expect(mail.subject).to eq(I18n.t("standard_id.account_notice_mailer.password_changed.subject"))
+    end
+
+    it "renders text and HTML parts that tell the owner what to do if it wasn't them" do
+      warning = I18n.t("standard_id.account_notice_mailer.password_changed.warning")
+
+      expect(mail.text_part.body.to_s).to include(warning)
+      expect(mail.html_part.body.to_s).to include(ERB::Util.html_escape(warning))
+    end
+  end
 end

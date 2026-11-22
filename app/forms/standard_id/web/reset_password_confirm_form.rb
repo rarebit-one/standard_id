@@ -31,6 +31,7 @@ module StandardId
         # reset back, but one that reads the rows must do so after commit
         # (e.g. from a job, which Rails enqueues after commit).
         ActiveRecord::Base.transaction do
+          @password_credential.password_change_reason = :password_reset
           @password_credential.update!(password: password, password_confirmation: password_confirmation)
           revoke_access!(account)
         end

@@ -174,7 +174,9 @@ onto it like this:
    - The daily caps count under new keys in `c.cache_store`, so counts from your
      own implementation do not carry over (each starts at zero on deploy).
    - Nothing emails the user when a reset completes. Subscribe to
-     `credential.password.reset_completed` to send a "password changed" notice.
+     `credential.password.reset_completed` to send a "password changed" notice,
+     or (unreleased) set `c.password.changed_notice_delivery = :built_in` to
+     have the engine send one.
 
 ---
 

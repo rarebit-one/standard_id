@@ -16,6 +16,32 @@ module StandardId
     validates :login, presence: true, uniqueness: true
     validates :password, confirmation: true, if: :validate_password?
 
+    # Why the next password change happens, published as
+    # CREDENTIAL_PASSWORD_CHANGED's +reason+: the engine's reset flows set
+    # :password_reset; otherwise it is :changed.
+    attr_writer :password_change_reason
+
+    # CREDENTIAL_PASSWORD_CHANGED, once an update that set a new password
+    # commits: the engine's resets and any host code that assigns +password+.
+    # Writing password_digest without going through +password=+ (a rehash of
+    # the same password) does not count.
+    #
+    # The digest +password=+ made is kept until a commit, and published only
+    # when it is the digest that commit left in the row. Nothing is decided at
+    # save time, so a rolled-back savepoint inside the transaction, or a
+    # rolled-back save retried later, still publishes when the new password
+    # finally commits; a commit that did not write it publishes nothing.
+    after_create_commit :forget_assigned_password
+    after_update_commit :publish_password_changed, if: :password_change_committed?
+
+    # has_secure_password's setter, remembering the digest it made so the
+    # commit can tell a new password from a direct write of the digest. An
+    # empty assignment changes nothing, as has_secure_password ignores it.
+    def password=(unencrypted_password)
+      super
+      @assigned_password_digest = (password_digest if unencrypted_password.present?)
+    end
+
     # The bcrypt cost has_secure_password hashes a new password at, worked out
     # the way ActiveModel::SecurePassword does.
     def self.password_cost
@@ -100,6 +126,41 @@ module StandardId
       return unless logger.respond_to?(:error)
 
       logger.error("[StandardId::PasswordCredential] Failed to #{action}: #{error.class}: #{error.message}")
+    end
+
+    def forget_assigned_password
+      @assigned_password_digest = nil
+    end
+
+    # Read from the row rather than the record: after a rollback the record
+    # can still hold the assigned digest while the row does not.
+    def password_change_committed?
+      @assigned_password_digest.present? &&
+        self.class.where(id: id).pick(:password_digest) == @assigned_password_digest
+    end
+
+    # The change has committed, so a failing subscriber must not raise out of
+    # the caller's save; report and carry on, as the reset flows do for
+    # CREDENTIAL_PASSWORD_RESET_COMPLETED. The event carries the account: load
+    # the chain so a subscriber under strict loading can walk it.
+    #
+    # +credential_id+ is explicit, as on PASSWORD_VALIDATED: the record keys
+    # are left out under events.publish_records = false, and so are their
+    # _id/_gid companions when publish_record_identifiers is off too.
+    def publish_password_changed
+      reason = @password_change_reason || :changed
+      forget_assigned_password
+      @password_change_reason = nil
+      ActiveRecord::Associations::Preloader.new(records: [self], associations: { credential: { identifier: :account } }).call
+      StandardId::Events.publish(
+        StandardId::Events::CREDENTIAL_PASSWORD_CHANGED,
+        credential: self,
+        credential_id: id,
+        account: credential&.account,
+        reason: reason
+      )
+    rescue StandardError => e
+      report_failure("publish CREDENTIAL_PASSWORD_CHANGED for password credential #{id}", e)
     end
   end
 end

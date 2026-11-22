@@ -6,6 +6,10 @@ module StandardId
   #   an account, while `c.email_password.reveal_existing_accounts` is false
   #   (the API then answers as if the sign-up went ahead). The owner learns
   #   about it and how to get in; the requester learns nothing.
+  # * #password_changed: the account's password was changed or reset, while
+  #   `c.password.changed_notice_delivery` is :built_in
+  #   (Events::Subscribers::PasswordChangedNoticeSubscriber). The owner learns
+  #   of a change they did not make.
   #
   # Copy lives under `standard_id.account_notice_mailer.<action>.*` in
   # config/locales/en.yml; override any key in the host's locale files, or the
@@ -17,6 +21,13 @@ module StandardId
 
     # @param email [String]
     def existing_account
+      @email = params[:email]
+
+      mail(to: @email, from: StandardId.config.passwordless.mailer_from, subject: notice_copy(:subject))
+    end
+
+    # @param email [String]
+    def password_changed
       @email = params[:email]
 
       mail(to: @email, from: StandardId.config.passwordless.mailer_from, subject: notice_copy(:subject))
