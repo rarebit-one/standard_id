@@ -1,5 +1,3 @@
-require "concurrent/delay"
-
 module StandardId
   # Email + password sign-up and sign-in for JSON clients
   # (Api::EmailPasswordController), switched on with
@@ -30,8 +28,9 @@ module StandardId
   module EmailPassword
     # A digest to compare against when no credential exists, so a miss costs
     # the same bcrypt work as a hit and timing does not reveal whether the
-    # address is registered.
-    DUMMY_PASSWORD_DIGEST = Concurrent::Delay.new { BCrypt::Password.create("").freeze }
+    # address is registered. Compared through PasswordPepper.dummy_authenticate,
+    # once per pepper a real digest would be tried under.
+    DUMMY_PASSWORD_DIGEST = StandardId::PasswordPepper::DUMMY_DIGEST
 
     # Identifier#signup_source of a sign-up made through Registration. A reset
     # runs `after_email_verified` only for these, and
@@ -83,7 +82,7 @@ module StandardId
         password = password.to_s
         password_credential = find_password_credential(email)
         unless password_credential
-          BCrypt::Password.new(DUMMY_PASSWORD_DIGEST.value).is_password?(password)
+          StandardId::PasswordPepper.dummy_authenticate(password)
           return nil
         end
         return nil if password.empty? || !password_credential.authenticate(password)

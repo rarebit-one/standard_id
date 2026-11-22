@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Password pepper (opt-in).** `c.password.pepper` hashes new passwords as
+  bcrypt(HMAC-SHA256(pepper, password)), so the digests cannot be cracked from
+  a database dump alone. Verification tries the current pepper, then
+  `c.password.previous_peppers`, then no pepper (`c.password.accept_unpeppered_passwords`,
+  default `true`), so turning it on or rotating it locks nobody out. A login
+  that matched anything but the current pepper re-hashes through
+  `PasswordCredential#rehash_password`: it publishes `credential.password.rehashed`
+  (new payload key `pepper_changed`), not `credential.password.changed`, and
+  voids that user's remember-me cookies and reset links, as a cost change does.
+  Logins for unknown addresses pay one dummy bcrypt comparison per candidate
+  pepper, matching a wrong password. With no pepper set (the default) nothing
+  changes. **Losing the pepper forces every password hashed under it to be
+  reset.** See README, "Password pepper".
+
 ## [0.61.0] - 2026-11-23
 
 ### Added

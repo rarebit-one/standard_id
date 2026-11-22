@@ -37,10 +37,42 @@ module StandardId
     # has_secure_password's setter, remembering the digest it made so the
     # commit can tell a new password from a direct write of the digest. An
     # empty assignment changes nothing, as has_secure_password ignores it.
+    # Under c.password.pepper the digest is made from the peppered password
+    # (StandardId::PasswordPepper); without one, has_secure_password makes it.
     def password=(unencrypted_password)
-      super
+      # has_secure_password's own test (nil clears, "" is ignored), so a
+      # whitespace-only password is peppered like any other.
+      if StandardId::PasswordPepper.current.present? && !unencrypted_password.nil? && !unencrypted_password.empty?
+        @password = unencrypted_password
+        self.password_digest = self.class.password_digest_for(unencrypted_password)
+      else
+        super
+      end
       @assigned_password_digest = (password_digest if unencrypted_password.present?)
     end
+
+    # has_secure_password's check, trying each pepper the digest may have been
+    # made under (StandardId::PasswordPepper.candidates): the current one, the
+    # previous ones, then none. Remembers which one matched, so
+    # #rehash_password can move the digest to the current pepper. With no
+    # pepper configured this is has_secure_password's own comparison.
+    #
+    # has_secure_password's +password_challenge+ validation compares the bare
+    # password and does not know about the pepper; check a current password
+    # with this method instead.
+    #
+    # @return [self, false]
+    def authenticate_password(unencrypted_password)
+      digest = password_digest
+      return false if digest.blank?
+
+      pepper = StandardId::PasswordPepper.matching_pepper(digest, unencrypted_password)
+      return false if pepper.nil?
+
+      @authenticated_pepper = [digest, pepper]
+      self
+    end
+    alias_method :authenticate, :authenticate_password
 
     # The bcrypt cost has_secure_password hashes a new password at, worked out
     # the way ActiveModel::SecurePassword does.
@@ -48,11 +80,21 @@ module StandardId
       ActiveModel::SecurePassword.min_cost ? BCrypt::Engine::MIN_COST : BCrypt::Engine.cost
     end
 
+    # A new digest for +password+: bcrypt at .password_cost of the password
+    # under the current pepper (the bare password when none is set).
+    def self.password_digest_for(password)
+      peppered = StandardId::PasswordPepper.apply(password, StandardId::PasswordPepper.current)
+      BCrypt::Password.create(peppered, cost: password_cost)
+    end
+
     # Re-hashes +password+ when the stored digest was made at a bcrypt cost
-    # other than .password_cost, so raising BCrypt::Engine.cost reaches
+    # other than .password_cost, or under a pepper other than the current one
+    # (a previous pepper, or none: see StandardId::PasswordPepper), so raising
+    # BCrypt::Engine.cost, or setting or rotating c.password.pepper, reaches
     # existing passwords as their owners sign in instead of only new ones.
     # Every password login calls it once +password+ has authenticated; turn it
-    # off with c.password.rehash_on_login = false.
+    # off with c.password.rehash_on_login = false. It is not a password change:
+    # CREDENTIAL_PASSWORD_CHANGED is not published and no notice is sent.
     #
     # +authenticated_digest+ is the digest +password+ was checked against. The
     # write is one UPDATE conditional on the row still holding it, so a reset
@@ -70,10 +112,14 @@ module StandardId
     #
     # @return [Boolean] whether the digest was replaced
     def rehash_password(password, authenticated_digest = password_digest)
-      return false unless StandardId.config.password.rehash_on_login && password_rehash_needed?
+      return false unless StandardId.config.password.rehash_on_login
+
+      pepper_changed = pepper_rehash_needed?(password, authenticated_digest)
+      return false if pepper_changed.nil?
+      return false unless pepper_changed || password_rehash_needed?
 
       previous_cost = BCrypt::Password.new(password_digest).cost
-      attributes = { password_digest: BCrypt::Password.create(password, cost: self.class.password_cost), updated_at: Time.current }
+      attributes = { password_digest: self.class.password_digest_for(password), updated_at: Time.current }
       # The savepoint keeps a failed UPDATE from aborting the caller's
       # transaction (PostgreSQL refuses every later statement in it).
       rehashed = self.class.transaction(requires_new: true) do
@@ -86,7 +132,7 @@ module StandardId
       # Held until the caller's transaction commits, so a login that rolls
       # back (a policy refusal inside EmailPassword::Authentication's lock)
       # reports no rehash.
-      ActiveRecord.after_all_transactions_commit { publish_password_rehashed(previous_cost) }
+      ActiveRecord.after_all_transactions_commit { publish_password_rehashed(previous_cost, pepper_changed) }
       true
     rescue StandardError => e
       report_failure("rehash password credential #{id}", e)
@@ -105,16 +151,38 @@ module StandardId
       false
     end
 
+    # Whether +digest+ holds +password+ under a pepper other than the current
+    # one: true or false, or nil when +password+ does not match +digest+ at
+    # all, which must not be re-hashed. Always false while no pepper is
+    # configured, without another bcrypt comparison, so a host without one
+    # rehashes exactly as before. Reuses the pepper #authenticate matched for
+    # this digest; otherwise works it out again.
+    def pepper_rehash_needed?(password, digest)
+      return false unless StandardId::PasswordPepper.enabled?
+
+      pepper = if @authenticated_pepper&.first == digest
+        @authenticated_pepper.last
+      else
+        StandardId::PasswordPepper.matching_pepper(digest, password)
+      end
+      return nil if pepper.nil?
+
+      pepper != StandardId::PasswordPepper.current
+    rescue BCrypt::Errors::InvalidHash
+      nil
+    end
+
     # The event carries the account: load the chain (a no-op where the caller
     # preloaded it) so a subscriber under strict loading can walk it.
-    def publish_password_rehashed(previous_cost)
+    def publish_password_rehashed(previous_cost, pepper_changed = false)
       ActiveRecord::Associations::Preloader.new(records: [self], associations: { credential: { identifier: :account } }).call
       StandardId::Events.publish(
         StandardId::Events::CREDENTIAL_PASSWORD_REHASHED,
         credential: self,
         account: account,
         previous_cost: previous_cost,
-        cost: self.class.password_cost
+        cost: self.class.password_cost,
+        pepper_changed: pepper_changed
       )
     rescue StandardError => e
       report_failure("publish CREDENTIAL_PASSWORD_REHASHED for password credential #{id}", e)
