@@ -16,12 +16,12 @@ jobs:
   ci:
     uses: rarebit-one/.github/.github/workflows/reusable-gem-ci.yml@v3
     with:
-      ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4","4.0.9"]'
+      ruby-versions: '["4.0.0","4.0.1","4.0.2","4.0.3","4.0.4","4.0.10"]'
       # ubuntu-24.04 because the matrix tests patch releases older than the
       # newest 4.0.x, and ubuntu-26.04 (now ubuntu-latest) builds only the
-      # newest patch of each series. Drop it if the matrix narrows to 4.0.9.
+      # newest patch of each series. Drop it if the matrix narrows to 4.0.10.
       runner-label: ubuntu-24.04
-      lint-ruby-version: "4.0.9"
+      lint-ruby-version: "4.0.10"
       lint-command: bin/rubocop -f github
       extra-lint-commands: |
         bin/brakeman --no-pager
@@ -74,9 +74,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
+        uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
         with:
-          ruby-version: 4.0.9
+          ruby-version: 4.0.10
           bundler-cache: true
 
       - name: Run tests on PostgreSQL
@@ -114,9 +114,9 @@ jobs:
           rm -f Gemfile.lock
 
       - name: Set up Ruby
-        uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
+        uses: ruby/setup-ruby@be3c7df29b3349ec6bcfc6b4792f1cf9f5237d18 # v1.343.0
         with:
-          ruby-version: 4.0.9
+          ruby-version: 4.0.10
           bundler-cache: false
 
       - name: Install dependencies against Rails edge
