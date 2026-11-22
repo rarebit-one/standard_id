@@ -23,10 +23,15 @@ RSpec.describe StandardId::ErrorReporting do
       expect(Rails.error).not_to have_received(:report)
     end
 
-    it "lets an error_reporter's own error propagate" do
+    it "logs an error_reporter's own error and falls back to Rails.error" do
       StandardId.config.error_reporter = ->(_e, _context) { raise ArgumentError, "reporter broken" }
+      allow(Rails.error).to receive(:report)
+      allow(Rails.logger).to receive(:error)
 
-      expect { described_class.report(error) }.to raise_error(ArgumentError, "reporter broken")
+      expect { described_class.report(error, action: "rehash") }.not_to raise_error
+
+      expect(Rails.logger).to have_received(:error).with(/error_reporter raised ArgumentError: reporter broken/)
+      expect(Rails.error).to have_received(:report).with(error, handled: true, source: "standard_id")
     end
   end
 
@@ -49,6 +54,17 @@ RSpec.describe StandardId::ErrorReporting do
       expect(reported.size).to eq(1)
       expect(reported.first.first).to eq("boom")
       expect(reported.first.last).to include(source: "standard_id", handled: true, action: /CREDENTIAL_PASSWORD_REHASHED/)
+    ensure
+      StandardId::Events.unsubscribe(subscriber) if subscriber
+    end
+
+    it "keeps a password rehash going when the error_reporter itself raises" do
+      StandardId.config.error_reporter = ->(_e, _context) { raise "reporter broken" }
+      allow(Rails.error).to receive(:report)
+      subscriber = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_REHASHED) { raise "boom" }
+
+      expect { credential.send(:publish_password_rehashed, BCrypt::Engine::MIN_COST) }.not_to raise_error
+      expect(Rails.error).to have_received(:report).with(an_object_having_attributes(message: "boom"), handled: true, source: "standard_id")
     ensure
       StandardId::Events.unsubscribe(subscriber) if subscriber
     end

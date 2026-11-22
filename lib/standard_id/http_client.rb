@@ -36,11 +36,12 @@ module StandardId
       # which is how callers written before `provider:` existed pass it: once
       # the method takes a keyword, Ruby reads a braceless Hash as keywords, so
       # `**form` keeps those calls working. A form field named `provider` must
-      # therefore go in an explicit Hash.
+      # therefore go in an explicit Hash. With no bare keywords, `params` goes
+      # to `set_form_data` as given, so an Array of pairs keeps repeated keys.
       def post_form(endpoint, params = nil, provider: DEFAULT_PROVIDER, **form)
         uri, resolved_ip = validate_url!(endpoint)
         request = Net::HTTP::Post.new(uri)
-        request.set_form_data((params || {}).to_h.merge(form))
+        request.set_form_data(form.empty? ? (params || {}) : (params || {}).to_h.merge(form))
         start_connection(uri, resolved_ip:, provider:) { |http| http.request(request) }
       end
 

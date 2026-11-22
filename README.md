@@ -1096,7 +1096,9 @@ password reset, a password rehash, a social link) cannot undo it, so StandardId
 logs its error and reports it instead of failing the request. Reports go to
 `Rails.error.report(error, handled: true, source: "standard_id")` unless you set
 `config.error_reporter`, a callable taking `(error, context)`; `context` carries
-`source:` and `handled:` plus what failed (`event:` or `action:`):
+`source:` and `handled:` plus what failed (`event:` or `action:`). If your
+reporter raises, StandardId logs that and falls back to the `Rails.error.report`
+call above, so the request still completes:
 
 ```ruby
 c.error_reporter = ->(error, context) { Sentry.capture_exception(error, extra: context) }
@@ -1129,7 +1131,7 @@ Configure StandardAudit to subscribe to the events StandardId marks as worth aud
 ```ruby
 # config/initializers/standard_audit.rb
 StandardAudit.configure do |config|
-  config.subscribe_to(*StandardId::Events.auditable)
+  StandardId::Events.auditable.each { |pattern| config.subscribe_to(pattern) }
 
   # StandardId uses :account and :current_account rather than :actor/:target.
   # Map them so StandardAudit extracts the right records.
@@ -1150,7 +1152,7 @@ end
 
 That's it. Every security-relevant StandardId event will now be persisted as an audit log entry. No changes are needed inside StandardId itself.
 
-`StandardId::Events.auditable` is a frozen list of Regexps and full event names: authentication, account, social and passwordless events; session created, revoked and expired; password and client-secret lifecycle; refresh-token reuse, token revocation, audience mismatches and OAuth client registration changes. It leaves out per-request noise (`session.validating`/`validated`) and high-volume token minting (`oauth.token.issued`/`refreshed`). New releases may add to it, so an app that splats it picks those up. To audit everything instead, subscribe to `/\Astandard_id\./`.
+`StandardId::Events.auditable` is a frozen list of Regexps and full event names: authentication, account, social and passwordless events; session created, revoked and expired; password and client-secret lifecycle; refresh-token reuse, token revocation, audience mismatches and OAuth client registration changes. It leaves out per-request noise (`session.validating`/`validated`) and high-volume token minting (`oauth.token.issued`/`refreshed`). New releases may add to it, so an app that iterates it picks those up. To audit everything instead, subscribe to `/\Astandard_id\./`.
 
 #### Querying audit logs
 

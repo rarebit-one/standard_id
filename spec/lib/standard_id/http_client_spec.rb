@@ -273,6 +273,14 @@ RSpec.describe StandardId::HttpClient do
         described_class.post_form(endpoint, params)
       }.to raise_error(Net::OpenTimeout)
     end
+
+    it "keeps repeated keys when the form is an Array of pairs" do
+      stub_request(:post, endpoint).to_return(status: 200, body: "{}")
+
+      described_class.post_form(endpoint, [["scope", "openid"], ["scope", "email"], ["client_id", "test_id"]])
+
+      expect(WebMock).to have_requested(:post, endpoint).with(body: "scope=openid&scope=email&client_id=test_id")
+    end
   end
 
   describe ".get_with_bearer" do

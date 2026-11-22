@@ -8,6 +8,26 @@ RSpec.describe "StandardId::Events.auditable" do
     auditable.any? { |pattern| pattern.is_a?(Regexp) ? pattern.match?(name) : pattern == name }
   end
 
+  # standard_audit's Configuration#subscribe_to took exactly one pattern
+  # before it grew a splat, so the documented wiring calls it once per pattern.
+  it "wires into a single-argument subscribe_to, one pattern per call, as the README shows" do
+    config = Class.new do
+      attr_reader :subscriptions
+
+      def initialize
+        @subscriptions = []
+      end
+
+      def subscribe_to(pattern)
+        @subscriptions << pattern
+      end
+    end.new
+
+    StandardId::Events.auditable.each { |pattern| config.subscribe_to(pattern) }
+
+    expect(config.subscriptions).to eq(auditable)
+  end
+
   it "is frozen, and so is every pattern in it" do
     expect(auditable).to be_frozen
     expect(auditable).to all(be_frozen)

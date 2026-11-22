@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `post_form`'s form as bare keywords (`post_form(url, id_token: token)`). The boot-time callable check rejects a
   wrapper with an unknown keyword, a positional argument, or (for a lambda) no `&block`.
 - **`StandardId::Events.auditable`**, the frozen list of event patterns worth an audit row, for
-  `config.subscribe_to(*StandardId::Events.auditable)` in standard_audit. It keeps what the apps
+  `StandardId::Events.auditable.each { |pattern| config.subscribe_to(pattern) }` in standard_audit
+  (one pattern per call, which every standard_audit version accepts). It keeps what the apps
   subscribe to today (authentication, account, social and passwordless events; session created,
   revoked and expired) and adds the password and client-secret lifecycle, refresh-token reuse,
   token revocation, audience mismatches and OAuth client registration changes.
@@ -35,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `context` carries `source: "standard_id"`, `handled: true` and what failed (`event:` or
   `action:`). `nil` (default) keeps `Rails.error.report(error, handled: true, source:
   "standard_id")`. All four report sites go through the new `StandardId::ErrorReporting.report`.
+  A reporter that raises is logged and the error falls back to that default report, so the flow
+  it was reporting from still carries on.
 
 ## [0.60.0] - 2026-11-22
 

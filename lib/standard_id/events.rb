@@ -41,7 +41,7 @@ module StandardId
       # The event names a host should persist to its audit log:
       #
       #   StandardAudit.configure do |config|
-      #     config.subscribe_to(*StandardId::Events.auditable)
+      #     StandardId::Events.auditable.each { |pattern| config.subscribe_to(pattern) }
       #   end
       #
       # Deliberately left out: per-request noise (session.validating /
