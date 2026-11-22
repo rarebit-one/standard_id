@@ -26,6 +26,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   login's own remember-me cookie is minted after the rehash). Turn it off with
   `c.password.rehash_on_login = false`.
 
+- **Opt-in "your password was changed" email.** Set `c.password.changed_notice_delivery =
+  :built_in` (default `:custom`: the engine sends nothing) to have
+  `StandardId::AccountNoticeMailer#password_changed` email the credential's e-mail identifier
+  whenever its password is changed or reset, telling the owner what to do if it wasn't them. Copy is
+  under `standard_id.account_notice_mailer.password_changed.*`. Delivered by the new
+  `Events::Subscribers::PasswordChangedNoticeSubscriber` on `credential.password.changed`. Off by
+  default so upgrading sends no new mail. A host that already sends its own notice from a
+  `credential.password.reset_completed` subscriber should leave it off, or the owner gets two.
+
+### Fixed
+
+- **`credential.password.changed` is now published.** It was defined and documented but nothing
+  published it. `StandardId::PasswordCredential` now publishes it after commit whenever an update
+  assigns a new password through `password=`. That includes both reset flows, which set
+  `reason: :password_reset`, and host code (`reason: :changed`). Writing `password_digest`
+  directly, as a re-hash of the same password does, does not publish it. The documented
+  `changed_by` payload field, which was never sent, is replaced by `reason`. A subscriber that
+  raises is reported and does not fail the save.
+
 ## [0.59.0] - 2026-11-03
 
 ### Added

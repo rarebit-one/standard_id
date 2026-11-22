@@ -28,3 +28,10 @@ en:
         action: "If that was you, sign in the way you did before, or reset your password if you have forgotten it."
         ignore: "If it wasn't you, you can safely ignore this email. Your account has not changed."
         footer: "This is an automated message. Please do not reply."
+      password_changed:
+        subject: "Your password was changed"
+        greeting: "Hi,"
+        intro: "The password for your account was just changed."
+        action: "If you made this change, you don't need to do anything."
+        warning: "If you didn't, reset your password straight away and check your account for anything you don't recognise."
+        footer: "This is an automated message. Please do not reply."

@@ -313,6 +313,15 @@ StandardId::ConfigSchema.define do
     # signs that user out of remember-me cookies and voids their reset links.
     # See StandardId::PasswordCredential#rehash_password.
     field :rehash_on_login, type: :boolean, default: true
+    # Who tells the owner, by email, that their password was changed or reset
+    # (CREDENTIAL_PASSWORD_CHANGED):
+    #   :custom   — (default) the engine sends nothing; subscribe to the event
+    #               to send your own
+    #   :built_in — the engine sends AccountNoticeMailer#password_changed to
+    #               the credential's e-mail identifier
+    # Off by default so an upgrade does not start sending mail, nor a second
+    # notice next to one a host already sends on reset_completed.
+    field :changed_notice_delivery, type: :symbol, default: :custom
   end
 
   scope :reset_password do

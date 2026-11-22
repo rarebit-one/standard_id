@@ -229,5 +229,114 @@ module StandardId
         expect(described_class.find_by_token_for(:password_reset, reset)).to be_nil
       end
     end
+
+    describe "CREDENTIAL_PASSWORD_CHANGED" do
+      let!(:credential) do
+        described_class.create!(login: "user@example.com", password: "Password1!").tap do |c|
+          StandardId::Credential.create!(credentialable: c, identifier: identifier)
+        end
+      end
+
+      def changed_events
+        events = []
+        sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_CHANGED) { |e| events << e.payload }
+        yield
+        events
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      it "publishes after a new password is saved, with reason :changed" do
+        events = changed_events { credential.update!(password: "NewPass1!abc") }
+
+        expect(events.size).to eq(1)
+        expect(events.first).to include(credential: credential, account: account, reason: :changed)
+      end
+
+      it "carries the reason a caller set, then forgets it" do
+        credential.password_change_reason = :password_reset
+        first = changed_events { credential.update!(password: "NewPass1!abc") }
+        second = changed_events { credential.update!(password: "An0ther!pass") }
+
+        expect(first.map { |e| e[:reason] }).to eq([:password_reset])
+        expect(second.map { |e| e[:reason] }).to eq([:changed])
+      end
+
+      it "publishes nothing on create, nor on a later save that leaves the password alone" do
+        events = changed_events do
+          fresh = described_class.create!(login: "fresh@example.com", password: "Password1!")
+          fresh.update!(login: "renamed@example.com")
+        end
+
+        expect(events).to be_empty
+      end
+
+      it "publishes nothing when only the digest is written (a rehash of the same password)" do
+        events = changed_events do
+          credential.update!(password_digest: BCrypt::Password.create("Password1!", cost: BCrypt::Engine::MIN_COST + 1))
+          credential.update_column(:password_digest, BCrypt::Password.create("Password1!"))
+        end
+
+        expect(events).to be_empty
+      end
+
+      it "is not published by a rehash on login, which keeps the same password" do
+        credential.update_column(:password_digest, BCrypt::Password.create("Password1!", cost: BCrypt::Engine::MIN_COST + 1))
+        events = changed_events { expect(credential.rehash_password("Password1!")).to be(true) }
+
+        expect(events).to be_empty
+      end
+
+      it "publishes nothing for an empty assignment, which leaves the password as it was" do
+        events = changed_events { credential.update!(password: "") }
+
+        expect(events).to be_empty
+      end
+
+      it "waits for the commit and publishes nothing on rollback" do
+        events = changed_events do
+          ActiveRecord::Base.transaction do
+            credential.update!(password: "NewPass1!abc")
+            raise ActiveRecord::Rollback
+          end
+        end
+
+        expect(events).to be_empty
+      end
+
+      it "publishes once per transaction" do
+        events = changed_events do
+          ActiveRecord::Base.transaction do
+            credential.update!(password: "NewPass1!abc")
+            credential.update!(login: "renamed@example.com")
+          end
+        end
+
+        expect(events.size).to eq(1)
+      end
+
+      it "lets a subscriber walk the credential chain under strict loading" do
+        accounts = []
+        sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_CHANGED) do |e|
+          accounts << e[:credential].credential.identifier.account
+        end
+        described_class.find(credential.id).update!(password: "NewPass1!abc")
+
+        expect(accounts).to eq([account])
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      it "still saves, and reports, when a subscriber raises" do
+        sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_CHANGED) { raise "boom" }
+        allow(Rails.error).to receive(:report)
+
+        expect { credential.update!(password: "NewPass1!abc") }.not_to raise_error
+        expect(described_class.find(credential.id).authenticate("NewPass1!abc")).to be_truthy
+        expect(Rails.error).to have_received(:report).with(an_instance_of(RuntimeError), handled: true, source: "standard_id")
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+    end
   end
 end

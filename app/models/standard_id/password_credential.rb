@@ -16,6 +16,28 @@ module StandardId
     validates :login, presence: true, uniqueness: true
     validates :password, confirmation: true, if: :validate_password?
 
+    # Why the next password change happens, published as
+    # CREDENTIAL_PASSWORD_CHANGED's +reason+: the engine's reset flows set
+    # :password_reset; otherwise it is :changed.
+    attr_writer :password_change_reason
+
+    # CREDENTIAL_PASSWORD_CHANGED, once an update that set a new password
+    # commits: the engine's resets and any host code that assigns +password+.
+    # Writing password_digest without going through +password=+ (a rehash of
+    # the same password) does not count.
+    after_create :forget_assigned_password
+    after_update :note_password_change
+    after_update_commit :publish_password_changed, if: :password_change_pending?
+    after_rollback { @password_change_pending = false }
+
+    # has_secure_password's setter, remembering the digest it made so the save
+    # can tell a new password from a direct write of the digest. An empty
+    # assignment changes nothing, as has_secure_password ignores it.
+    def password=(unencrypted_password)
+      super
+      @assigned_password_digest = (password_digest if unencrypted_password.present?)
+    end
+
     # The bcrypt cost has_secure_password hashes a new password at, worked out
     # the way ActiveModel::SecurePassword does.
     def self.password_cost
@@ -100,6 +122,40 @@ module StandardId
       return unless logger.respond_to?(:error)
 
       logger.error("[StandardId::PasswordCredential] Failed to #{action}: #{error.class}: #{error.message}")
+    end
+
+    def forget_assigned_password
+      @assigned_password_digest = nil
+    end
+
+    def note_password_change
+      if @assigned_password_digest.present? && saved_change_to_password_digest? && @assigned_password_digest == password_digest
+        @password_change_pending = true
+      end
+      forget_assigned_password
+    end
+
+    def password_change_pending?
+      @password_change_pending
+    end
+
+    # The change has committed, so a failing subscriber must not raise out of
+    # the caller's save; report and carry on, as the reset flows do for
+    # CREDENTIAL_PASSWORD_RESET_COMPLETED. The event carries the account: load
+    # the chain so a subscriber under strict loading can walk it.
+    def publish_password_changed
+      reason = @password_change_reason || :changed
+      @password_change_pending = false
+      @password_change_reason = nil
+      ActiveRecord::Associations::Preloader.new(records: [self], associations: { credential: { identifier: :account } }).call
+      StandardId::Events.publish(
+        StandardId::Events::CREDENTIAL_PASSWORD_CHANGED,
+        credential: self,
+        account: credential&.account,
+        reason: reason
+      )
+    rescue StandardError => e
+      report_failure("publish CREDENTIAL_PASSWORD_CHANGED for password credential #{id}", e)
     end
   end
 end

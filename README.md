@@ -850,6 +850,18 @@ Event payload includes:
 
 > **Note**: `passwordless_email_sender` / `passwordless_sms_sender` were removed in 0.43; see the [Migration Guide](docs/MIGRATION_GUIDE.md).
 
+### Password changed notice
+
+When a password is changed, StandardId publishes `credential.password.changed`. That covers both reset flows (web and the email + password API, with `reason: :password_reset`) and any code of yours that assigns a new password to a `StandardId::PasswordCredential` (`reason: :changed`). It is not published when only the digest is rewritten, such as a re-hash of the same password. The event waits for the change to commit.
+
+By default the engine sends no email for it. To have the engine email the account's address (its e-mail identifier) saying the password was changed, and what to do if it wasn't them, set:
+
+```ruby
+config.password.changed_notice_delivery = :built_in # default :custom (send nothing)
+```
+
+The message is `StandardId::AccountNoticeMailer#password_changed`, sent with `deliver_later` from `c.passwordless.mailer_from`. Its copy lives under `standard_id.account_notice_mailer.password_changed.*`; override those keys or the templates in `app/views/standard_id/account_notice_mailer/`. If you already send your own notice from a `credential.password.reset_completed` subscriber, leave this at `:custom`, or drop yours, so owners don't get two emails.
+
 ### Starting a passwordless login from your own controller
 
 To send the code from your own controller (a sign-up form, an invite page) and
@@ -1022,7 +1034,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 | Credential | `credential.password.created` | `credential`, `account` | After a password credential is created |
 |  | `credential.password.reset_initiated` | `credential`, `account`, `reset_token_expires_at` | After a password reset is initiated |
 |  | `credential.password.reset_completed` | `credential`, `account` | After a password reset is confirmed |
-|  | `credential.password.changed` | `credential`, `account`, `changed_by` | After a password is updated |
+|  | `credential.password.changed` | `credential`, `account`, `reason` (`:password_reset` / `:changed`) | After a new password is committed: by a reset, or by host code assigning `password` (never for a re-hash of the same password). Drives `password.changed_notice_delivery` |
 |  | `credential.password.rehashed` | `credential`, `account`, `previous_cost`, `cost` | After a login re-hashed the password at the current bcrypt cost (`password.rehash_on_login`); the password is unchanged |
 |  | `credential.client_secret.created` | `credential`, `client_id` | After a client secret is created |
 |  | `credential.client_secret.rotated` | `credential`, `client_id`, `old_secret_revoked_at` | After a client secret rotation |

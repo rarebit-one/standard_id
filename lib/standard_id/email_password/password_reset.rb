@@ -76,6 +76,7 @@ module StandardId
               raise TokenAlreadyUsed
             end
 
+            password_credential.password_change_reason = :password_reset
             password_credential.update!(password: password)
             api_signup = !identifier.verified? && EmailPassword.api_signup?(identifier)
             EmailPassword.complete_verification!(
