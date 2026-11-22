@@ -91,9 +91,10 @@ c.previous_secret_key_bases = [Rails.application.credentials.old_secret_key_base
 
 Keep the entry until the longest session lifetime you issue has passed. Rails'
 own derived secrets (encrypted cookies, including the web session cookie, and
-message verifiers) need Rails' rotations as well, and HS256-signed JWTs are not
-covered: see README, "Rotating `secret_key_base`". Nothing changes unless you
-set it.
+message verifiers) need Rails' rotations as well: see README, "Rotating
+`secret_key_base`". HS256/384/512-signed JWTs are covered from the release after
+0.61; earlier versions do not verify them under previous secrets. Nothing
+changes unless you set it.
 
 ### Password re-hashing and the password-changed notice
 

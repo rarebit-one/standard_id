@@ -21,6 +21,18 @@ RSpec.describe StandardId::KeyedDigest do
     end
   end
 
+  describe ".previous_secrets" do
+    it "is empty by default" do
+      expect(described_class.previous_secrets).to eq([])
+    end
+
+    it "is the configured previous secrets as strings, blanks dropped" do
+      StandardId.config.previous_secret_key_bases = ["", nil, "older", :oldest]
+
+      expect(described_class.previous_secrets).to eq(%w[older oldest])
+    end
+  end
+
   describe ".hmac_hexdigest" do
     it "is HMAC-SHA256 under the current secret by default" do
       expect(described_class.hmac_hexdigest("data")).to eq(OpenSSL::HMAC.hexdigest("SHA256", current, "data"))

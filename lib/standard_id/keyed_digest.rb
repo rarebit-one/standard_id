@@ -7,9 +7,9 @@ module StandardId
   # Every keyed digest the engine stores (Session#lookup_hash and
   # #token_digest, CodeChallenge#code_digest, AuthorizationCode#code_hash,
   # ClientApplication#registration_access_token_digest) is derived from
-  # `secret_key_base`, so rotating that secret used to strand every one of
-  # them: all users signed out, every in-flight code and registration access
-  # token dead.
+  # `secret_key_base`, as is the HS256/384/512 JWT signing key, so rotating
+  # that secret used to strand every one of them: all users signed out, every
+  # in-flight code, registration access token and HMAC-signed JWT dead.
   #
   # `config.previous_secret_key_bases` is the opt-in that prevents it.
   # Digests are always WRITTEN under the current secret; they are READ (looked
@@ -34,8 +34,13 @@ module StandardId
     # secrets configured this is one element and every caller does exactly the
     # work it did before.
     def secrets
-      previous = Array(StandardId.config.previous_secret_key_bases).map(&:to_s).reject(&:blank?)
-      [current_secret, *previous].uniq
+      [current_secret, *previous_secrets].uniq
+    end
+
+    # `config.previous_secret_key_bases` as strings, blank entries dropped.
+    # JwtService also verifies HMAC-signed JWTs under these.
+    def previous_secrets
+      Array(StandardId.config.previous_secret_key_bases).map(&:to_s).reject(&:blank?)
     end
 
     # HMAC-SHA256 of +data+ under +secret+, hex-encoded. Callers domain-separate
