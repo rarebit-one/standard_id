@@ -95,6 +95,30 @@ message verifiers) need Rails' rotations as well, and HS256-signed JWTs are not
 covered: see README, "Rotating `secret_key_base`". Nothing changes unless you
 set it.
 
+### Password re-hashing and the password-changed notice
+
+The other changes in 0.60 need no action by default; check them if they
+apply to you.
+
+- **Passwords are re-hashed on login when the bcrypt cost changed** (on by
+  default). Nothing happens while every digest is at the cost
+  `has_secure_password` uses. Once you change `BCrypt::Engine.cost`, each
+  user's first successful password login rewrites their digest, which signs
+  out their remember-me cookies on other browsers and voids unused
+  password-reset links. Turn it off with `c.password.rehash_on_login = false`.
+  Subscribe to `credential.password.rehashed` to observe it.
+- **`credential.password.changed` is now published**, after commit, whenever
+  a password is changed or reset. A subscriber you wrote for it starts firing.
+  Its payload carries `reason` (`:password_reset` or `:changed`); the
+  documented `changed_by` field, which was never sent, is gone.
+- **The built-in "your password was changed" email is opt-in.**
+  `c.password.changed_notice_delivery` defaults to `:custom`, which sends
+  nothing. If you already send your own notice (for example from a
+  `credential.password.reset_completed` subscriber), leave it at `:custom`, or
+  the owner gets two emails. Otherwise, `:built_in` sends
+  `StandardId::AccountNoticeMailer#password_changed` on every password change
+  and reset.
+
 ---
 
 ## E-mail domains must have a registered TLD (0.59)
