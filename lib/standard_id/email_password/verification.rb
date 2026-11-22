@@ -69,10 +69,14 @@ module StandardId
             )
             identifier.account
           end
-          return account unless block_given?
+          unless block_given?
+            password_credential.rehash_password(password, verified_digest)
+            return account
+          end
 
           password_credential.with_lock do
             password_unchanged!(password_credential, verified_digest)
+            password_credential.rehash_password(password, verified_digest)
             yield account
           end
         end

@@ -28,6 +28,7 @@ module StandardId
 
         emit_password_validated
         validate_requested_scope!
+        @credential&.rehash_password(params[:password])
       end
 
       private

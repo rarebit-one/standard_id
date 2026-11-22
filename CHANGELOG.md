@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Passwords are re-hashed on login when the bcrypt cost has changed (on by default).** Stored
+  digests were never upgraded, so raising `BCrypt::Engine.cost` only reached passwords set
+  afterwards. `StandardId::PasswordCredential#rehash_password` now re-hashes the password at the
+  cost `has_secure_password` uses when the stored digest was made at another one, after every
+  successful password login: `sign_in_account` (web), the OAuth password grant, and the email +
+  password API's `Authentication.call` and `Verification.verify!`. The write is a single `UPDATE`
+  conditional on the row still holding the digest the password was checked against, so a reset
+  that lands first wins and the rehash is skipped; where the login re-checks the digest under a
+  lock (the email + password API) the rehash runs after that check, inside the lock. A failed rehash is reported (`Rails.error`, `StandardId.logger`) and never fails the
+  login. Publishes the new `credential.password.rehashed` (`credential`, `account`,
+  `previous_cost`, `cost`) after commit. All digests are at the default cost today, so this is a
+  no-op until a host raises it. When it does, each user's first login afterwards replaces their
+  digest, which is the fingerprint of the `:remember_me` and `:password_reset` tokens: their
+  remember-me cookies on other browsers stop working and unused reset links are voided (the
+  login's own remember-me cookie is minted after the rehash). Turn it off with
+  `c.password.rehash_on_login = false`.
+
 ## [0.59.0] - 2026-11-03
 
 ### Added
