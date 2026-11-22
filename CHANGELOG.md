@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   circuit breaker: `->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }`. `nil`
   (default) runs the request directly. `HttpClient.post_form`, `.get_with_bearer` and the private
   `start_connection` that plugins call for a JWKS take an optional `provider:` keyword (default
-  `:standard_id`), so existing callers keep working. The boot-time callable check rejects a
+  `:standard_id`), so existing callers keep working, including those that pass
+  `post_form`'s form as bare keywords (`post_form(url, id_token: token)`). The boot-time callable check rejects a
   wrapper with an unknown keyword, a positional argument, or (for a lambda) no `&block`.
 - **`StandardId::Events.auditable`**, the frozen list of event patterns worth an audit row, for
   `config.subscribe_to(*StandardId::Events.auditable)` in standard_audit. It keeps what the apps

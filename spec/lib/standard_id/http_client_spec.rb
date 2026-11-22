@@ -348,6 +348,31 @@ RSpec.describe StandardId::HttpClient do
       expect(WebMock).to have_requested(:get, "https://example.com/api").with(headers: { "Authorization" => "Bearer token" })
     end
 
+    it "still takes the form as bare keywords, as callers written before provider: pass it" do
+      stub_request(:post, "https://example.com/token").with(body: { "access_token" => "abc" }).to_return(status: 200, body: "{}")
+
+      response = described_class.post_form("https://example.com/token", access_token: "abc")
+
+      expect(response.code).to eq("200")
+      expect(calls).to eq([:standard_id])
+    end
+
+    it "takes bare-keyword form fields alongside provider:" do
+      stub_request(:post, "https://example.com/token").with(body: { "access_token" => "abc" }).to_return(status: 200, body: "{}")
+
+      described_class.post_form("https://example.com/token", access_token: "abc", provider: :google)
+
+      expect(calls).to eq([:google])
+    end
+
+    it "sends an explicit Hash form unchanged, including a field named provider" do
+      stub_request(:post, "https://example.com/token").with(body: { "provider" => "x", "a" => "1" }).to_return(status: 200, body: "{}")
+
+      described_class.post_form("https://example.com/token", { provider: "x", a: "1" }, provider: :google)
+
+      expect(calls).to eq([:google])
+    end
+
     it "names :standard_id when the caller names no provider" do
       described_class.post_form("https://example.com/token", {})
       described_class.get_with_bearer("https://example.com/api", "token")

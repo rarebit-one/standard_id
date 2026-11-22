@@ -31,10 +31,16 @@ module StandardId
       # `provider:` names the remote service (`:google`, `:apple`, ...) for
       # `StandardId.config.network_wrapper`, e.g. to keep one circuit per
       # provider. It has no other effect on the request.
-      def post_form(endpoint, params, provider: DEFAULT_PROVIDER)
+      #
+      # The form may also come as bare keywords (`post_form(url, id_token: t)`),
+      # which is how callers written before `provider:` existed pass it: once
+      # the method takes a keyword, Ruby reads a braceless Hash as keywords, so
+      # `**form` keeps those calls working. A form field named `provider` must
+      # therefore go in an explicit Hash.
+      def post_form(endpoint, params = nil, provider: DEFAULT_PROVIDER, **form)
         uri, resolved_ip = validate_url!(endpoint)
         request = Net::HTTP::Post.new(uri)
-        request.set_form_data(params)
+        request.set_form_data((params || {}).to_h.merge(form))
         start_connection(uri, resolved_ip:, provider:) { |http| http.request(request) }
       end
 
