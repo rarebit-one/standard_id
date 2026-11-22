@@ -12,7 +12,9 @@ module StandardId
     # locked, after re-checking that the password has not changed since it was
     # verified. Mint tokens inside it: PasswordReset.complete! takes the same
     # lock to change the password and revoke access, so a login racing a reset
-    # either finishes first (and its tokens are revoked) or fails.
+    # either finishes first (and its tokens are revoked) or fails. The password
+    # is rehashed (PasswordCredential#rehash_password) only after that
+    # re-check passes, so the re-check never sees its own rehash.
     module Authentication
       class << self
         # @return [Account]
@@ -45,10 +47,14 @@ module StandardId
           )
 
           raise StandardId::EmailPasswordError.new(:unverified) unless identifier.verified?
-          return account unless block_given?
+          unless block_given?
+            password_credential.rehash_password(password, verified_digest)
+            return account
+          end
 
           password_credential.with_lock do
             failed!(email) unless password_credential.password_digest == verified_digest
+            password_credential.rehash_password(password, verified_digest)
             yield account
           end
         end

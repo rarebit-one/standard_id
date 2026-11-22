@@ -160,6 +160,8 @@ module StandardId
           auth_method: :password,
           flow: :web_password
         )
+        # Before the remember-me cookie, whose token fingerprints the digest.
+        password_credential.rehash_password(password)
         session_manager.set_remember_cookie(password_credential) if remember_me
 
         StandardId::Events.publish(

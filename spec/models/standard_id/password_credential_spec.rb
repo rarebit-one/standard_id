@@ -104,5 +104,130 @@ module StandardId
         end
       end
     end
+
+    describe "#rehash_password" do
+      let(:password) { "Password1!" }
+      let(:old_cost) { BCrypt::Engine::MIN_COST + 1 }
+      let!(:credential) do
+        described_class.create!(login: "user@example.com", password: password).tap do |c|
+          StandardId::Credential.create!(credentialable: c, identifier: identifier)
+          c.update_column(:password_digest, BCrypt::Password.create(password, cost: old_cost))
+        end
+      end
+
+      def stored_cost
+        BCrypt::Password.new(described_class.find(credential.id).password_digest).cost
+      end
+
+      it "re-hashes a digest made at another cost, keeping the password" do
+        expect(credential.rehash_password(password)).to be(true)
+
+        expect(stored_cost).to eq(described_class.password_cost)
+        expect(described_class.find(credential.id).authenticate(password)).to be_truthy
+        expect(credential.password_digest).to eq(described_class.find(credential.id).password_digest)
+        expect(credential).not_to be_changed
+      end
+
+      it "does nothing to a digest already at the current cost" do
+        expect(credential.rehash_password(password)).to be(true)
+
+        expect { expect(credential.rehash_password(password)).to be(false) }
+          .not_to change { described_class.find(credential.id).password_digest }
+      end
+
+      it "follows BCrypt::Engine.cost when min_cost is off" do
+        min_cost = ActiveModel::SecurePassword.min_cost
+        ActiveModel::SecurePassword.min_cost = false
+        BCrypt::Engine.cost = old_cost
+        expect(credential.rehash_password(password)).to be(false)
+
+        BCrypt::Engine.cost = old_cost + 1
+        expect(credential.rehash_password(password)).to be(true)
+        expect(stored_cost).to eq(old_cost + 1)
+      ensure
+        ActiveModel::SecurePassword.min_cost = min_cost
+        BCrypt::Engine.cost = BCrypt::Engine::MIN_COST
+      end
+
+      it "leaves the row alone when its digest is no longer the one that authenticated" do
+        authenticated_digest = credential.password_digest
+        described_class.find(credential.id).update!(password: "Res3t-elsewhere!")
+
+        expect(credential.rehash_password(password, authenticated_digest)).to be(false)
+        expect(described_class.find(credential.id).authenticate("Res3t-elsewhere!")).to be_truthy
+      end
+
+      it "keeps the record's loaded associations" do
+        loaded = described_class.includes(credential: { identifier: :account }).find(credential.id)
+        loaded.rehash_password(password)
+
+        expect(loaded.association(:credential)).to be_loaded
+        expect(loaded.credential.association(:identifier)).to be_loaded
+      end
+
+      it "publishes CREDENTIAL_PASSWORD_REHASHED once the enclosing transaction commits" do
+        events = []
+        sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_REHASHED) { |e| events << e.payload }
+        ActiveRecord::Base.transaction do
+          credential.rehash_password(password)
+          expect(events).to be_empty
+        end
+
+        expect(events.size).to eq(1)
+        expect(events.first).to include(credential: credential, account: account, previous_cost: old_cost, cost: described_class.password_cost)
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      it "publishes nothing when the enclosing transaction rolls back" do
+        events = []
+        sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_REHASHED) { |e| events << e }
+        ActiveRecord::Base.transaction do
+          credential.rehash_password(password)
+          raise ActiveRecord::Rollback
+        end
+
+        expect(events).to be_empty
+        expect(stored_cost).to eq(old_cost)
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      it "does nothing when c.password.rehash_on_login is false" do
+        StandardId.config.password.rehash_on_login = false
+
+        expect(credential.rehash_password(password)).to be(false)
+        expect(stored_cost).to eq(old_cost)
+      end
+
+      it "reports and returns false instead of raising when the write fails" do
+        allow(described_class).to receive(:transaction).and_raise(ActiveRecord::StatementInvalid, "boom")
+        allow(Rails.error).to receive(:report)
+        old_digest = credential.password_digest
+
+        expect(credential.rehash_password(password)).to be(false)
+        expect(credential.password_digest).to eq(old_digest)
+        expect(Rails.error).to have_received(:report).with(an_instance_of(ActiveRecord::StatementInvalid), handled: true, source: "standard_id")
+      end
+
+      it "still succeeds when a CREDENTIAL_PASSWORD_REHASHED subscriber raises" do
+        sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_REHASHED) { raise "boom" }
+        allow(Rails.error).to receive(:report)
+
+        expect(credential.rehash_password(password)).to be(true)
+        expect(stored_cost).to eq(described_class.password_cost)
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+
+      it "voids remember-me and reset tokens minted from the old digest" do
+        remember = credential.generate_token_for(:remember_me)
+        reset = credential.generate_token_for(:password_reset)
+        credential.rehash_password(password)
+
+        expect(described_class.find_by_token_for(:remember_me, remember)).to be_nil
+        expect(described_class.find_by_token_for(:password_reset, reset)).to be_nil
+      end
+    end
   end
 end

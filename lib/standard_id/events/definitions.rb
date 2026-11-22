@@ -70,6 +70,9 @@ module StandardId
       CREDENTIAL_PASSWORD_RESET_INITIATED = "credential.password.reset_initiated"
       CREDENTIAL_PASSWORD_RESET_COMPLETED = "credential.password.reset_completed"
       CREDENTIAL_PASSWORD_CHANGED = "credential.password.changed"
+      # A login re-hashed the password at the current bcrypt cost
+      # (PasswordCredential#rehash_password). The password itself is unchanged.
+      CREDENTIAL_PASSWORD_REHASHED = "credential.password.rehashed"
       CREDENTIAL_CLIENT_SECRET_CREATED = "credential.client_secret.created"
       CREDENTIAL_CLIENT_SECRET_ROTATED = "credential.client_secret.rotated"
       CREDENTIAL_CLIENT_SECRET_REVOKED = "credential.client_secret.revoked"
@@ -156,6 +159,7 @@ module StandardId
         CREDENTIAL_PASSWORD_RESET_INITIATED,
         CREDENTIAL_PASSWORD_RESET_COMPLETED,
         CREDENTIAL_PASSWORD_CHANGED,
+        CREDENTIAL_PASSWORD_REHASHED,
         CREDENTIAL_CLIENT_SECRET_CREATED,
         CREDENTIAL_CLIENT_SECRET_ROTATED,
         CREDENTIAL_CLIENT_SECRET_REVOKED
@@ -201,6 +205,7 @@ module StandardId
         CREDENTIAL_PASSWORD_RESET_INITIATED,
         CREDENTIAL_PASSWORD_RESET_COMPLETED,
         CREDENTIAL_PASSWORD_CHANGED,
+        CREDENTIAL_PASSWORD_REHASHED,
         CREDENTIAL_CLIENT_SECRET_CREATED,
         CREDENTIAL_CLIENT_SECRET_ROTATED,
         CREDENTIAL_CLIENT_SECRET_REVOKED,

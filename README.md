@@ -171,6 +171,12 @@ end
 
 `default_token_lifetime` is applied to every OAuth grant unless you override it in `oauth.token_lifetimes`. Keys map to OAuth grant types (for example `:password`, `:client_credentials`, `:refresh_token`) and should return durations in seconds. Non-token endpoint flows such as the implicit flow can be customized with their symbol key (e.g. `:implicit`). Refresh tokens can be tuned separately through `oauth.refresh_token_lifetime`.
 
+### Raising the bcrypt cost
+
+Password digests are made by `has_secure_password` at `BCrypt::Engine.cost` (bcrypt-ruby's default is 12). Raising it, e.g. `BCrypt::Engine.cost = 13` in an initializer, used to apply only to passwords set afterwards. Now every password login (web, OAuth password grant, email + password API) re-hashes the password at the current cost when the stored digest was made at another one, and publishes `credential.password.rehashed`. Until the cost changes this does nothing.
+
+The digest is also the fingerprint of the remember-me cookie and the password-reset link, so the first login after a cost change signs that user out of remember-me on their other browsers and voids any reset link they have not used yet. The login itself, and a remember-me cookie it sets, are unaffected. The rewrite happens one user at a time as each signs in, never on deploy. Turn it off with `config.password.rehash_on_login = false`.
+
 ### OAuth Hardening Options
 
 Two spec-conformance settings default to the historical (looser) behaviour so
@@ -1017,6 +1023,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `credential.password.reset_initiated` | `credential`, `account`, `reset_token_expires_at` | After a password reset is initiated |
 |  | `credential.password.reset_completed` | `credential`, `account` | After a password reset is confirmed |
 |  | `credential.password.changed` | `credential`, `account`, `changed_by` | After a password is updated |
+|  | `credential.password.rehashed` | `credential`, `account`, `previous_cost`, `cost` | After a login re-hashed the password at the current bcrypt cost (`password.rehash_on_login`); the password is unchanged |
 |  | `credential.client_secret.created` | `credential`, `client_id` | After a client secret is created |
 |  | `credential.client_secret.rotated` | `credential`, `client_id`, `old_secret_revoked_at` | After a client secret rotation |
 

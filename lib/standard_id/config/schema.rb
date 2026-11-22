@@ -306,6 +306,13 @@ StandardId::ConfigSchema.define do
     field :require_special_chars, type: :boolean, default: true
     field :require_uppercase, type: :boolean, default: true
     field :require_numbers, type: :boolean, default: true
+    # Re-hash a password on a successful login when its stored digest was
+    # made at a bcrypt cost other than the one has_secure_password uses now
+    # (BCrypt::Engine.cost), so raising the cost reaches existing passwords.
+    # A no-op until the cost changes. A rehash replaces the digest, which
+    # signs that user out of remember-me cookies and voids their reset links.
+    # See StandardId::PasswordCredential#rehash_password.
+    field :rehash_on_login, type: :boolean, default: true
   end
 
   scope :reset_password do
