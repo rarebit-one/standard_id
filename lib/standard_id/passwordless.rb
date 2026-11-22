@@ -1,4 +1,5 @@
 require "standard_id/passwordless/verification_service"
+require "standard_id/passwordless/code_handoff"
 
 module StandardId
   module Passwordless
@@ -55,6 +56,30 @@ module StandardId
           request: request,
           allow_registration: allow_registration
         )
+      end
+
+      # The raw one-time code a PASSWORDLESS_CODE_GENERATED event was published
+      # for. Delivery subscribers should read the code through this rather
+      # than `event[:code_challenge].code`: it works whether or not
+      # `config.events.publish_records` publishes the record, without the code
+      # ever being part of the payload (see CodeHandoff).
+      #
+      # Call it inside the subscriber, while the event is being published, and
+      # pass the string on. Later, or on another thread (a job that received
+      # the payload), it returns nil.
+      #
+      # @param event [StandardId::Events::Event, Hash] the event or its payload
+      # @return [String, nil]
+      #
+      # @example
+      #   StandardId::Events.subscribe(StandardId::Events::PASSWORDLESS_CODE_GENERATED) do |event|
+      #     next if event[:skip_sender]
+      #
+      #     code = StandardId::Passwordless.issued_code(event)
+      #     SmsService.send_code(event[:identifier], code) if code
+      #   end
+      def issued_code(event)
+        CodeHandoff.challenge_for(event)&.code.presence
       end
 
       # Resolve the configured OTP code length, clamped to a sane range.
