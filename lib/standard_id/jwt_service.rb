@@ -10,7 +10,8 @@ module StandardId
     BASE_SESSION_FIELDS = %i[account_id client_id scopes grant_type aud claims]
 
     # Supported signing algorithms categorized by type
-    # Symmetric: use shared secret (Rails.application.secret_key_base)
+    # Symmetric: use shared secret (Rails.application.secret_key_base; tokens
+    #   signed under a config.previous_secret_key_bases entry still verify)
     # Asymmetric: use key pairs (RSA or EC private key)
     SUPPORTED_ALGORITHMS = {
       # HMAC (symmetric)
@@ -101,6 +102,20 @@ module StandardId
       else
         Rails.application.secret_key_base
       end
+    end
+
+    # The secrets an HMAC-signed (HS256/384/512) token is accepted under: the
+    # current `secret_key_base` first, then each
+    # `config.previous_secret_key_bases` entry. Tokens are always signed with
+    # the current one (.signing_key). Asymmetric keys rotate through
+    # `oauth.previous_signing_keys` instead, so this is empty for them.
+    #
+    # Pass it as the key to .verify to give a config-free caller the same
+    # rotation window.
+    def self.symmetric_verification_keys
+      return [] if asymmetric?
+
+      [Rails.application.secret_key_base, *StandardId::KeyedDigest.previous_secrets].uniq
     end
 
     def self.key_id
@@ -214,7 +229,7 @@ module StandardId
         end
       end
 
-      decoded = JWT.decode(token, verification_key, true, options)
+      decoded = asymmetric? ? JWT.decode(token, verification_key, true, options) : decode_symmetric(token, options)
       decoded.first.with_indifferent_access
     rescue JWT::InvalidAudError
       raise StandardId::InvalidAudienceError.new(
@@ -371,6 +386,20 @@ module StandardId
     end
 
     private
+
+    # Tries each of .symmetric_verification_keys in turn. Only a signature
+    # mismatch moves on to the next secret: an expired token, a wrong issuer
+    # or audience is a property of the token, so it raises out at once and
+    # .decode handles it as before. With no previous secrets this is the
+    # single decode under the current secret it always was.
+    def self.decode_symmetric(token, options)
+      keys = symmetric_verification_keys
+      keys.each_with_index do |key, index|
+        return JWT.decode(token, key, true, options)
+      rescue JWT::VerificationError
+        raise if index == keys.size - 1
+      end
+    end
 
     # Parses a previous_signing_keys entry into { kid:, key:, algorithm: }
     # Accepts either:

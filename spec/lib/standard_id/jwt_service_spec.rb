@@ -751,6 +751,129 @@ RSpec.describe StandardId::JwtService do
     end
   end
 
+  describe "secret_key_base rotation (config.previous_secret_key_bases)" do
+    let(:current_secret) { Rails.application.secret_key_base }
+    let(:old_secret) { "old-secret-key-base-#{SecureRandom.hex(8)}" }
+
+    before do
+      allow(StandardId.config.oauth).to receive(:signing_key).and_return(nil)
+      allow(StandardId.config).to receive(:issuer).and_return(nil)
+    end
+
+    # A token minted before the app rotated secret_key_base.
+    def token_under(secret, algorithm: "HS256", **claims)
+      JWT.encode({ sub: "user-123", exp: 1.hour.from_now.to_i, iat: Time.current.to_i }.merge(claims), secret, algorithm)
+    end
+
+    %w[HS256 HS384 HS512].each do |alg|
+      context "with #{alg}" do
+        before { allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(alg.downcase.to_sym) }
+
+        it "rejects a token signed under an old secret by default" do
+          expect(described_class.decode(token_under(old_secret, algorithm: alg))).to be_nil
+        end
+
+        it "accepts it once the old secret is listed" do
+          StandardId.config.previous_secret_key_bases = [old_secret]
+
+          expect(described_class.decode(token_under(old_secret, algorithm: alg))["sub"]).to eq("user-123")
+        end
+
+        it "still accepts tokens signed under the current secret" do
+          StandardId.config.previous_secret_key_bases = [old_secret]
+
+          expect(described_class.decode(described_class.encode({ sub: "user-123" }))["sub"]).to eq("user-123")
+        end
+      end
+    end
+
+    it "accepts a token under any listed previous secret, not just the first" do
+      StandardId.config.previous_secret_key_bases = ["older-#{SecureRandom.hex(8)}", old_secret]
+
+      expect(described_class.decode(token_under(old_secret))["sub"]).to eq("user-123")
+    end
+
+    it "rejects a token signed under a secret that is not listed" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.decode(token_under("unlisted-#{SecureRandom.hex(8)}"))).to be_nil
+    end
+
+    it "signs new tokens under the current secret only" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      token = described_class.encode({ sub: "user-123" })
+
+      expect { JWT.decode(token, current_secret, true, algorithm: "HS256") }.not_to raise_error
+      expect { JWT.decode(token, old_secret, true, algorithm: "HS256") }.to raise_error(JWT::VerificationError)
+    end
+
+    it "still rejects an expired token signed under an old secret" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.decode(token_under(old_secret, exp: 1.minute.ago.to_i))).to be_nil
+    end
+
+    it "still enforces the audience on a token signed under an old secret" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+      token = token_under(old_secret, aud: "admin")
+
+      expect { described_class.decode(token, allowed_audiences: ["web"]) }
+        .to raise_error(StandardId::InvalidAudienceError)
+      expect(described_class.decode(token, allowed_audiences: ["admin"])["sub"]).to eq("user-123")
+    end
+
+    it "still enforces the issuer on a token signed under an old secret" do
+      allow(StandardId.config).to receive(:issuer).and_return("https://auth.example.com")
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.decode(token_under(old_secret, iss: "https://evil.example.com"))).to be_nil
+      expect(described_class.decode(token_under(old_secret, iss: "https://auth.example.com"))["sub"]).to eq("user-123")
+    end
+
+    it "decodes a session from a token signed under an old secret" do
+      StandardId.config.previous_secret_key_bases = [old_secret]
+
+      expect(described_class.decode_session(token_under(old_secret, scope: "read")).account_id).to eq("user-123")
+    end
+
+    describe ".symmetric_verification_keys" do
+      it "is the current secret first, then the previous ones, without blanks or duplicates" do
+        StandardId.config.previous_secret_key_bases = ["", old_secret, current_secret, old_secret]
+
+        expect(described_class.symmetric_verification_keys).to eq([current_secret, old_secret])
+      end
+
+      it "can be passed to .verify for the same window" do
+        StandardId.config.previous_secret_key_bases = [old_secret]
+
+        payload = described_class.verify(token_under(old_secret), algorithm: "HS256", key: described_class.symmetric_verification_keys)
+
+        expect(payload["sub"]).to eq("user-123")
+      end
+    end
+
+    context "with an asymmetric signing key" do
+      before do
+        allow(StandardId.config.oauth).to receive(:signing_algorithm).and_return(:rs256)
+        allow(StandardId.config.oauth).to receive(:signing_key).and_return(rsa_private_key.to_pem)
+        StandardId.config.previous_secret_key_bases = [old_secret]
+      end
+
+      it "has no symmetric verification keys" do
+        expect(described_class.symmetric_verification_keys).to eq([])
+      end
+
+      it "does not accept HMAC tokens under a previous secret" do
+        expect(described_class.decode(token_under(old_secret))).to be_nil
+      end
+
+      it "still decodes its own tokens" do
+        expect(described_class.decode(described_class.encode({ sub: "user-123" }))["sub"]).to eq("user-123")
+      end
+    end
+  end
+
   describe "cross-algorithm key rotation" do
     let(:old_rsa_key) { OpenSSL::PKey::RSA.generate(2048) }
     let(:new_ec_key) { OpenSSL::PKey::EC.generate("prime256v1") }

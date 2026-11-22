@@ -2259,8 +2259,10 @@ bundle exec rspec spec/controllers/
 ### Rotating `secret_key_base`
 
 Session tokens, passwordless codes, authorization codes and RFC 7592 registration access tokens are
-stored as digests keyed on `secret_key_base`, so changing it invalidates all of them: everyone is
-signed out. To rotate without that, list the old secret, newest first:
+stored as digests keyed on `secret_key_base`, and JWTs signed with HS256/384/512 (the default
+`oauth.signing_algorithm` is `:hs256`) are signed with it, so changing it invalidates all of them:
+everyone is signed out and every access and refresh token fails. To rotate without that, list the
+old secret, newest first:
 
 ```ruby
 StandardId.configure do |c|
@@ -2270,11 +2272,20 @@ end
 
 Digests are then still looked up and verified under the old secret (one indexed query covers every
 candidate session lookup hash), while everything new is written under the current one
-(`StandardId::KeyedDigest`). Nothing is re-written in place, so keep the entry until the longest
-session lifetime you issue (`session.*_lifetime`, and the lifetime of any long-lived
-`ServiceSession`) has passed, then remove it.
+(`StandardId::KeyedDigest`). HMAC-signed JWTs work the same way: `JwtService.decode` verifies a
+token under the current secret and then under each previous one, while `encode` always signs with
+the current secret, so access and refresh tokens issued before the rotation keep working until they
+expire and every refreshed token is signed under the new secret. Code that calls the config-free
+`JwtService.verify` itself can pass `key: StandardId::JwtService.symmetric_verification_keys` for the
+same window. Asymmetric signing keys (RS*/ES*) are unaffected: rotate those with
+`oauth.previous_signing_keys`.
 
-This covers StandardId's own digests only. The rest of the app needs Rails' rotations too:
+Nothing is re-written in place, so keep the entry until the longest session lifetime you issue
+(`session.*_lifetime`, the lifetime of any long-lived `ServiceSession`, and
+`oauth.refresh_token_lifetime` for HMAC-signed refresh tokens) has passed, then remove it.
+
+This covers StandardId's own digests and HMAC-signed JWTs only. The rest of the app needs Rails'
+rotations too:
 
 - **Cookies**, including the encrypted `session_token` cookie and the Rails session that carry the
   web session: `config.action_dispatch.cookies_rotations` (see the Rails security guide,
@@ -2282,9 +2293,6 @@ This covers StandardId's own digests only. The rest of the app needs Rails' rota
 - **Message verifiers** (`generates_token_for`, so remember-me and password-reset tokens, and the
   signed passwordless OTP payload): `Rails.application.message_verifiers.rotate(secret_key_base:
   old)` in a `before_initialize` block.
-- **JWTs signed with HS256** (the default `oauth.signing_algorithm`) use `secret_key_base` directly
-  and are not covered: access tokens fail until re-issued and HS256 refresh tokens stop refreshing.
-  Use an asymmetric `oauth.signing_key` if you need to rotate without that.
 
 ## OTP Start Limits
 
