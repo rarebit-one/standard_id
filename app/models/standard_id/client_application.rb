@@ -214,13 +214,42 @@ module StandardId
 
     # Constant-time check of an RFC 7592 registration access token, under the
     # current secret or any of `config.previous_secret_key_bases`.
+    # A token accepted under a previous secret is re-keyed (see
+    # #rekey_registration_access_token): these tokens live as long as the
+    # client, so without it the old secret could never be dropped.
     def authenticate_registration_access_token(token)
       return false unless dynamically_registered? && token.present?
 
-      StandardId::KeyedDigest.secure_match?(
+      matched = StandardId::KeyedDigest.secure_match?(
         registration_access_token_digest,
         StandardId::KeyedDigest.candidates { |secret| self.class.digest_registration_access_token(token.to_s, secret:) }
       )
+      rekey_registration_access_token(token.to_s) if matched
+      matched
+    end
+
+    # Rewrites the digest of an accepted registration access token under the
+    # current secret when it was stored under a previous one, in one
+    # conditional UPDATE (StandardId::KeyedDigest.rekey). No write when it is
+    # already current; never raises.
+    #
+    # @return [Boolean] whether the row was rewritten
+    def rekey_registration_access_token(token)
+      return false if StandardId::KeyedDigest.previous_secrets.empty?
+
+      current = self.class.digest_registration_access_token(token)
+      return false if registration_access_token_digest == current
+
+      rekeyed = StandardId::KeyedDigest.rekey(
+        StandardId::ClientApplication, id: id,
+        from: { registration_access_token_digest: registration_access_token_digest },
+        to: { registration_access_token_digest: current }
+      )
+      if rekeyed
+        self.registration_access_token_digest = current
+        clear_attribute_changes([:registration_access_token_digest])
+      end
+      rekeyed
     end
 
     # The RFC 7591 token_endpoint_auth_method a client information response

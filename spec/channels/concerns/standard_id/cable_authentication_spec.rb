@@ -77,6 +77,19 @@ RSpec.describe StandardId::CableAuthentication do
 
         expect(connection.current_account).to eq(account)
       end
+
+      it "re-keys a session stored under a previous secret_key_base" do
+        old_secret = "old-secret-key-base-#{SecureRandom.hex(8)}"
+        token = browser_session.token
+        browser_session.update_column(:lookup_hash, StandardId::Session.lookup_hash_for(token, secret: old_secret))
+        StandardId.config.previous_secret_key_bases = [old_secret]
+        encrypted_cookies[:session_token] = token
+
+        connection.connect
+
+        expect(connection.current_account).to eq(account)
+        expect(browser_session.reload.lookup_hash).to eq(StandardId::Session.lookup_hash_for(token))
+      end
     end
 
     context "with expired session token" do

@@ -2326,9 +2326,30 @@ expire and every refreshed token is signed under the new secret. Code that calls
 same window. Asymmetric signing keys (RS*/ES*) are unaffected: rotate those with
 `oauth.previous_signing_keys`.
 
-Nothing is re-written in place, so keep the entry until the longest session lifetime you issue
-(`session.*_lifetime`, the lifetime of any long-lived `ServiceSession`, and
-`oauth.refresh_token_lifetime` for HMAC-signed refresh tokens) has passed, then remove it.
+**Credentials move to the new secret when they are used.**
+- A session token, or an RFC 7592 registration access token, that authenticates under a previous
+  secret is re-keyed on the spot. Its `lookup_hash`/`token_digest`, or its digest, is rewritten
+  under the current secret in a single conditional UPDATE.
+- This happens on the authenticating paths: `Session.authenticate_by_token`, the web session
+  cookie, Action Cable, and the RFC 7592 endpoints.
+- A credential that already matches under the current secret causes no write. A write that fails
+  (a read-only replica, a lock timeout) is logged and the request still succeeds; that credential
+  is simply tried again next time.
+- A refresh grant always returns tokens signed under the current secret.
+
+**How long to keep the old secret.** Only credentials that have not been used since the rotation
+still depend on it. Keep the entry for as long as you are willing to wait for idle users to come
+back: once you remove it, anything untouched since the rotation stops working. Those users sign in
+again, and a client re-registers. The longest lifetime you issue is the point after which nothing
+can depend on the old secret any more:
+- `session.*_lifetime`
+- long-lived `ServiceSession`s
+- `oauth.refresh_token_lifetime`
+- registration access tokens, which last as long as their client
+
+One-time codes and authorization codes are single-use and short-lived, so they are not rewritten.
+They need the entry only for `passwordless.code_ttl` (10 minutes by default) and the authorization
+code TTL (10 minutes).
 
 This covers StandardId's own digests and HMAC-signed JWTs only. The rest of the app needs Rails'
 rotations too:

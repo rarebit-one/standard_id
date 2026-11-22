@@ -267,6 +267,53 @@ RSpec.describe StandardId::Oauth::ClientRegistration do
       expect(client.authenticate_registration_access_token("nope")).to be(false)
     end
 
+    describe "re-keying a registration access token accepted under a previous secret" do
+      let(:old_secret) { "old-secret-key-base-#{SecureRandom.hex(8)}" }
+      let(:result) { described_class.call(redirect_uris: ["https://app.example.com/cb"]) }
+      let(:token) { result.registration_access_token }
+      let(:client) { result.client }
+
+      def stored_digest
+        StandardId::ClientApplication.where(id: client.id).pick(:registration_access_token_digest)
+      end
+
+      before do
+        client.update_column(
+          :registration_access_token_digest,
+          StandardId::ClientApplication.digest_registration_access_token(token, secret: old_secret)
+        )
+        StandardId.config.previous_secret_key_bases = [old_secret]
+      end
+
+      it "rewrites the digest under the current secret, so the old one can be dropped" do
+        expect(client.authenticate_registration_access_token(token)).to be(true)
+        expect(stored_digest).to eq(StandardId::ClientApplication.digest_registration_access_token(token))
+        expect(client.changed?).to be(false)
+
+        StandardId.config.previous_secret_key_bases = []
+        expect(client.reload.authenticate_registration_access_token(token)).to be(true)
+      end
+
+      it "writes nothing for a wrong token" do
+        expect(client.authenticate_registration_access_token("nope")).to be(false)
+        expect(stored_digest).to eq(StandardId::ClientApplication.digest_registration_access_token(token, secret: old_secret))
+      end
+
+      it "writes nothing once the digest is current" do
+        client.authenticate_registration_access_token(token)
+
+        expect(StandardId::KeyedDigest).not_to receive(:rekey)
+        expect(client.authenticate_registration_access_token(token)).to be(true)
+      end
+
+      it "still authenticates when the write fails" do
+        allow(StandardId::ClientApplication).to receive(:unscoped).and_raise(ActiveRecord::StatementInvalid, "read-only")
+
+        expect(client.authenticate_registration_access_token(token)).to be(true)
+        expect(stored_digest).to eq(StandardId::ClientApplication.digest_registration_access_token(token, secret: old_secret))
+      end
+    end
+
     it "hands the owner resolver the document when it asks for it" do
       seen = nil
       allow(StandardId.config.oauth).to receive(:dynamic_registration_owner).and_return(->(metadata:) { seen = metadata; owner })

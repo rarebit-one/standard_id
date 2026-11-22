@@ -107,8 +107,11 @@ StandardId.configure do |c|
   # Old secret_key_base values (newest first) still accepted for StandardId's
   # keyed digests — session tokens, OTP codes, authorization codes, registration
   # access tokens — and for HS256/384/512 JWTs, so rotating the secret does not
-  # sign everyone out. New digests and tokens always use the current secret. Keep an entry for the longest
-  # session lifetime, and rotate Rails' cookies and message verifiers too
+  # sign everyone out. New digests and tokens always use the current secret,
+  # and a session or registration access token used under an old secret is
+  # re-keyed to the current one on that use. Keep an entry until the
+  # credentials you want to keep have been used once (at most the longest
+  # session lifetime), and rotate Rails' cookies and message verifiers too
   # (README "Rotating secret_key_base").
   # Default: []
   # c.previous_secret_key_bases = [Rails.application.credentials.old_secret_key_base]

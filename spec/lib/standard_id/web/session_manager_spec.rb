@@ -28,7 +28,7 @@ RSpec.describe StandardId::Web::SessionManager do
   let(:session_manager) do
     described_class.new(token_manager, request: request, session: session, cookies: cookies, reset_session: reset_session_callable)
   end
-  let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, account: account, expires_at: 1.week.from_now) }
+  let(:browser_session) { double("BrowserSession", expired?: false, revoked?: false, active?: true, rekey_token: false, account: account, expires_at: 1.week.from_now) }
   let(:account) { double("Account") }
 
   before do
@@ -167,6 +167,12 @@ RSpec.describe StandardId::Web::SessionManager do
         expect(Current).to receive(:session=).with(browser_session)
         session_manager.current_session
       end
+
+      it "re-keys the session with the cookie's token (a no-op unless it matched under a previous secret)" do
+        expect(browser_session).to receive(:rekey_token).with("valid_token")
+
+        session_manager.current_session
+      end
     end
 
     context "when remember token exists" do
@@ -203,7 +209,7 @@ RSpec.describe StandardId::Web::SessionManager do
     end
 
     context "when session is expired" do
-      let(:expired_session) { double("BrowserSession", expired?: true, revoked?: false, account: account, expires_at: 1.day.ago) }
+      let(:expired_session) { double("BrowserSession", expired?: true, revoked?: false, active?: false, account: account, expires_at: 1.day.ago) }
       let(:eager_load_relation) { double("EagerLoadRelation") }
       let(:by_token_relation) { double("ByTokenRelation") }
 
@@ -228,7 +234,7 @@ RSpec.describe StandardId::Web::SessionManager do
     end
 
     context "when session is revoked" do
-      let(:revoked_session) { double("BrowserSession", expired?: false, revoked?: true) }
+      let(:revoked_session) { double("BrowserSession", expired?: false, revoked?: true, active?: false) }
       let(:eager_load_relation) { double("EagerLoadRelation") }
       let(:by_token_relation) { double("ByTokenRelation") }
 

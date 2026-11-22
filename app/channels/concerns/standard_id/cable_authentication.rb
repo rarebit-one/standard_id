@@ -27,6 +27,7 @@ module StandardId
       browser_session = StandardId::BrowserSession.eager_load(:account).by_token(session_token).first
       return nil unless browser_session&.active?
 
+      browser_session.rekey_token(session_token)
       browser_session.account
     end
   end
