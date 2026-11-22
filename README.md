@@ -2156,7 +2156,7 @@ module StandardId
 end
 ```
 
-Pass `provider:` to every `HttpClient` call so the host's `config.network_wrapper` can tell providers apart (see [Social Login Setup](#social-login-setup)). The keyword is new in the release after 0.60.0; a plugin that supports older standard_id releases should check for it, e.g. `HttpClient.method(:post_form).parameters.include?([:key, :provider])`, and leave it out when absent.
+Pass `provider:` to every `HttpClient` call so the host's `config.network_wrapper` can tell providers apart (see [Social Login Setup](#social-login-setup)). The keyword is new in 0.61.0; a plugin that supports older standard_id releases should check for it, e.g. `HttpClient.method(:post_form).parameters.include?([:key, :provider])`, and leave it out when absent.
 
 **Required interface:** `provider_name`, `authorization_url`, `get_user_info`.
 

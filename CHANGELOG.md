@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-11-23
+
 ### Added
 
 - **Step-up authentication (opt-in).** `require_recent_authentication!(within:)` in
@@ -39,6 +41,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pepper, matching a wrong password. With no pepper set (the default) nothing
   changes. **Losing the pepper forces every password hashed under it to be
   reset.** See README, "Password pepper".
+- **`StandardId::Passwordless.issued_code(event)`** hands a `PASSWORDLESS_CODE_GENERATED`
+  subscriber the raw one-time code without putting it in the event payload, so delivery works
+  with `c.events.publish_records = false`. It returns the published record's code when there is
+  one; otherwise the code of the challenge being published right now, only for that event and a
+  matching `code_challenge_id`, and only while the publish runs (thread- or fiber-local through
+  `ActiveSupport::IsolatedExecutionState`). It returns `nil` after the publish, in another
+  thread, or in a job that received the payload, so a subscriber that defers delivery must read
+  the code first and pass the string on. The payload still never holds the code, so audit,
+  logging and breadcrumb subscribers cannot serialise it. `event[:code_challenge].code` keeps
+  working while records are published (the default). See `docs/MIGRATION_GUIDE.md`.
+
+### Changed
+
+- **HMAC-signed JWTs verify under `config.previous_secret_key_bases`.** For HS256/384/512,
+  `JwtService.decode` tries the current `secret_key_base`, then each previous secret in order,
+  and moves on only when the signature doesn't match: an expired token, or one with the wrong
+  issuer or audience, is refused at once, as before. New tokens are still signed under the current
+  secret only, so refreshing an old-secret refresh token returns tokens under the new one. New
+  public `JwtService.symmetric_verification_keys` (current secret first, then previous ones; `[]`
+  for an asymmetric algorithm) lets a `JwtService.verify` caller pass
+  `key: JwtService.symmetric_verification_keys` for the same window. RS*/ES* keys keep rotating
+  through `oauth.previous_signing_keys`, and HS tokens are still refused when the configured
+  algorithm is asymmetric. Nothing changes unless previous secrets are listed.
+- **Session tokens and RFC 7592 registration access tokens used under a previous
+  `secret_key_base` are re-keyed to the current one.** After a successful
+  `Session.authenticate_by_token`, web session-cookie load or Action Cable authentication, a
+  session whose `lookup_hash` (or HMAC `token_digest`) is still under a previous secret is
+  rewritten in one conditional `UPDATE` (new `StandardId::KeyedDigest.rekey`), so the old secret
+  stays needed only for credentials not used since the rotation, rather than for the longest
+  session lifetime (or forever, for registration access tokens). The `UPDATE` only applies while
+  the row still holds the values just read, skips callbacks, `updated_at` and events, runs in a
+  savepoint inside an open transaction, and never fails authentication: an error is logged (model,
+  id and error class only) and the token still authenticates. With no previous secrets listed,
+  nothing is hashed or written. One-time codes, authorization codes and JWTs are not re-keyed.
+
+### Fixed
+
+- **The built-in passwordless mailer delivers with `c.events.publish_records = false`.** With
+  records off it found no code, sent nothing and reported `"failed"`; it now reads the code
+  through `issued_code` and reports `"sent"`. `StandardId::Testing::OtpHelpers`
+  (`capture_otp_code`, `capture_otp_codes`) also work with records off.
 
 ## [0.61.0] - 2026-11-23
 

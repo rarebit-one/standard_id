@@ -4,9 +4,10 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
-- [Step-up authentication (unreleased, opt-in)](#step-up-authentication-unreleased-opt-in)
-- [Password pepper (unreleased, opt-in)](#password-pepper-unreleased-opt-in)
-- [Reading the OTP code in delivery subscribers (unreleased)](#reading-the-otp-code-in-delivery-subscribers-unreleased)
+- [Upgrading to 0.62: what to do](#upgrading-to-062-what-to-do)
+- [Step-up authentication (0.62, opt-in)](#step-up-authentication-062-opt-in)
+- [Password pepper (0.62, opt-in)](#password-pepper-062-opt-in)
+- [Reading the OTP code in delivery subscribers (0.62)](#reading-the-otp-code-in-delivery-subscribers-062)
 - [One-time codes stored as digests; secret_key_base rotation (0.60)](#one-time-codes-stored-as-digests-secret_key_base-rotation-060)
 - [E-mail domains must have a registered TLD (0.59)](#e-mail-domains-must-have-a-registered-tld-059)
 - [Provider tokens leave SOCIAL_AUTH_COMPLETED (0.58)](#provider-tokens-leave-social_auth_completed-058)
@@ -18,9 +19,42 @@ This guide helps you migrate between StandardId versions.
 
 ---
 
-## Step-up authentication (unreleased, opt-in)
+## Upgrading to 0.62: what to do
 
-One additive migration, then nothing changes until you set
+**Required: install and run the one new migration**, even if you never turn
+step-up on:
+
+```bash
+bin/rails standard_id:install:migrations
+bin/rails db:migrate
+```
+
+`20261123000000_add_authenticated_at_to_standard_id_sessions` is the only
+migration in 0.62. Strictly, the gem does not need it while
+`c.step_up.enabled` is off: it checks for the column and writes neither
+`authenticated_at` until it exists. But until it has run, the boot-time
+migration check warns in development and test (and fails boot under
+`c.missing_migrations = :raise`), and the `standard_id_migrations` health
+check reports it as missing. Run it now, so that sign-ins start stamping
+sessions and turning step-up on later needs no second deploy.
+
+**Nothing else is required.** The rest of 0.62 is either opt-in or applies
+by itself:
+
+| Change | What you do |
+| --- | --- |
+| Step-up authentication | Opt-in. Off until `c.step_up.enabled = true`; see [below](#step-up-authentication-062-opt-in). |
+| Password pepper | Opt-in. Off until `c.password.pepper` is set; see [below](#password-pepper-062-opt-in). |
+| OTP code handoff (`Passwordless.issued_code`) | Nothing while `c.events.publish_records` is on (the default); see [below](#reading-the-otp-code-in-delivery-subscribers-062) before turning it off. |
+| Re-keying session and registration access tokens used under a previous `secret_key_base` | Nothing. Automatic whenever `c.previous_secret_key_bases` is set; a no-op otherwise. |
+| HS256/384/512 JWTs verified under `c.previous_secret_key_bases` | Nothing. Automatic whenever `c.previous_secret_key_bases` is set; a no-op otherwise. |
+
+---
+
+## Step-up authentication (0.62, opt-in)
+
+One additive migration (see [above](#upgrading-to-062-what-to-do): install
+and run it even if step-up stays off), then nothing changes until you set
 `c.step_up.enabled = true` and call `require_recent_authentication!`.
 
 ```bash
@@ -53,7 +87,7 @@ time) to exercise the step-up path.
 
 ---
 
-## Password pepper (unreleased, opt-in)
+## Password pepper (0.62, opt-in)
 
 Nothing changes unless you set `c.password.pepper`. With no pepper, digests,
 verification and the timing of failed logins are exactly as before. A
@@ -84,7 +118,7 @@ the built-in challenge does not know about the pepper.
 
 ---
 
-## Reading the OTP code in delivery subscribers (unreleased)
+## Reading the OTP code in delivery subscribers (0.62)
 
 No action is needed while `c.events.publish_records` is on (the default):
 `event[:code_challenge].code` keeps working. Before turning it off, change
@@ -96,7 +130,7 @@ code = StandardId::Passwordless.issued_code(event)
 ```
 
 With records off the payload has no `code_challenge`, and since 0.60 the
-database holds only a digest, so before this release there was no way left to
+database holds only a digest, so before 0.62 there was no way left to
 reach the code. `issued_code` hands it over out of band, only while the event
 is being published, so it never enters the payload that audit and logging
 subscribers serialise. Call it inside the subscriber and pass the string on: it
@@ -180,14 +214,13 @@ new is written under the current secret:
 c.previous_secret_key_bases = [Rails.application.credentials.old_secret_key_base]
 ```
 
-From the release after 0.61 a session or registration access token used under
+From 0.62 a session or registration access token used under
 the old secret is re-keyed to the current one, so the entry is needed only
 until the credentials you want to keep have been used once; before that, keep
 it until the longest session lifetime you issue has passed. Rails'
 own derived secrets (encrypted cookies, including the web session cookie, and
 message verifiers) need Rails' rotations as well: see README, "Rotating
-`secret_key_base`". HS256/384/512-signed JWTs are covered from the release after
-0.61; earlier versions do not verify them under previous secrets. Nothing
+`secret_key_base`". HS256/384/512-signed JWTs are covered from 0.62; earlier versions do not verify them under previous secrets. Nothing
 changes unless you set it.
 
 ### Password re-hashing and the password-changed notice
@@ -294,7 +327,7 @@ onto it like this:
      own implementation do not carry over (each starts at zero on deploy).
    - Nothing emails the user when a reset completes. Subscribe to
      `credential.password.reset_completed` to send a "password changed" notice,
-     or (unreleased) set `c.password.changed_notice_delivery = :built_in` to
+     or (0.60+) set `c.password.changed_notice_delivery = :built_in` to
      have the engine send one.
 
 ---
