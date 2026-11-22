@@ -47,6 +47,13 @@ RSpec.describe StandardId::Otp do
         expect(result.code).to match(/\A\d{6}\z/)
       end
 
+      it "returns the raw code while storing only its digest" do
+        result = described_class.issue(realm: realm, target: email, channel: :email, request: request, delivery: :manual)
+
+        stored = StandardId::CodeChallenge.where(id: result.challenge.id).pick(:code, :code_digest)
+        expect(stored).to eq([nil, StandardId::CodeChallenge.digest_code(result.code)])
+      end
+
       it "publishes the code with skip_sender so no subscriber delivers it" do
         codes = capture_passwordless_codes
 

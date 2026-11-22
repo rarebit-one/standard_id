@@ -17,10 +17,20 @@ module StandardId
     scope :revoked, -> { where.not(revoked_at: nil) }
 
     scope :api_compatible, -> { where(type: ["StandardId::DeviceSession", "StandardId::ServiceSession"]) }
-    scope :by_token, ->(token) {
-      lookup_hash = Digest::SHA256.hexdigest("#{token}:#{Rails.configuration.secret_key_base}")
-      where(lookup_hash:)
-    }
+    # One indexed query for every lookup hash the token may be stored under:
+    # the current secret's, plus one per `config.previous_secret_key_bases`
+    # entry (see StandardId::KeyedDigest).
+    scope :by_token, ->(token) { where(lookup_hash: lookup_hashes_for(token)) }
+
+    # SHA256 of the token under `secret` — an indexable locator, never the
+    # credential (see .authenticate_by_token).
+    def self.lookup_hash_for(token, secret: StandardId::KeyedDigest.current_secret)
+      Digest::SHA256.hexdigest("#{token}:#{secret}")
+    end
+
+    def self.lookup_hashes_for(token)
+      StandardId::KeyedDigest.candidates { |secret| lookup_hash_for(token, secret:) }
+    end
 
     # Authenticate an opaque session token.
     #
@@ -64,10 +74,8 @@ module StandardId
     # with SHA256; this brings session tokens in line with both.
     DIGEST_PREFIX = "standard_id.session.token_digest.v1:".freeze
 
-    def self.hmac_token_digest(token)
-      OpenSSL::HMAC.hexdigest(
-        "SHA256", Rails.configuration.secret_key_base, "#{DIGEST_PREFIX}#{token}"
-      )
+    def self.hmac_token_digest(token, secret: StandardId::KeyedDigest.current_secret)
+      StandardId::KeyedDigest.hmac_hexdigest("#{DIGEST_PREFIX}#{token}", secret:)
     end
 
     # Timing-safe verification of `token` against this session's stored digest.
@@ -79,7 +87,8 @@ module StandardId
     # way a config change never strands existing sessions, and no rewrite of
     # stored digests is needed. Both branches end in a constant-time compare, so
     # the response time carries no information about how much of the digest
-    # matched.
+    # matched. An HMAC digest is accepted under the current secret or any of
+    # `config.previous_secret_key_bases`; BCrypt digests are not keyed.
     #
     # @return [Boolean] false for a blank or malformed digest — never raises.
     def authenticate_token(token)
@@ -92,8 +101,9 @@ module StandardId
           BCrypt::Engine.hash_secret(token, stored.salt)
         )
       else
-        ActiveSupport::SecurityUtils.secure_compare(
-          token_digest, self.class.hmac_token_digest(token)
+        StandardId::KeyedDigest.secure_match?(
+          token_digest,
+          StandardId::KeyedDigest.candidates { |secret| self.class.hmac_token_digest(token, secret:) }
         )
       end
     rescue BCrypt::Errors::InvalidHash, BCrypt::Errors::InvalidSalt
@@ -265,7 +275,7 @@ module StandardId
     end
 
     def generate_lookup_hash
-      self.lookup_hash = Digest::SHA256.hexdigest("#{token}:#{Rails.configuration.secret_key_base}")
+      self.lookup_hash = self.class.lookup_hash_for(token)
     end
 
     # Revoke any still-active refresh tokens before the session row is deleted,

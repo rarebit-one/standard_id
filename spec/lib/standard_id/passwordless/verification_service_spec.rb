@@ -272,6 +272,55 @@ RSpec.describe StandardId::Passwordless::VerificationService do
 
         described_class.verify(email: email, code: otp_code, request: request)
       end
+
+      it "does the same digest comparison when no challenge exists" do
+        expect(StandardId::CodeChallenge).to receive(:digest_code).at_least(:once).and_call_original
+        expect(ActiveSupport::SecurityUtils).to receive(:secure_compare).at_least(:once).and_call_original
+
+        result = described_class.verify(email: "nobody@example.com", code: otp_code, request: request)
+
+        expect(result.error_code).to eq(:not_found)
+      end
+    end
+
+    context "stored code digests" do
+      let(:old_secret) { "old-secret-key-base-#{SecureRandom.hex(8)}" }
+
+      before { create_email_account(email) }
+
+      it "verifies a challenge read back with only its digest" do
+        create_challenge(channel: "email", target: email)
+
+        expect(StandardId::CodeChallenge.last.read_attribute(:code)).to be_nil
+        expect(described_class.verify(email: email, code: otp_code, request: request)).to be_success
+      end
+
+      it "verifies a plaintext challenge issued before the digest migration" do
+        challenge = create_challenge(channel: "email", target: email)
+        challenge.update_columns(code: otp_code, code_digest: nil)
+
+        expect(described_class.verify(email: email, code: otp_code, request: request)).to be_success
+      end
+
+      it "counts a wrong code against a plaintext challenge as a failed attempt" do
+        challenge = create_challenge(channel: "email", target: email)
+        challenge.update_columns(code: otp_code, code_digest: nil)
+
+        result = described_class.verify(email: email, code: "000000", request: request)
+
+        expect(result.error_code).to eq(:invalid_code)
+        expect(result.attempts).to eq(1)
+      end
+
+      it "accepts a digest under a previous secret_key_base only when it is listed" do
+        challenge = create_challenge(channel: "email", target: email)
+        challenge.update_column(:code_digest, StandardId::CodeChallenge.digest_code(otp_code, secret: old_secret))
+
+        expect(described_class.verify(email: email, code: otp_code, request: request).error_code).to eq(:invalid_code)
+
+        StandardId.config.previous_secret_key_bases = [old_secret]
+        expect(described_class.verify(email: email, code: otp_code, request: request)).to be_success
+      end
     end
 
     context "events" do

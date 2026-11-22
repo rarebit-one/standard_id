@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_28_100000) do
+ActiveRecord::Schema[8.1].define(version: 2026_11_22_000000) do
   create_table "accounts", force: :cascade do |t|
     t.datetime "activated_at"
     t.datetime "created_at", null: false
@@ -109,7 +109,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_100000) do
 
   create_table "standard_id_code_challenges", force: :cascade do |t|
     t.string "channel", null: false
-    t.string "code", null: false
+    t.string "code"
     t.datetime "created_at", null: false
     t.datetime "expires_at", null: false
     t.string "ip_address"
@@ -119,6 +119,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_28_100000) do
     t.datetime "updated_at", null: false
     t.datetime "used_at"
     t.text "user_agent"
+    t.string "code_digest"
     t.index ["expires_at"], name: "index_standard_id_code_challenges_on_expires_at"
     t.index ["realm", "channel", "target", "code"], name: "index_code_challenges_on_lookup"
     t.index ["realm", "channel", "target", "created_at"], name: "index_code_challenges_on_active_target_created_at", where: "used_at IS NULL"

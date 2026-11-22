@@ -836,7 +836,10 @@ parent's `default from:` does not apply to them.
 Event payload includes:
 - `channel` - `"email"` or `"sms"`
 - `identifier` - The email address or phone number
-- `code_challenge` - The code challenge object with `.code` method
+- `code_challenge` - The code challenge object with `.code` method. The raw code exists only on
+  this in-memory record: the database stores an HMAC of it (`code_digest`), so read `.code` in the
+  subscriber and pass the string on; a challenge reloaded later (e.g. in a job that received the
+  record) returns `nil`
 - `expires_at` - When the code expires
 - `realm` - The OTP realm (`"authentication"` for sign-in)
 - `skip_sender` - `true` for `Otp.issue(delivery: :manual)`; don't deliver
@@ -1881,7 +1884,7 @@ StandardId creates the following tables:
 - `standard_id_clients` - OAuth clients
 - `standard_id_client_secret_credentials` - Client secrets
 - `standard_id_password_credentials` - Password storage
-- `standard_id_code_challenges` - OTP codes for authentication and verification
+- `standard_id_code_challenges` - OTP codes for authentication and verification (stored as an HMAC digest)
 
 ## API Endpoints
 
@@ -2148,6 +2151,27 @@ scoped login request instead. It replaces controller stubbing
 (`stub_web_authentication`, `allow_any_instance_of(...).to receive(:current_user)`)
 and per-app `/test/set-session` routes.
 
+### Reading one-time codes in specs
+
+A `CodeChallenge` stores only an HMAC of its code, so `StandardId::CodeChallenge.last.code` is
+`nil`. Capture the code as it is issued instead:
+
+```ruby
+RSpec.configure do |config|
+  config.include StandardId::Testing::OtpHelpers, type: :request
+end
+
+code = capture_otp_code(email) { post "/login", params: { login: { email: email } } }
+patch "/login_verify", params: { code: code }
+
+codes = capture_otp_codes { ... }  # every code issued in the block: identifier, channel, realm, code
+```
+
+They read `PASSWORDLESS_CODE_GENERATED`, as a delivery subscriber does, so they see nothing when
+`c.events.publish_records = false`. A challenge you create yourself
+(`CodeChallenge.create!(code: "123456", ...)` or the `:standard_id_code_challenge` factory) still
+verifies with the code you gave it.
+
 ### This gem's own suite
 
 StandardId includes comprehensive test coverage:
@@ -2174,6 +2198,38 @@ bundle exec rspec spec/controllers/
   requests that omit `code_challenge` for a PKCE-required client are
   rejected with `invalid_request`.
 - Rate limiting on authentication endpoints
+- Passwordless / OTP codes are stored as HMAC-SHA256 digests keyed on `secret_key_base`, never in
+  plaintext (since migration `20261122000000`; see the Migration Guide)
+
+### Rotating `secret_key_base`
+
+Session tokens, passwordless codes, authorization codes and RFC 7592 registration access tokens are
+stored as digests keyed on `secret_key_base`, so changing it invalidates all of them: everyone is
+signed out. To rotate without that, list the old secret, newest first:
+
+```ruby
+StandardId.configure do |c|
+  c.previous_secret_key_bases = [Rails.application.credentials.old_secret_key_base]
+end
+```
+
+Digests are then still looked up and verified under the old secret (one indexed query covers every
+candidate session lookup hash), while everything new is written under the current one
+(`StandardId::KeyedDigest`). Nothing is re-written in place, so keep the entry until the longest
+session lifetime you issue (`session.*_lifetime`, and the lifetime of any long-lived
+`ServiceSession`) has passed, then remove it.
+
+This covers StandardId's own digests only. The rest of the app needs Rails' rotations too:
+
+- **Cookies**, including the encrypted `session_token` cookie and the Rails session that carry the
+  web session: `config.action_dispatch.cookies_rotations` (see the Rails security guide,
+  "Rotating Encrypted and Signed Cookies Configurations").
+- **Message verifiers** (`generates_token_for`, so remember-me and password-reset tokens, and the
+  signed passwordless OTP payload): `Rails.application.message_verifiers.rotate(secret_key_base:
+  old)` in a `before_initialize` block.
+- **JWTs signed with HS256** (the default `oauth.signing_algorithm`) use `secret_key_base` directly
+  and are not covered: access tokens fail until re-issued and HS256 refresh tokens stop refreshing.
+  Use an asymmetric `oauth.signing_key` if you need to rotate without that.
 
 ## OTP Start Limits
 

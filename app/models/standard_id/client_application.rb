@@ -204,21 +204,22 @@ module StandardId
 
     # Keyed with secret_key_base like AuthorizationCode.hash_for, so a leaked
     # table does not yield usable management credentials.
-    def self.digest_registration_access_token(token)
-      Digest::SHA256.hexdigest("#{token}:#{Rails.configuration.secret_key_base}")
+    def self.digest_registration_access_token(token, secret: StandardId::KeyedDigest.current_secret)
+      Digest::SHA256.hexdigest("#{token}:#{secret}")
     end
 
     def dynamically_registered?
       self.class.registration_management_column? && registration_access_token_digest.present?
     end
 
-    # Constant-time check of an RFC 7592 registration access token.
+    # Constant-time check of an RFC 7592 registration access token, under the
+    # current secret or any of `config.previous_secret_key_bases`.
     def authenticate_registration_access_token(token)
       return false unless dynamically_registered? && token.present?
 
-      ActiveSupport::SecurityUtils.secure_compare(
-        self.class.digest_registration_access_token(token.to_s),
-        registration_access_token_digest.to_s
+      StandardId::KeyedDigest.secure_match?(
+        registration_access_token_digest,
+        StandardId::KeyedDigest.candidates { |secret| self.class.digest_registration_access_token(token.to_s, secret:) }
       )
     end
 

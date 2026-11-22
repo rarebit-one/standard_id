@@ -104,6 +104,15 @@ StandardId.configure do |c|
   # Default: Rails.logger
   # c.logger = Rails.logger
 
+  # Old secret_key_base values (newest first) still accepted for StandardId's
+  # keyed digests — session tokens, OTP codes, authorization codes, registration
+  # access tokens — so rotating the secret does not sign everyone out. New
+  # digests always use the current secret. Keep an entry for the longest
+  # session lifetime, and rotate Rails' cookies and message verifiers too
+  # (README "Rotating secret_key_base").
+  # Default: []
+  # c.previous_secret_key_bases = [Rails.application.credentials.old_secret_key_base]
+
   # Layout used by built-in ERB web views. Ignored when use_inertia is true.
   # Default: nil (StandardId's packaged layout)
   # c.web_layout = "application"

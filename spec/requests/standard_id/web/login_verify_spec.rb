@@ -78,8 +78,7 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       http_post "/login", params: { login: { email: email }, redirect_uri: "/dashboard" }
       expect(response).to redirect_to("/login_verify")
 
-      challenge = StandardId::CodeChallenge.last
-      http_patch "/login_verify", params: { code: challenge.code.to_s }
+      http_patch "/login_verify", params: { code: issued_otp_code }
 
       expect(response).to have_http_status(:see_other)
       expect(response).to redirect_to("/dashboard")
@@ -265,7 +264,7 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       it "signs in and redirects on valid code" do
         challenge = StandardId::CodeChallenge.last
 
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to have_http_status(:see_other)
         expect(response).to redirect_to("/")
@@ -275,27 +274,21 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       end
 
       it "uses existing account when email identifier exists" do
-        challenge = StandardId::CodeChallenge.last
-
         expect {
-          http_patch "/login_verify", params: { code: challenge.code.to_s }
+          http_patch "/login_verify", params: { code: issued_otp_code }
         }.not_to change(Account, :count)
 
         expect(response).to have_http_status(:see_other)
       end
 
       it "creates a browser session on success" do
-        challenge = StandardId::CodeChallenge.last
-
         expect {
-          http_patch "/login_verify", params: { code: challenge.code.to_s }
+          http_patch "/login_verify", params: { code: issued_otp_code }
         }.to change(StandardId::BrowserSession, :count).by(1)
       end
 
       it "cleans up OTP session data after success" do
-        challenge = StandardId::CodeChallenge.last
-
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         expect(response).to have_http_status(:see_other)
 
@@ -332,7 +325,7 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
         expect(challenge.reload).to be_used
 
         # Even the correct code should fail now
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
         expect(response).to have_http_status(:unprocessable_content)
       end
 
@@ -345,8 +338,7 @@ RSpec.describe "StandardId Web Login Verify (Passwordless OTP)", type: :request 
       end
 
       it "redirects authenticated users away from show" do
-        challenge = StandardId::CodeChallenge.last
-        http_patch "/login_verify", params: { code: challenge.code.to_s }
+        http_patch "/login_verify", params: { code: issued_otp_code }
 
         # Now authenticated — visiting show should redirect
         initiate_passwordless_login!

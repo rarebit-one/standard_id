@@ -46,8 +46,10 @@ RSpec.describe "API email + password", type: :request do
     post_json("#{auth}/password/reset", { token: token, password: password, **extra })
   end
 
+  # Challenges store only a digest of the code, so read it from the recorder
+  # in spec/support/passwordless_code_capture.rb.
   def latest_code(target = email)
-    StandardId::CodeChallenge.where(realm: realm, target: target).order(created_at: :desc).first&.code
+    Array(@issued_otp_codes).select { |issued| issued.realm == realm && issued.identifier == target }.last&.code
   end
 
   def identifier_for(address = email)

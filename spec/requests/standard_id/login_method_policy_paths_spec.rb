@@ -100,7 +100,7 @@ RSpec.describe "config.login_method_policy on every session-creating path", type
         http_post "/login", params: { login: { email: email } }
         expect(response).to have_http_status(:see_other)
       },
-      perform: -> { http_patch "/login_verify", params: { code: StandardId::CodeChallenge.last.code.to_s } },
+      perform: -> { http_patch "/login_verify", params: { code: issued_otp_code } },
       allowed: -> { expect_web_sign_in },
       refused: -> { expect_web_refusal }
     },
