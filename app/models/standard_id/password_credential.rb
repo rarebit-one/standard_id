@@ -121,7 +121,7 @@ module StandardId
     end
 
     def report_failure(action, error)
-      Rails.error.report(error, handled: true, source: "standard_id")
+      StandardId::ErrorReporting.report(error, action: action)
       logger = StandardId.logger
       return unless logger.respond_to?(:error)
 

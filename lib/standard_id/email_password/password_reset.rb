@@ -146,7 +146,7 @@ module StandardId
             account: account
           )
         rescue StandardError => e
-          Rails.error.report(e, handled: true, source: "standard_id")
+          StandardId::ErrorReporting.report(e, event: StandardId::Events.namespaced_event_name(StandardId::Events::CREDENTIAL_PASSWORD_RESET_COMPLETED))
           logger = StandardId.logger
           return unless logger.respond_to?(:error)
 

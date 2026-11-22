@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **standard_health contributions.** StandardId registers an `ActiveSupport.on_load(:standard_health)`
+  hook that offers `StandardId::Checks::Migrations` as the non-critical `standard_id_migrations`
+  default check and declares two env vars under `standard_id`: `APP_ENVIRONMENT` (recommended;
+  it decides StandardId's production-only guards) and `STANDARD_ID_BYPASS_CODE` (forbidden in
+  production). There is no dependency on standard_health: without a standard_health that runs the
+  hook, nothing happens. Apps that already `register_check :standard_id_migrations` by hand are
+  unaffected (`register_default_checks` skips a registered name); opt out with
+  `c.register_default_checks standard_id_migrations: false`.
+- **`config.network_wrapper`**, a callable `->(provider:, &block)` that wraps every outbound
+  connection `StandardId::HttpClient` makes (social token, userinfo and JWKS calls), e.g. in a
+  circuit breaker: `->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }`. `nil`
+  (default) runs the request directly. `HttpClient.post_form`, `.get_with_bearer` and the private
+  `start_connection` that plugins call for a JWKS take an optional `provider:` keyword (default
+  `:standard_id`), so existing callers keep working, including those that pass
+  `post_form`'s form as bare keywords (`post_form(url, id_token: token)`). The boot-time callable check rejects a
+  wrapper with an unknown keyword, a positional argument, or (for a lambda) no `&block`.
+- **`StandardId::Events.auditable`**, the frozen list of event patterns worth an audit row, for
+  `StandardId::Events.auditable.each { |pattern| config.subscribe_to(pattern) }` in standard_audit
+  (one pattern per call, which every standard_audit version accepts). It keeps what the apps
+  subscribe to today (authentication, account, social and passwordless events; session created,
+  revoked and expired) and adds the password and client-secret lifecycle, refresh-token reuse,
+  token revocation, audience mismatches and OAuth client registration changes.
+- **`config.error_reporter`**, an optional callable `(error, context)` for the errors StandardId
+  handles and carries on from (an event subscriber that raised after its change committed).
+  `context` carries `source: "standard_id"`, `handled: true` and what failed (`event:` or
+  `action:`). `nil` (default) keeps `Rails.error.report(error, handled: true, source:
+  "standard_id")`. All four report sites go through the new `StandardId::ErrorReporting.report`.
+  A reporter that raises is logged and the error falls back to that default report, so the flow
+  it was reporting from still carries on.
+
 ## [0.60.0] - 2026-11-22
 
 ### Security

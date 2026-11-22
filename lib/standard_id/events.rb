@@ -6,7 +6,54 @@ module StandardId
     # Event namespace prefix for all StandardId events
     NAMESPACE = "standard_id"
 
+    # Event names worth an audit row, as Regexps and full Strings that both
+    # ActiveSupport::Notifications and standard_audit's `subscribe_to` accept.
+    # See `.auditable`.
+    AUDITABLE = [
+      # What the apps subscribed to before this list existed.
+      /\Astandard_id\.authentication\./,
+      "#{NAMESPACE}.#{SESSION_CREATED}",
+      "#{NAMESPACE}.#{SESSION_REVOKED}",
+      "#{NAMESPACE}.#{SESSION_EXPIRED}",
+      /\Astandard_id\.account\./,
+      /\Astandard_id\.social\./,
+      /\Astandard_id\.passwordless\./,
+      # Changes to how an account or client authenticates. (Not
+      # CREDENTIAL_PASSWORD_REHASHED: the password itself is unchanged.)
+      "#{NAMESPACE}.#{CREDENTIAL_PASSWORD_CREATED}",
+      "#{NAMESPACE}.#{CREDENTIAL_PASSWORD_RESET_INITIATED}",
+      "#{NAMESPACE}.#{CREDENTIAL_PASSWORD_RESET_COMPLETED}",
+      "#{NAMESPACE}.#{CREDENTIAL_PASSWORD_CHANGED}",
+      "#{NAMESPACE}.#{CREDENTIAL_CLIENT_SECRET_CREATED}",
+      "#{NAMESPACE}.#{CREDENTIAL_CLIENT_SECRET_ROTATED}",
+      "#{NAMESPACE}.#{CREDENTIAL_CLIENT_SECRET_REVOKED}",
+      # OAuth: token theft and revocation, a token sent to the wrong resource,
+      # and changes to who may request tokens at all.
+      "#{NAMESPACE}.#{OAUTH_REFRESH_TOKEN_REUSE_DETECTED}",
+      "#{NAMESPACE}.#{OAUTH_TOKEN_REVOKED}",
+      "#{NAMESPACE}.#{OAUTH_AUDIENCE_MISMATCH}",
+      "#{NAMESPACE}.#{OAUTH_CLIENT_REGISTERED}",
+      "#{NAMESPACE}.#{OAUTH_CLIENT_UPDATED}",
+      "#{NAMESPACE}.#{OAUTH_CLIENT_DEREGISTERED}"
+    ].map(&:freeze).freeze
+
     class << self
+      # The event names a host should persist to its audit log:
+      #
+      #   StandardAudit.configure do |config|
+      #     StandardId::Events.auditable.each { |pattern| config.subscribe_to(pattern) }
+      #   end
+      #
+      # Deliberately left out: per-request noise (session.validating /
+      # validated), high-volume token minting (oauth.token.issued,
+      # oauth.token.refreshed), and the benign refresh race
+      # (oauth.refresh_token.reuse_graced).
+      #
+      # @return [Array<Regexp, String>] frozen
+      def auditable
+        AUDITABLE
+      end
+
       # Publish an event with the given name and payload
       #
       # @param event_name [String, Symbol] The event name (use constants from Definitions)

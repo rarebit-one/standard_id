@@ -597,6 +597,17 @@ StandardId.configure do |c|
   # c.sentry_context = ->(account, _session) {
   #   { segment: account.primary_profile&.type }
   # }
+
+  # Wraps every outbound provider request (token exchange, userinfo, JWKS),
+  # e.g. in a circuit breaker. Receives provider: (:google, :apple, ...) and
+  # the request as a block; must call the block and return its result.
+  # Default: nil (the request runs directly)
+  # c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }
+
+  # Receives errors StandardId handles and carries on from (a subscriber that
+  # raised after its change committed). Receives (error, context).
+  # Default: nil (Rails.error.report(error, handled: true, source: "standard_id"))
+  # c.error_reporter = ->(error, context) { Sentry.capture_exception(error, extra: context) }
 end
 
 # Notes:

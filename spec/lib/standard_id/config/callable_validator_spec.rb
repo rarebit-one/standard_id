@@ -8,6 +8,8 @@ RSpec.describe StandardId::Config::CallableValidator do
     %w[
       profile_resolver
       sentry_context
+      error_reporter
+      network_wrapper
       after_account_created
       before_sign_in
       after_sign_in
@@ -201,6 +203,63 @@ RSpec.describe StandardId::Config::CallableValidator do
         expect { described_class.validate! }.to raise_error(
           StandardId::ConfigurationError,
           /`passwordless.account_factory`.*\[:account\]/
+        )
+      end
+    end
+
+    context "error_reporter" do
+      it "accepts an (error, context) callable" do
+        StandardId.config.error_reporter = ->(error, context) { [error, context] }
+        expect { described_class.validate! }.not_to raise_error
+      end
+
+      it "rejects a callable of the wrong arity" do
+        StandardId.config.error_reporter = ->(error) { error }
+        expect { described_class.validate! }.to raise_error(
+          StandardId::ConfigurationError,
+          /`error_reporter` expects signature \(error, context\)/
+        )
+      end
+    end
+
+    context "network_wrapper" do
+      it "accepts ->(provider:, &block)" do
+        StandardId.config.network_wrapper = ->(provider:, &block) { block.call }
+        expect { described_class.validate! }.not_to raise_error
+      end
+
+      it "accepts a wrapper that ignores the provider" do
+        StandardId.config.network_wrapper = ->(&block) { block.call }
+        expect { described_class.validate! }.not_to raise_error
+      end
+
+      it "accepts a #call object that yields" do
+        wrapper = Class.new { def call(provider:) = yield }.new
+        StandardId.config.network_wrapper = wrapper
+        expect { described_class.validate! }.not_to raise_error
+      end
+
+      it "rejects a lambda with no block parameter, which would drop the request" do
+        StandardId.config.network_wrapper = ->(provider:) { nil }
+        expect { described_class.validate! }.to raise_error(
+          StandardId::ConfigurationError,
+          /`network_wrapper` must take the wrapped work as a block/
+        )
+      end
+
+      it "rejects an unknown keyword" do
+        StandardId.config.network_wrapper = ->(provider:, endpoint:, &block) { block.call }
+        expect { described_class.validate! }.to raise_error(
+          StandardId::ConfigurationError,
+          /`network_wrapper`.*unknown keyword argument\(s\) \[:endpoint\]/
+        )
+      end
+
+      it "rejects a positional provider argument" do
+        StandardId.config.network_wrapper = ->(provider, &block) { block.call }
+        expect { described_class.validate! }.to raise_error(
+          StandardId::ConfigurationError,
+          /`network_wrapper` takes a positional argument/
         )
       end
     end
