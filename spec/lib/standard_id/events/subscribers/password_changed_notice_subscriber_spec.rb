@@ -35,6 +35,17 @@ RSpec.describe StandardId::Events::Subscribers::PasswordChangedNoticeSubscriber 
         .to have_enqueued_mail(StandardId::AccountNoticeMailer, :password_changed).with(params: { email: "owner@example.com" }, args: [])
     end
 
+    it "loads the credential from credential_id when the payload carries no records" do
+      credential = email_event[:credential]
+      event = StandardId::Events::Event.new(
+        name: "standard_id.credential.password.changed",
+        payload: { event_type: "credential.password.changed", credential_id: credential.id, reason: :changed }
+      )
+
+      expect { subscriber.call(event) }
+        .to have_enqueued_mail(StandardId::AccountNoticeMailer, :password_changed).with(params: { email: "owner@example.com" }, args: [])
+    end
+
     it "sends nothing for a credential behind a username identifier" do
       event = event_for(StandardId::UsernameIdentifier.create!(account: account, value: "owner"))
 

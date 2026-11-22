@@ -304,6 +304,47 @@ module StandardId
         expect(events).to be_empty
       end
 
+      it "still publishes after commit when a savepoint inside the transaction rolls back" do
+        events = changed_events do
+          ActiveRecord::Base.transaction do
+            credential.update!(password: "NewPass1!abc")
+            ActiveRecord::Base.transaction(requires_new: true) do
+              credential.update!(login: "renamed@example.com")
+              raise ActiveRecord::Rollback
+            end
+          end
+        end
+
+        expect(events.size).to eq(1)
+        expect(described_class.find(credential.id).authenticate("NewPass1!abc")).to be_truthy
+      end
+
+      it "publishes nothing for a later commit that did not write the assigned password" do
+        events = changed_events do
+          ActiveRecord::Base.transaction do
+            credential.update!(password: "NewPass1!abc")
+            raise ActiveRecord::Rollback
+          end
+          # Inside the example's own transaction the rollback above is a
+          # savepoint, which leaves the record clean, so this save writes no
+          # digest. The record still holds the assigned one.
+          credential.save!
+        end
+
+        expect(events).to be_empty
+        expect(described_class.find(credential.id).authenticate("Password1!")).to be_truthy
+      end
+
+      it "carries credential_id, which survives events.publish_records = false" do
+        StandardId.config.events.publish_records = false
+        StandardId.config.events.publish_record_identifiers = false
+        events = changed_events { credential.update!(password: "NewPass1!abc") }
+
+        expect(events.size).to eq(1)
+        expect(events.first).not_to have_key(:credential)
+        expect(events.first[:credential_id]).to eq(credential.id)
+      end
+
       it "publishes once per transaction" do
         events = changed_events do
           ActiveRecord::Base.transaction do
@@ -334,6 +375,37 @@ module StandardId
         expect { credential.update!(password: "NewPass1!abc") }.not_to raise_error
         expect(described_class.find(credential.id).authenticate("NewPass1!abc")).to be_truthy
         expect(Rails.error).to have_received(:report).with(an_instance_of(RuntimeError), handled: true, source: "standard_id")
+      ensure
+        StandardId::Events.unsubscribe(sub)
+      end
+    end
+
+    # A real (top-level) rollback restores the record's pending changes, so a
+    # retried save! writes the new digest. That needs a transaction of its
+    # own, not the example's savepoint.
+    describe "CREDENTIAL_PASSWORD_CHANGED after a rolled-back save is retried" do
+      self.use_transactional_tests = false
+
+      let(:login) { "retry-#{SecureRandom.hex(4)}@example.com" }
+
+      after { described_class.where(login: login).delete_all }
+
+      it "publishes once the retry commits the new password" do
+        credential = described_class.create!(login: login, password: "Password1!")
+        credential.password_change_reason = :password_reset
+        events = []
+        sub = StandardId::Events.subscribe(StandardId::Events::CREDENTIAL_PASSWORD_CHANGED) { |e| events << e.payload }
+
+        ActiveRecord::Base.transaction do
+          credential.update!(password: "NewPass1!abc")
+          raise ActiveRecord::Rollback
+        end
+        expect(events).to be_empty
+
+        credential.save!
+
+        expect(described_class.find(credential.id).authenticate("NewPass1!abc")).to be_truthy
+        expect(events.map { |e| e[:reason] }).to eq([:password_reset])
       ensure
         StandardId::Events.unsubscribe(sub)
       end

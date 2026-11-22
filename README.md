@@ -1034,7 +1034,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 | Credential | `credential.password.created` | `credential`, `account` | After a password credential is created |
 |  | `credential.password.reset_initiated` | `credential`, `account`, `reset_token_expires_at` | After a password reset is initiated |
 |  | `credential.password.reset_completed` | `credential`, `account` | After a password reset is confirmed |
-|  | `credential.password.changed` | `credential`, `account`, `reason` (`:password_reset` / `:changed`) | After a new password is committed: by a reset, or by host code assigning `password` (never for a re-hash of the same password). Drives `password.changed_notice_delivery` |
+|  | `credential.password.changed` | `credential`, `credential_id` (sent even with `events.publish_records = false`), `account`, `reason` (`:password_reset` / `:changed`) | After a new password is committed: by a reset, or by host code assigning `password` (never for a re-hash of the same password). Drives `password.changed_notice_delivery` |
 |  | `credential.password.rehashed` | `credential`, `account`, `previous_cost`, `cost` | After a login re-hashed the password at the current bcrypt cost (`password.rehash_on_login`); the password is unchanged |
 |  | `credential.client_secret.created` | `credential`, `client_id` | After a client secret is created |
 |  | `credential.client_secret.rotated` | `credential`, `client_id`, `old_secret_revoked_at` | After a client secret rotation |

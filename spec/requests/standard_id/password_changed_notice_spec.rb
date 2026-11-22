@@ -75,6 +75,14 @@ RSpec.describe "Password changed notice", type: :request do
         .to have_enqueued_mail(StandardId::AccountNoticeMailer, :password_changed).with(params: { email: email }, args: [])
     end
 
+    it "still emails the owner under events.publish_records = false" do
+      StandardId.config.events.publish_records = false
+      StandardId.config.events.publish_record_identifiers = false
+
+      expect { reset_on_web }
+        .to have_enqueued_mail(StandardId::AccountNoticeMailer, :password_changed).with(params: { email: email }, args: [])
+    end
+
     it "sends nothing when only the digest is rewritten, as a rehash on login does" do
       expect {
         credential.update!(password_digest: BCrypt::Password.create(old_password, cost: BCrypt::Engine::MIN_COST + 1))

@@ -41,9 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   published it. `StandardId::PasswordCredential` now publishes it after commit whenever an update
   assigns a new password through `password=`. That includes both reset flows, which set
   `reason: :password_reset`, and host code (`reason: :changed`). Writing `password_digest`
-  directly, as a re-hash of the same password does, does not publish it. The documented
-  `changed_by` payload field, which was never sent, is replaced by `reason`. A subscriber that
-  raises is reported and does not fail the save.
+  directly, as a re-hash of the same password does, does not publish it. The check runs at
+  commit against the digest in the row, so a password change that survives a rolled-back
+  savepoint, or a rolled-back save that is retried, still publishes once it commits. The payload
+  carries `credential_id` explicitly, so the built-in notice still finds its recipient under
+  `events.publish_records = false`. The documented `changed_by` payload field, which was never
+  sent, is replaced by `reason`. A subscriber that raises is reported and does not fail the save.
 
 ## [0.59.0] - 2026-11-03
 
