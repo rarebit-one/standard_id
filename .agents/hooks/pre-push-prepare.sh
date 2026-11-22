@@ -5,16 +5,25 @@
 # Keeps feature branches up-to-date and encourages single-commit PRs.
 #
 # What it does:
-#   1. Fetches latest target branch and rebases current branch onto it
-#   2. If rebase changes history, injects --force-with-lease into git push
-#   3. Checks commit count and blocks if >1 commit (prompts user to squash)
-#   4. For `gh pr create`, when rebase changed history: blocks and asks
+#   1. Fetches latest target branch and rebases current branch onto it, in a
+#      throwaway worktree: the checkout being pushed is never mid-rebase or
+#      detached, whatever fails and even if the hook is killed
+#   2. Checks commit count on the rebased result and blocks if >1 commit
+#      (prompts user to squash)
+#   3. If rebase changes history, moves the branch to the rebased commit and
+#      injects --force-with-lease into git push. A blocked push never moves
+#      the branch.
+#   4. For `gh pr create`, when the branch needs a rebase: blocks and asks
 #      for an explicit `git push --force-with-lease` first, so the push
 #      goes through the agent's permission system.
+#   It never rebases a branch that contains merge commits (it blocks), and
+#   blocks a push from a checkout with a rebase/merge/cherry-pick in progress.
 #
 # Exit codes:
 #   0 - Allow (optionally with modified command)
-#   2 - Block (rebase conflict, dirty working tree, or multiple commits)
+#   2 - Block (rebase conflict or failure, dirty working tree, merge commits,
+#       an operation in progress, or multiple commits); the checkout is left
+#       exactly as it was
 #
 # To skip entirely:
 #   SKIP_PRE_PUSH_PREPARE=1 git push ...
@@ -54,6 +63,17 @@ COMMAND=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""')
 # shellcheck disable=SC2034  # consumed by the sourcing hooks
 GIT_PUSH_RE='(^|[[:space:]&;|])git[[:space:]]+(-C[[:space:]]+("[^"]+"|'\''[^'\'']+'\''|[^[:space:]]+)[[:space:]]+)?push([[:space:]]|$)'
 
+# GIT_PUSH_CMD_RE: a segment (its x-masked text) whose COMMAND is the push:
+# optional prefixes (`!`, if/then/…, assignments, redirections, and
+# command/exec/time/nice/env with their options and operands; NOT `env -C/--chdir`
+# or `-S/--split-string`, which move or re-parse the command, so such a push is
+# not recognised and the hook skips it), then `git`, an
+# optional `-C <dir>`, then `push` as the subcommand, in one anchored match. The
+# resolver (_seg_is_push) and the lease (_rpr_lease_command) both select the
+# push with it, so they can never pick different segments (Codex on #34:
+# `echo git push; cd ../b && git push`).
+GIT_PUSH_CMD_RE='^[[:space:]]*((!|if|then|else|elif|while|until|do|\{|[A-Za-z_][A-Za-z0-9_]*(\[[^]]*\])?[+]?=[^[:space:]]*|[0-9]*[\<\>\&][\<\>\&]*([[:space:]]*[^[:space:]\<\>\&]+)?|(command|time)([[:space:]]+-[^[:space:]]*)*|env([[:space:]]+(-u|--unset)[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]CSu-]*u[^[:space:]]+|[[:space:]]+--?|[[:space:]]+-[^[:space:]CSu-][^[:space:]CSu]*|[[:space:]]+--(ignore-environment|null|unset=[^[:space:]]+))*|nice([[:space:]]+(-n|--adjustment)[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]*)*|exec([[:space:]]+-a[[:space:]]+[^[:space:]]+|[[:space:]]+-[^[:space:]]*)*)[[:space:]]+)*git[[:space:]]+(-C[[:space:]]+[^[:space:]]+[[:space:]]+)?push([[:space:]]|$)'
+
 # _seg_is_push <segment>
 # True when a single command segment (no shell separators) is the push:
 # a `git … push` invocation or a `gh pr create`.
@@ -61,7 +81,8 @@ _seg_is_push() {
   # the push itself: `git [-C <dir>] push`, adjacent. Any segment that merely
   # CONTAINS both words (`git commit -m "fix push"`) used to match, and a cd before
   # it then selected the wrong checkout (review finding on the estate rollout).
-  if [[ "$1" =~ $GIT_PUSH_RE ]]; then
+  # Command position only (GIT_PUSH_CMD_RE): `echo git push` mentions it.
+  if [[ "$1" =~ $GIT_PUSH_CMD_RE ]]; then
     return 0
   fi
   [[ "$1" =~ (^|[[:space:]])gh[[:space:]]+pr[[:space:]]+create([[:space:]]|$) ]]
@@ -630,18 +651,24 @@ _rpr_lease_command() {
   # Byte offsets, like _rpr_lex: under a UTF-8 locale ${s:0:j} would count
   # characters, and a multibyte earlier segment would shift the insertion.
   local LC_ALL=C
-  local s="$1" k p=-1 m pre off j c
+  local s="$1" k p=-1 m off j c
   _rpr_lex "$s"
   [[ "$RPR_BAD" == 1 ]] && return 1
+  # The push must be the segment's COMMAND, and `push` that git's subcommand, in
+  # ONE anchored match: `echo git push; git push` and `git add git push; git push`
+  # both mention the words before the real push (Codex on the rollout and #34).
+  # Prefixes: assignments, redirections (`2>/tmp/err`, `> log`), and
+  # command/exec/time/nice/env with their -options, including the ones that take
+  # the next word as a value (`env -u NAME`, `nice -n 10`, `exec -a NAME`),
+  # and Bash's `!` negation.
+  # Quoted text is already x-masked, so a quoted `-C "<dir>"` is one word here.
   for (( k = 0; k < ${#RPR_SEG[@]}; k++ )); do
-    if [[ "${RPR_MASK[k]}" =~ $GIT_PUSH_RE ]]; then p=$k; break; fi
+    if [[ "${RPR_MASK[k]}" =~ $GIT_PUSH_CMD_RE ]]; then p=$k; break; fi
   done
   (( p >= 0 )) || return 1
-  m="${RPR_MASK[p]}"
-  [[ "$m" =~ $GIT_PUSH_RE ]]
-  # the leftmost match: text before it cannot contain the same match
-  pre="${m%%"${BASH_REMATCH[0]}"*}"
-  off=$(( ${#pre} + ${#BASH_REMATCH[0]} - ${#BASH_REMATCH[4]} ))   # just past `push`
+  m="${BASH_REMATCH[0]}"
+  # anchored at the segment start, so the offset is the match minus its trailing space
+  off=${#m}; [[ "$m" == *[[:space:]] ]] && off=$((off - 1))   # just past `push`
   # the mask lacks the continuations (`\<newline>`) inside the segment
   j=$(( RPR_OFF[p] + off ))
   for c in "${RPR_CONT[@]}"; do
@@ -708,6 +735,30 @@ if ! push_root_in_scope "$ROOT"; then
 fi
 cd "$ROOT"
 
+# --- Refuse a checkout that is mid-operation -----------------------------------
+# A rebase, merge, cherry-pick or revert left in progress (before this hook
+# rebased off to the side, an interrupted run of the hook itself left exactly
+# that) is a person's to finish or undo: the hook never continues or aborts work
+# it did not start. Checked before the detached-HEAD skip below, because a
+# stopped rebase IS a detached HEAD, and pushing from it pushes whatever it holds.
+GIT_DIR_ABS=$(git rev-parse --absolute-git-dir)
+OP_IN_PROGRESS=""
+if [[ -d "$GIT_DIR_ABS/rebase-merge" || -d "$GIT_DIR_ABS/rebase-apply" ]]; then
+  OP_IN_PROGRESS=rebase
+elif [[ -f "$GIT_DIR_ABS/MERGE_HEAD" ]]; then
+  OP_IN_PROGRESS=merge
+elif [[ -f "$GIT_DIR_ABS/CHERRY_PICK_HEAD" ]]; then
+  OP_IN_PROGRESS=cherry-pick
+elif [[ -f "$GIT_DIR_ABS/REVERT_HEAD" ]]; then
+  OP_IN_PROGRESS=revert
+fi
+if [[ -n "$OP_IN_PROGRESS" ]]; then
+  echo "❌ A $OP_IN_PROGRESS is in progress in $ROOT; not pushing from it." >&2
+  echo "   Finish it (git $OP_IN_PROGRESS --continue) or undo it (git $OP_IN_PROGRESS --abort)," >&2
+  echo "   check \`git status\` shows your branch, then retry." >&2
+  exit 2
+fi
+
 # Get current branch (skip if detached HEAD). `|| true` absorbs the non-zero
 # exit from git symbolic-ref when HEAD is detached so `set -e` doesn't bail
 # before the -z guard fires.
@@ -725,13 +776,204 @@ if [[ "$CURRENT_BRANCH" == "$DEFAULT_BRANCH" ]]; then
   exit 0
 fi
 
-# --- Step 1: Fetch and Rebase ---
-
+# --- Rebasing without ever leaving the checkout mid-rebase ---------------------
+# The rebase runs in a throwaway detached worktree (SCRATCH), never in the
+# checkout being pushed. The branch moves only at the very end, with one
+# `git reset --keep`, and only when the hook is about to allow the push. So:
+#   * a conflict, a signing failure or any other rebase error leaves the
+#     developer's checkout exactly as it was (same branch, same HEAD);
+#   * every blocking check (commit count, lease placement) runs on the rebased
+#     result BEFORE the branch moves, so a blocked push changes nothing. (In
+#     place, a push blocked by the commit count had already rewritten the
+#     branch; the next push then saw nothing to rebase, got no lease, and was
+#     rejected: fundbright-web, 2026-11-22.)
+#   * when the harness kills the hook at its timeout, only the scratch worktree
+#     is lost, and a later run sweeps it. (In place, a slow post-checkout /
+#     post-rewrite hook, lefthook's devcontainer bundle-sync, ran inside the
+#     rebase, and the kill left the checkout detached in .git/rebase-merge:
+#     luminality-web, 2026-11-22.)
+# The scratch rebase runs with core.hooksPath=/dev/null: post-checkout and
+# post-rewrite hooks exist to sync the developer's checkout, and running them in
+# a directory about to be deleted only burns the timeout. Commit signing is
+# config, not a hook, so rebased commits are signed exactly as before; the
+# checkout's identity and signing settings are passed to the scratch rebase
+# explicitly (CARRY_CONFIG), because an `includeIf "onbranch:…"` that sets them
+# does not match a detached worktree (Codex on #75).
+HEAD_BEFORE=$(git rev-parse HEAD)
+REBASED=""            # rebased tip, built in SCRATCH; applied by apply_rebase
 REBASE_HAPPENED=false
+SCRATCH=""
+CHILD=""              # the scratch git command in flight (see run_child)
+# physical path, no trailing slash: `git worktree list` prints it that way
+# (macOS: TMPDIR ends in `/`, and /var is /private/var), and the sweep matches it
+SCRATCH_BASE=$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P) || SCRATCH_BASE=/tmp
+SCRATCH_PREFIX="$SCRATCH_BASE/pre-push-prepare."
+NO_HOOKS=(-c core.hooksPath=/dev/null -c rebase.updateRefs=false)
+
+cleanup_scratch() {
+  if [[ -n "$CHILD" ]]; then
+    kill "$CHILD" 2>/dev/null || true
+    wait "$CHILD" 2>/dev/null || true
+    CHILD=""
+  fi
+  [[ -n "$SCRATCH" && "$SCRATCH" == "$SCRATCH_PREFIX"* && -d "$SCRATCH" ]] || return 0
+  git -C "$SCRATCH/wt" rebase --abort >/dev/null 2>&1 || true
+  git "${NO_HOOKS[@]}" -C "$ROOT" worktree remove --force "$SCRATCH/wt" >/dev/null 2>&1 || true
+  rm -rf -- "$SCRATCH"
+  SCRATCH=""
+}
+
+# Scratch worktrees a SIGKILLed run left behind (an hour old: a live run of a
+# parallel session takes seconds). Only paths this hook itself creates.
+sweep_stale_scratch() {
+  local path dir
+  while IFS= read -r path; do
+    [[ "$path" == worktree\ * ]] || continue
+    path="${path#worktree }"
+    [[ "$path" == "$SCRATCH_PREFIX"*/wt ]] || continue
+    dir="${path%/wt}"
+    if [[ ! -d "$dir" ]] || [[ -n "$(find "$dir" -maxdepth 0 -mmin +60 2>/dev/null)" ]]; then
+      git "${NO_HOOKS[@]}" -C "$ROOT" worktree remove --force "$path" >/dev/null 2>&1 || true
+      [[ -d "$dir" ]] && rm -rf -- "$dir"
+    fi
+  done < <(git -C "$ROOT" worktree list --porcelain 2>/dev/null)
+}
+
+# run_child <log> <command…>: run a scratch git command in the background and wait
+# for it. Bash defers a trapped signal until a FOREGROUND child exits, so a
+# rebase stuck on a slow signer would keep the hook alive past the harness's
+# SIGTERM; `wait` returns as soon as the signal arrives, and the trap's exit
+# runs cleanup_scratch, which stops the child.
+run_child() {
+  local log="$1" rc=0
+  shift
+  "$@" >"$log" 2>&1 &
+  CHILD=$!
+  wait "$CHILD" || rc=$?
+  CHILD=""
+  return "$rc"
+}
+
+# carried_config: fill CARRY_CONFIG with `-c key=value` for each identity and
+# signing setting as the checkout being pushed sees it (on its branch).
+CARRY_CONFIG=()
+carried_config() {
+  local key val
+  for key in user.name user.email user.signingkey gpg.format gpg.program \
+             gpg.openpgp.program gpg.x509.program gpg.ssh.program gpg.ssh.defaultKeyCommand; do
+    if val=$(git config --get "$key" 2>/dev/null); then
+      CARRY_CONFIG+=(-c "$key=$val")
+    fi
+  done
+  if val=$(git config --type=bool --get commit.gpgsign 2>/dev/null); then
+    CARRY_CONFIG+=(-c "commit.gpgsign=$val")
+  fi
+  return 0
+}
+
+# rebase_aside <onto>: rebase HEAD_BEFORE onto <onto> in SCRATCH and set REBASED.
+# Non-zero (with the reason on stderr) when the rebase cannot complete; the
+# checkout being pushed is never touched either way.
+rebase_aside() {
+  local onto="$1" wt log conflicts
+  sweep_stale_scratch
+  SCRATCH=$(mktemp -d "${SCRATCH_PREFIX}XXXXXX") || {
+    echo "❌ Could not create a scratch directory to rebase in; nothing changed." >&2
+    return 1
+  }
+  wt="$SCRATCH/wt"; log="$SCRATCH/rebase.log"
+  if ! run_child "$log" git "${NO_HOOKS[@]}" worktree add --quiet --detach "$wt" "$HEAD_BEFORE"; then
+    echo "❌ Could not create a scratch worktree to rebase in; nothing changed:" >&2
+    sed 's/^/   /' "$log" >&2
+    return 1
+  fi
+  carried_config
+  if run_child "$log" git "${NO_HOOKS[@]}" ${CARRY_CONFIG[@]+"${CARRY_CONFIG[@]}"} -C "$wt" rebase --quiet "$onto"; then
+    REBASED=$(git -C "$wt" rev-parse HEAD)
+    return 0
+  fi
+  conflicts=$(git -C "$wt" diff --name-only --diff-filter=U 2>/dev/null || true)
+  if [[ -n "$conflicts" ]]; then
+    echo "❌ Rebasing '$CURRENT_BRANCH' onto $onto conflicts in:" >&2
+    printf '%s\n' "$conflicts" | sed 's/^/     /' >&2
+    echo "   Your checkout was not touched. Rebase it yourself, resolve, then retry:" >&2
+    echo "     git rebase $onto" >&2
+  else
+    echo "❌ Rebasing '$CURRENT_BRANCH' onto $onto failed; your checkout was not touched:" >&2
+    tail -n 15 "$log" | sed 's/^/   /' >&2
+  fi
+  return 1
+}
+
+# restore_original: put the branch and the working tree back where they were.
+restore_original() {
+  if [[ "$(git symbolic-ref -q HEAD 2>/dev/null || true)" != "refs/heads/$CURRENT_BRANCH" ]]; then
+    git checkout --quiet "$CURRENT_BRANCH" 2>/dev/null || true
+  fi
+  if [[ "$(git rev-parse HEAD 2>/dev/null || true)" != "$HEAD_BEFORE" ]]; then
+    git reset --quiet --keep "$HEAD_BEFORE" 2>/dev/null || true
+  fi
+  if [[ "$(git symbolic-ref -q HEAD 2>/dev/null || true)" != "refs/heads/$CURRENT_BRANCH" \
+        || "$(git rev-parse HEAD 2>/dev/null || true)" != "$HEAD_BEFORE" ]]; then
+    echo "   Could not restore it automatically. To get back:" >&2
+    echo "     git checkout $CURRENT_BRANCH && git reset --keep $HEAD_BEFORE" >&2
+  fi
+}
+
+# apply_rebase: move the checkout's branch to REBASED. Called only on a path
+# that then exits 0. `git reset --keep` keeps the branch checked out (it never
+# detaches) and refuses up front, changing nothing, when a file it would replace
+# has local changes or is untracked. Interrupts are ignored for these few
+# milliseconds so the move is not cut in half.
+apply_rebase() {
+  local err
+  trap '' INT TERM HUP
+  if [[ "$(git rev-parse HEAD)" != "$HEAD_BEFORE" \
+        || "$(git symbolic-ref -q HEAD || true)" != "refs/heads/$CURRENT_BRANCH" ]]; then
+    echo "❌ '$CURRENT_BRANCH' moved while the hook was rebasing it; nothing changed. Retry the push." >&2
+    exit 2
+  fi
+  if ! err=$(GIT_REFLOG_ACTION="pre-push-prepare: rebase onto origin/$DEFAULT_BRANCH" \
+             git reset --quiet --keep "$REBASED" 2>&1); then
+    echo "❌ Could not move '$CURRENT_BRANCH' to its rebased commit:" >&2
+    printf '%s\n' "$err" | sed 's/^/   /' >&2
+    restore_original
+    echo "   Your checkout is unchanged. Clear what git names above, or rebase yourself, then retry." >&2
+    exit 2
+  fi
+  if [[ "$(git rev-parse HEAD)" != "$REBASED" \
+        || "$(git symbolic-ref -q HEAD || true)" != "refs/heads/$CURRENT_BRANCH" ]]; then
+    echo "❌ '$CURRENT_BRANCH' did not land on its rebased commit; restoring it." >&2
+    restore_original
+    exit 2
+  fi
+  trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
+  echo "✅ Rebased '$CURRENT_BRANCH' onto origin/$DEFAULT_BRANCH (was $HEAD_BEFORE; undo: git reset --keep $HEAD_BEFORE)" >&2
+  # the scratch rebase skipped the repo's post-checkout / post-rewrite hooks,
+  # and `reset` runs none: say how to run them where they belong
+  local path
+  path=$(git rev-parse --git-path hooks/post-checkout 2>/dev/null || true)
+  if [[ -n "$path" && -x "$path" ]]; then
+    echo "ℹ️  The repo's post-checkout git hook did not run for this update. If it syncs dependencies:" >&2
+    echo "     git hook run post-checkout -- $HEAD_BEFORE $REBASED 1" >&2
+    return 0
+  fi
+  path=$(git rev-parse --git-path hooks/post-rewrite 2>/dev/null || true)
+  if [[ -n "$path" && -x "$path" ]]; then
+    echo "ℹ️  The repo's post-rewrite git hook did not run for this update. If it syncs dependencies:" >&2
+    echo "     echo '$HEAD_BEFORE $REBASED' | git hook run --to-stdin=/dev/stdin post-rewrite -- rebase" >&2
+  fi
+  return 0
+}
+
+# a signal now still runs the EXIT trap, so the scratch worktree is cleaned up
+trap cleanup_scratch EXIT
+trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP
+
+# --- Step 1: Fetch and Rebase (off to the side) ---
 
 echo "🔄 Fetching latest $DEFAULT_BRANCH..." >&2
 if git fetch origin "$DEFAULT_BRANCH" --quiet 2>/dev/null; then
-  HEAD_BEFORE=$(git rev-parse HEAD)
   MERGE_BASE=$(git merge-base HEAD "origin/$DEFAULT_BRANCH" 2>/dev/null || true)
   REMOTE_TIP=$(git rev-parse "origin/$DEFAULT_BRANCH" 2>/dev/null || true)
 
@@ -748,40 +990,47 @@ if git fetch origin "$DEFAULT_BRANCH" --quiet 2>/dev/null; then
       git status --short >&2
       exit 2
     fi
-    echo "🔄 Rebasing onto origin/$DEFAULT_BRANCH..." >&2
-    if git rebase --quiet "origin/$DEFAULT_BRANCH" >&2; then
-      HEAD_AFTER=$(git rev-parse HEAD)
-      if [[ "$HEAD_BEFORE" != "$HEAD_AFTER" ]]; then
-        REBASE_HAPPENED=true
-        echo "✅ Rebased successfully onto origin/$DEFAULT_BRANCH" >&2
-      fi
-    else
-      git rebase --abort 2>/dev/null || true
-      echo "❌ Rebase failed due to conflicts. Resolve manually before pushing." >&2
+    # A branch that merged the default branch in chose merging over rebasing.
+    # Rebasing it would silently flatten those merges into rewritten history
+    # (and need a force push); that is the developer's call, not this hook's.
+    if [[ -n "$(git rev-list --merges "$MERGE_BASE..HEAD" 2>/dev/null)" ]]; then
+      echo "❌ '$CURRENT_BRANCH' is behind origin/$DEFAULT_BRANCH and contains merge commits." >&2
+      echo "   The hook will not flatten them into a rebase. Update it yourself, then retry:" >&2
+      echo "     git merge origin/$DEFAULT_BRANCH     # keep merging" >&2
+      echo "     git rebase origin/$DEFAULT_BRANCH    # or rewrite as a linear branch" >&2
       exit 2
+    fi
+    echo "🔄 Rebasing onto origin/$DEFAULT_BRANCH (in a scratch worktree)..." >&2
+    rebase_aside "origin/$DEFAULT_BRANCH" || exit 2
+    if [[ "$REBASED" != "$HEAD_BEFORE" ]]; then
+      REBASE_HAPPENED=true
     fi
   fi
 else
   echo "⚠️  Could not fetch origin/$DEFAULT_BRANCH (network?), skipping rebase" >&2
 fi
 
-# --- Step 2: Commit Count Check ---
+# --- Step 2: Commit Count Check (on the rebased result) ---
 
-COMMIT_COUNT=$(git rev-list --count "origin/$DEFAULT_BRANCH..HEAD" 2>/dev/null || echo "0")
+TIP="${REBASED:-$HEAD_BEFORE}"
+COMMIT_COUNT=$(git rev-list --count "origin/$DEFAULT_BRANCH..$TIP" 2>/dev/null || echo "0")
 
 if [[ "$COMMIT_COUNT" -gt 1 ]]; then
   if [[ "${ALLOW_MULTIPLE_COMMITS:-}" != "1" ]] && [[ ! "$COMMAND" == ALLOW_MULTIPLE_COMMITS=1* ]]; then
     echo "" >&2
     echo "📊 Branch '$CURRENT_BRANCH' has $COMMIT_COUNT commits ahead of $DEFAULT_BRANCH:" >&2
-    git log --oneline "origin/$DEFAULT_BRANCH..HEAD" >&2
+    git log --oneline "origin/$DEFAULT_BRANCH..$TIP" >&2
     echo "" >&2
     echo "Consider squashing into a single commit before pushing." >&2
     echo "To proceed with multiple commits: ALLOW_MULTIPLE_COMMITS=1 git push ..." >&2
+    [[ "$REBASE_HAPPENED" == "true" ]] && echo "(The branch was not rebased; the hook rebases it on the next push.)" >&2
     exit 2
   fi
 fi
 
-# --- Step 3: Handle Rebase Side-Effects ---
+# --- Step 3: Apply the rebase and handle its side effects ---
+# Every block happens before apply_rebase, so a blocked push leaves the branch
+# where it was.
 
 if [[ "$REBASE_HAPPENED" == "true" ]]; then
   if [[ "$IS_GIT_PUSH" == "true" ]]; then
@@ -792,10 +1041,11 @@ if [[ "$REBASE_HAPPENED" == "true" ]]; then
       # insert after the `push` of the push segment the resolver acted on,
       # including the `git -C <dir> push` form (review findings; agent-estate#23)
       if ! MODIFIED_COMMAND=$(_rpr_lease_command "$COMMAND"); then
-        echo "❌ Rebase changed history, but --force-with-lease could not be placed." >&2
-        echo "   Push with it explicitly: git push --force-with-lease origin $CURRENT_BRANCH" >&2
+        echo "❌ '$CURRENT_BRANCH' needs a rebase onto origin/$DEFAULT_BRANCH, but --force-with-lease could not be placed in this command." >&2
+        echo "   Nothing changed. Push with it explicitly (the hook rebases first): git push --force-with-lease origin $CURRENT_BRANCH" >&2
         exit 2
       fi
+      apply_rebase
       echo "🔄 Injecting --force-with-lease (rebase changed history)" >&2
       jq -n --arg cmd "$MODIFIED_COMMAND" '{
         "hookSpecificOutput": {
@@ -807,12 +1057,15 @@ if [[ "$REBASE_HAPPENED" == "true" ]]; then
       }'
       exit 0
     fi
+    apply_rebase
+    exit 0
   fi
 
   if [[ "$IS_GH_PR_CREATE" == "true" ]]; then
     # Pushing from inside the hook would bypass the agent's permission
-    # prompt, so block and ask for an explicit push instead.
-    echo "🔄 Rebase changed history. Push the branch first, then retry:" >&2
+    # prompt, so block and ask for an explicit push instead. The push's own
+    # run of this hook rebases the branch; this one leaves it untouched.
+    echo "🔄 '$CURRENT_BRANCH' is behind origin/$DEFAULT_BRANCH. Push it first (the hook rebases it), then retry:" >&2
     echo "   git push --force-with-lease origin $CURRENT_BRANCH" >&2
     exit 2
   fi

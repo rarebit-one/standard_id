@@ -86,6 +86,16 @@ fi
 
 # We're in the main checkout — block
 echo "❌ Blocked: Cannot modify files in the main checkout." >&2
-echo "   Create a worktree first: /worktree or /start <issue>" >&2
+TOP=$(cd "$CHECK_DIR" && git rev-parse --show-toplevel 2>/dev/null) || TOP="<repo>"
+# The launcher sits beside this hook in agent-estate; hooks reach us through symlinks.
+_src=${BASH_SOURCE[0]}
+while [ -L "$_src" ]; do
+  _dir=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
+  case $_src in /*) ;; *) _src=$_dir/$_src ;; esac
+done
+EWT=$(cd -P "$(dirname "$_src")/.." 2>/dev/null && pwd)/bin/estate-wt
+command -v estate-wt >/dev/null 2>&1 && EWT=estate-wt
+echo "   Create a worktree first, then edit there:" >&2
+echo "     $EWT -C $TOP new <slug>     (prints the new worktree's path)" >&2
 echo "   File: $FILE_PATH" >&2
 exit 2
