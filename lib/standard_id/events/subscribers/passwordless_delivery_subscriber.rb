@@ -4,9 +4,10 @@ module StandardId
       # Built-in OTP email delivery (`c.passwordless.delivery = :built_in`).
       #
       # Sign-in codes (realm "authentication") get PasswordlessMailer#otp_email;
-      # every other realm — WebEngine email verification, Otp.issue step-up /
-      # contact verification — gets #verification_email, so a verification code
-      # never arrives as "your sign-in code". There is no built-in SMS delivery.
+      # step-up codes (realm `c.step_up.realm`) get #step_up_email; every other
+      # realm — WebEngine email verification, Otp.issue contact verification —
+      # gets #verification_email, so neither arrives as "your sign-in code".
+      # There is no built-in SMS delivery.
       #
       # On a successful enqueue it marks the code challenge
       # (CodeChallenge#built_in_delivered), which is how the strategy knows to
@@ -65,7 +66,11 @@ module StandardId
         private
 
         def mailer_action(realm)
-          realm.blank? || realm.to_s == StandardId::Passwordless::DEFAULT_REALM ? :otp_email : :verification_email
+          case realm.to_s
+          when "", StandardId::Passwordless::DEFAULT_REALM then :otp_email
+          when StandardId::StepUp.realm then :step_up_email
+          else :verification_email
+          end
         end
 
         def expires_in_minutes(expires_at)

@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f5f5f5; margin: 0; padding: 0; }
+    .container { max-width: 480px; margin: 40px auto; background-color: #ffffff; border-radius: 8px; padding: 40px; }
+    .code { font-size: 32px; font-weight: bold; letter-spacing: 8px; text-align: center; padding: 20px; background-color: #f0f0f0; border-radius: 6px; margin: 24px 0; font-family: monospace; }
+    .footer { margin-top: 32px; font-size: 13px; color: #888888; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <p><%= otp_copy(:greeting) %></p>
+    <p><%= otp_copy(:intro) %></p>
+    <div class="code"><%= @otp_code %></div>
+    <p><%= otp_copy(:expiry, count: @expires_in_minutes) %></p>
+    <p><%= otp_copy(:warning) %></p>
+    <div class="footer">
+      <p><%= otp_copy(:footer) %></p>
+    </div>
+  </div>
+</body>
+</html>

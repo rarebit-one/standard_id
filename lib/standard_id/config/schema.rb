@@ -417,8 +417,9 @@ StandardId::ConfigSchema.define do
     field :realm, type: :string, default: "step_up"
     # How the code is delivered (StandardId::Otp delivery modes):
     #   :built_in — (default) follow c.passwordless.delivery: the engine's
-    #               PasswordlessMailer when that is :built_in, else your
-    #               PASSWORDLESS_CODE_GENERATED subscriber (realm "step_up")
+    #               PasswordlessMailer#step_up_email when that is :built_in,
+    #               else your PASSWORDLESS_CODE_GENERATED subscriber (realm
+    #               "step_up")
     #   :custom   — always your subscriber, so the message can say why
     field :delivery, type: :symbol, default: :built_in
     # Also ask for the password when the account has one. Off only for hosts

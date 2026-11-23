@@ -1,0 +1,12 @@
+<%= otp_copy(:greeting) %>
+
+<%= otp_copy(:intro) %>
+
+  <%= @otp_code %>
+
+<%= otp_copy(:expiry, count: @expires_in_minutes) %>
+
+<%= otp_copy(:warning) %>
+
+--
+<%= otp_copy(:footer) %>

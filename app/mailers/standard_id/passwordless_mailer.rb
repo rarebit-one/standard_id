@@ -3,10 +3,13 @@ module StandardId
   # when `c.passwordless.delivery = :built_in`.
   #
   # * #otp_email — the sign-in code (realm "authentication").
+  # * #step_up_email — the step-up code (realm `c.step_up.realm`, default
+  #   "step_up"): an account that is already signed in confirming a sensitive
+  #   action. It tells the recipient what to do if that wasn't them.
   # * #verification_email — every other realm: WebEngine verify_email/start
   #   (realm "verification") and `Otp.issue(realm: ...)` for contact
-  #   verification, step-up and the like. It must not tell the recipient the
-  #   code is for signing in.
+  #   verification and the like. It must not tell the recipient the code is
+  #   for signing in.
   #
   # Copy lives under `standard_id.passwordless_mailer.<action>.*` in
   # config/locales/en.yml; override any key in the host's locale files, or
@@ -37,6 +40,21 @@ module StandardId
     # @param realm [String, nil] the OTP realm, available to overriding templates
     # @param expires_in_minutes [Integer, nil] defaults to passwordless.code_ttl
     def verification_email
+      assign_otp_params
+      @realm = params[:realm]
+
+      mail(
+        to: @email,
+        from: StandardId.config.passwordless.mailer_from,
+        subject: otp_copy(:subject)
+      )
+    end
+
+    # @param email [String]
+    # @param otp_code [String]
+    # @param realm [String, nil] the OTP realm, available to overriding templates
+    # @param expires_in_minutes [Integer, nil] defaults to passwordless.code_ttl
+    def step_up_email
       assign_otp_params
       @realm = params[:realm]
 

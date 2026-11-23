@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Built-in step-up e-mail (unreleased)](#built-in-step-up-e-mail-unreleased)
 - [Upgrading to 0.62: what to do](#upgrading-to-062-what-to-do)
 - [Step-up authentication (0.62, opt-in)](#step-up-authentication-062-opt-in)
 - [Password pepper (0.62, opt-in)](#password-pepper-062-opt-in)
@@ -16,6 +17,27 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Built-in step-up e-mail (unreleased)
+
+Nothing to do unless you use step-up with built-in delivery
+(`c.step_up.delivery = :built_in`, the default, and
+`c.passwordless.delivery = :built_in`). In 0.62 the step-up code went out as
+the generic `PasswordlessMailer#verification_email` ("Your verification
+code"). It now goes out as `PasswordlessMailer#step_up_email` ("Confirm it's
+you"), which says the user is confirming a sensitive action while already
+signed in, when the code expires, and what to do if it wasn't them.
+
+- If you had customised `standard_id.passwordless_mailer.verification_email.*`
+  or its templates with step-up in mind, move that copy to
+  `standard_id.passwordless_mailer.step_up_email.*` (keys `subject`,
+  `greeting`, `intro`, `expiry`, `warning`, `footer`) or to
+  `app/views/standard_id/passwordless_mailer/step_up_email.{html,text}.erb`.
+- With `c.step_up.delivery = :custom` nothing changes: the engine sends
+  nothing, and your `PASSWORDLESS_CODE_GENERATED` subscriber gets the realm
+  (`c.step_up.realm`, default `"step_up"`) in the payload as before.
 
 ---
 
@@ -79,6 +101,18 @@ What changes only once you enable it:
 - Sessions and refresh tokens from before the migration carry no time, so
   their holders step up once before a guarded action. So does any
   remember-me session, by design.
+- **Implicit-flow tokens (`response_type=token`) carry no `auth_time`, so
+  they must step up before every guarded action**, however recently the user
+  signed in. This is deliberate. If a client still uses the implicit flow,
+  move it to the authorization code flow with PKCE, whose tokens carry the
+  browser session's sign-in time.
+- **Refreshed access tokens keep the original sign-in's `auth_time`**; a
+  refresh never makes a token more recent. An API step-up returns one access
+  token with `auth_time` set to now and no refresh token, so a step-up stays
+  recent for about one access-token lifetime
+  (`oauth.token_lifetimes[:step_up]`, else the default). After the client
+  refreshes, it holds the old sign-in time again and steps up again for the
+  next guarded action outside `within:` of that sign-in.
 
 Host code that wraps or replaces `StandardId::Oauth::OauthSessionPersistence.persist!`
 should accept its new `authenticated_at:` keyword. The testing helper `create_browser_session` now stamps
