@@ -43,6 +43,25 @@
 #      (unterminated quote, unbalanced `$(`, unresolvable `~user`/`$VAR` cd
 #      target). Fail closed: an over-block on an exotic command is much cheaper
 #      than letting a real write through.
+#   4. Anything that makes bash do something other than what this guard models,
+#      while a main checkout is in play (2026-11-23): eval, readonly /
+#      declare|typeset|local -r, trap 'CMD', alias, enable, set -r, shopt
+#      cdable_vars, and function definitions. Function/alias/enable/set -r also
+#      make the working directory unknown for the rest of the line, so relative
+#      writes after them block anywhere.
+#
+# Ambiguity is unresolved, and unresolved fails closed (2026-11-23):
+#   * a `$` that was quoted ('$D', \$D, "\$D") is literal: the word is
+#     unresolvable, never D's value. $'…' and $"…" strings are unresolvable too;
+#   * an unresolvable path whose literal start is inside a main checkout
+#     (`<main>/$X`) blocks from anywhere;
+#   * every reading of ${D:-w} / ${D=w} / ${D:+w} … is judged, and ${D:=w} /
+#     ${D=w} assign D wherever they appear (arguments, redirections,
+#     here-strings, unquoted heredoc bodies);
+#   * values set by set --, printf -v, read <<< and for loops are judged;
+#   * a cd whose target does not exist (and was not made by mkdir or git
+#     worktree add on the line) may fail, leaving the shell where it was; so do
+#     `cd -` and `popd` return there, and CDPATH is followed.
 #
 # What it deliberately does NOT block:
 #   * pristine-RESTORING commands (git checkout HEAD -- ., git restore,
@@ -57,7 +76,11 @@
 #   * an opaque command name (`$(which rsync) …`) is not resolved — but its
 #     substitution IS analysed, and its destination paths are still checked;
 #   * remote execution (`ssh host rsync …`) is out of scope;
-#   * `dd of=…`, `touch`, and editors are not treated as writers.
+#   * `dd of=…`, `touch`, and editors are not treated as writers;
+#   * values that only exist at run time (read from a file, $(…)) are
+#     unresolvable: they block in a main checkout, not elsewhere;
+#   * aliases and functions inherited from the user's shell are not visible,
+#     and CDPATH is read from this hook's environment.
 #
 # Requires bash 3.2 (macOS /bin/bash). No bash-4 features (no mapfile, no
 # associative arrays, no ${arr[-1]}).
@@ -102,6 +125,30 @@ RET=""
 RETUNRES=0
 RETDANGER=0
 RETCOUNT=0
+RETP=""          # _dest_risk: the path it judged
+RETWHY=""        # _dest_risk: why it judged it so (appended to block messages)
+ALTS=()          # _alt_candidates: the readings of a word
+
+# bash 5.2 makes `&` in a ${var//pat/rep} replacement mean "the match"; every
+# replacement below means a literal string.
+shopt -u patsub_replacement 2>/dev/null || true
+
+# Placeholders the lexer leaves in a word where quoting decided what bash will
+# do. Each contains a `$`, so any word holding one reads as unresolvable (fail
+# closed) everywhere a path is judged. _script_text turns them back into shell
+# text for eval / bash -c / trap / alias, which re-parse their argument.
+LITD='${__literal_dollar__}'     # a `$` that was quoted or escaped: a literal $
+QMARK='${__quoted_string__}'     # after a $'…' or $"…" string (decoded in full)
+QLOST='${__undecoded_escape__}'  # a $'…' escape left undecoded; the rest of it is lost
+BQ=0             # >0 while lexing inside backticks, where \$ is NOT literal
+
+# The line does something this guard cannot follow (eval, readonly, a function
+# definition, …): block when a main checkout is in play. Holds the reason.
+UNMOD_WHY=""
+POS_DANGER=0     # positional parameters ($1, $@, …) may hold a main-checkout path
+FN_SEEN=0        # a function/alias/enable may have changed what cd and friends do
+CDPATH_TAINT=0   # CDPATH is mentioned on this line: its value is not the inherited one
+CREATED=()       # directories mkdir / git worktree add create on this line
 
 _expand_path() { # $1 -> RET (expanded), RETUNRES=1 when it cannot be resolved
   local p="$1"
@@ -175,21 +222,134 @@ _var_poison() { # $1 name, [$2 a candidate raw value] -> unknown from here on
   # including a main-checkout path, so it becomes DANGER outright. _var_set
   # clears this again when the change turns out to be a definite re-binding.
   if _var_get "$1"; then _var_is_danger "$1" || VAR_D+=("$1"); fi
-  if [[ -n "${2:-}" ]]; then
-    local cand="$2"
-    if [[ "$cand" == *'$'* ]]; then
-      # Quote loss means this can't be cached as definite, but known variables
-      # in it still say where it may point (D=$ROOT, D=${ROOT%/}).
-      RETDANGER=0; _subst_vars "$cand"; cand="$RET"
-      if [[ "$RETDANGER" == "1" ]]; then _var_is_danger "$1" || VAR_D+=("$1"); cand=""; fi
-    fi
-    case "$cand" in
-      '~'|'~/'*) _expand_path "$cand"; _mark_danger_if_main "$1" "$RET" ;;
-      ''|*'$'*|'~'*|*':~'*) ;;   # can't evaluate: stays plain unresolvable
-      *) _abs_path "$cand" "$CURDIR"; [[ "$RETUNRES" == "1" ]] || _mark_danger_if_main "$1" "$RET" ;;
-    esac
-  fi
+  # A candidate value that may point into a main checkout — directly, through a
+  # known variable (D=$ROOT, D=${ROOT%/}), through a default (D=${X:-<main>}),
+  # or with an unresolvable part under one (D=<main>/$X) — makes it DANGER.
+  if [[ -n "${2:-}" ]] && _value_risky "$2"; then _var_is_danger "$1" || VAR_D+=("$1"); fi
   _forget "$1"
+}
+
+# Every reading of a word bash may produce: the word itself, plus each
+# ${NAME:-w} / ${NAME-w} / ${NAME:=w} / ${NAME=w} / ${NAME:+w} / ${NAME+w}
+# with w in its place (innermost first, so nested defaults unwind).
+_alt_candidates() { # $1 word -> ALTS
+  ALTS=("$1")
+  local i=0 s
+  local re='^(.*)\$\{([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*#?$!-])(\[[^]]*\])?:?([-=+])([^}]*)\}(.*)$'
+  while (( i < ${#ALTS[@]} && ${#ALTS[@]} < 16 )); do
+    s="${ALTS[i]}"
+    if [[ "$s" == *'${'* && "$s" =~ $re ]]; then
+      ALTS+=("${BASH_REMATCH[1]}${BASH_REMATCH[5]}${BASH_REMATCH[6]}")
+    fi
+    i=$((i + 1))
+  done
+}
+
+# Judge one reading of a path. RET: danger (a variable in it may point into a
+# main checkout), main (it, or the literal directory before its first
+# unresolvable part, is in one), unres (unresolvable, nothing known under a main
+# checkout), or safe.
+_dest_risk() { # $1 word, $2 base dir -> RET, RETP, RETWHY
+  local e unres p q
+  RETWHY=""
+  _expand_path "$1"; e="$RET"; unres="$RETUNRES"
+  if [[ "$RETDANGER" == "1" ]]; then RET=danger; RETP="$2"; return 0; fi
+  p="$e"; [[ "$p" != /* ]] && p="$2/$p"
+  RETP="$p"
+  if [[ "$unres" == "1" ]]; then
+    # `<main>/$X`, `'<main>/$D'`: whatever the unresolvable part turns out to
+    # be, it starts inside the main checkout.
+    q="${p%%\$*}"
+    if [[ "$q" == */* ]]; then
+      q="${q%/*}"; [[ -z "$q" ]] && q=/
+      if [[ "$q" != "$2" ]] && _dir_is_main "$q"; then
+        RET=main; RETP="$q"; RETWHY=" (its unresolvable part is under a main checkout)"; return 0
+      fi
+    fi
+    RET=unres; return 0
+  fi
+  if _dir_is_main "$p"; then RET=main; return 0; fi
+  RET=safe
+}
+
+_value_risky() { # $1 value -> 0 when some reading of it may point into a main checkout
+  local -a alts
+  local a
+  _alt_candidates "$1"; alts=("${ALTS[@]}")
+  for a in "${alts[@]}"; do
+    [[ -z "$a" ]] && continue
+    _dest_risk "$a" "$CURDIR"
+    [[ "$RET" == main || "$RET" == danger ]] && return 0
+  done
+  return 1
+}
+
+# ${NAME:=w} / ${NAME=w} assign NAME in this shell wherever they are expanded:
+# an argument, a redirection target, a here-string, an unquoted heredoc body.
+# ${!N:=w} assigns a variable named by N's value: drop every binding.
+_scan_default_assigns() { # $@ words
+  local wd rest bang nm val
+  local re='\$\{(!?)([A-Za-z_][A-Za-z0-9_]*)(\[[^]]*\])?:?=([^}]*)\}?(.*)$'
+  for wd in "$@"; do
+    [[ "$wd" == *'${'* ]] || continue
+    rest="$wd"
+    while [[ "$rest" =~ $re ]]; do
+      bang="${BASH_REMATCH[1]}" nm="${BASH_REMATCH[2]}" val="${BASH_REMATCH[4]}" rest="${BASH_REMATCH[5]}"
+      if [[ -n "$bang" ]]; then _var_clear_all; continue; fi
+      _var_poison "$nm" "$val"
+    done
+  done
+  return 0
+}
+
+_unmodelled() { # $1 why -> remember the first reason this line can't be followed
+  [[ -z "$UNMOD_WHY" ]] && UNMOD_WHY="$1"
+  return 0
+}
+
+# A function definition, an alias or `enable` can change what any later command
+# does, cd included: from here on the working directory is unknown (relative
+# writes block) and no binding is trusted.
+_fn_taint() {
+  FN_SEEN=1; DIR_UNRESOLVED=1; DIR_DANGER=1
+  _var_clear_all
+}
+
+_script_text() { # $1 lexed word -> RET: the text eval / bash -c / trap re-parse
+  local s="$1" d='$'
+  if [[ "$s" == *"$QLOST"* ]]; then PARSE_ERROR=1; s="${s//"$QLOST"/}"; fi
+  s="${s//"$QMARK"/}"
+  RET="${s//"$LITD"/$d}"
+}
+
+# Code that runs LATER (a trap handler, an alias's text): judge its writes, but
+# do not let its cd or assignments change the state the rest of the line is
+# judged in. Trap handlers are judged again at the end, in the line's final
+# state (an EXIT handler runs then).
+DEFERRED=()
+_analyze_deferred() { # $1 shell text
+  local sdir="$CURDIR" sunres="$DIR_UNRESOLVED" sdanger="$DIR_DANGER"
+  local salt="$DIR_ALT" sguard="$ALT_GUARD" sold="$OLD_CUR"
+  local snc="$NEXT_COND" snp="$NEXT_PIPE"
+  local -a sstk=("${DIRSTK[@]}") svk=("${VAR_K[@]}") svv=("${VAR_V[@]}")
+  _analyze_text "$1"
+  CURDIR="$sdir"; DIR_UNRESOLVED="$sunres"; DIR_DANGER="$sdanger"
+  DIR_ALT="$salt"; ALT_GUARD="$sguard"; OLD_CUR="$sold"
+  NEXT_COND="$snc"; NEXT_PIPE="$snp"
+  DIRSTK=("${sstk[@]}"); VAR_K=("${svk[@]}"); VAR_V=("${svv[@]}")
+  return 0
+}
+
+_was_created() { # $1 absolute path -> 0 when mkdir / git worktree add made it (or below it)
+  local c
+  for c in "${CREATED[@]}"; do
+    [[ "$c" == "$1" || "$c" == "$1"/* ]] && return 0
+  done
+  return 1
+}
+
+_alt_active() { # -> 0 when a cd that may have failed could have left us in DIR_ALT
+  [[ -n "$DIR_ALT" && "$ALT_GUARD" == "0" ]]
 }
 
 # Variables bash itself writes (BASH_REMATCH after =~, REPLY after read, PWD
@@ -252,6 +412,8 @@ _poison_mentions() { # $@ words
     if [[ "$wd" == *'$'* ]]; then _subst_vars "$wd"; [[ "$RET" == "$wd" ]] || all+=("$RET"); fi
   done
   for wd in "${all[@]}"; do
+    # Any mention: cd stops trusting the inherited CDPATH (a binding still wins).
+    [[ "$wd" == *CDPATH* ]] && CDPATH_TAINT=1
     if [[ "$wd" =~ ^([A-Za-z_][A-Za-z0-9_]*)\+=(.*)$ ]]; then
       nm="${BASH_REMATCH[1]}"
       # NAME+=lit: the new value is the old one with lit appended (or just lit
@@ -300,6 +462,9 @@ _assign() { # $1 NAME=value word, $2 mode
 
 _subst_vars() { # $1 string -> RET with known $NAME / ${NAME} substituted
   local s="$1" out="" name pre whole post
+  # `set -- <main>` makes $1 / $@ / ${1} point into a main checkout.
+  local posre='\$\{?[0-9@*]'
+  if [[ "$POS_DANGER" == "1" && "$s" =~ $posre ]]; then RETDANGER=1; fi
   # Extended forms (${D%/}, ${D/x/y}, ${#D}, ${!D}, ${D:-x}) are not resolved;
   # they can rewrite a bound path anywhere, so one over a bound or DANGER name
   # is DANGER (blocks wherever the command runs).
@@ -386,8 +551,14 @@ BLOCK_WHERE=""
 _block() { # $1 what, $2 where
   [[ "$BLOCKED" == "1" ]] && return 0
   BLOCKED=1
-  BLOCK_WHAT="$1"
+  _shown "$1"; BLOCK_WHAT="$RET"
   BLOCK_WHERE="$2"
+}
+
+_shown() { # $1 text -> RET with the lexer's placeholders written back as shell text
+  local s="$1" lit='\$'
+  s="${s//"$LITD"/$lit}"; s="${s//"$QLOST"/…}"; s="${s//"$QMARK"/}"
+  RET="${s//"$CMDSUB"/\$(…)}"
 }
 
 # --- lexer state ------------------------------------------------------------
@@ -409,6 +580,14 @@ HD=()            # pending heredoc delimiters for the current line
 CURDIR="$PWD"
 DIR_UNRESOLVED=0
 DIR_DANGER=0     # the unresolved cd target was a DANGER variable
+# A `cd` whose target does not exist fails in bash, leaving the shell where it
+# was. DIR_ALT is that earlier directory; ALT_GUARD=1 while the commands being
+# inspected run only if the cd succeeded (`cd X && …`). OLD_CUR is what `cd -`
+# returns to, DIRSTK what `popd` pops ("?" for an unknown directory).
+DIR_ALT=""
+ALT_GUARD=0
+OLD_CUR=""
+DIRSTK=()
 PARSE_ERROR=0
 DEPTH=0
 STEPS=0
@@ -469,8 +648,13 @@ _read_dq() {
           C=$((C + 1)); break            # line continuation
         fi
         case "$nx" in
-          '"'|'\'|'$'|'`') out="$out$nx"; C=$((C + 2)); continue ;;
-          *)               out="$out$ch"; C=$((C + 1)); continue ;;
+          '$')
+            # A literal $ — except inside backticks, which strip the backslash
+            # before the inner command is parsed (so it expands there).
+            if (( BQ > 0 )); then out="$out$nx"; else out="$out$LITD"; fi
+            C=$((C + 2)); continue ;;
+          '"'|'\'|'`') out="$out$nx"; C=$((C + 2)); continue ;;
+          *)           out="$out$ch"; C=$((C + 1)); continue ;;
         esac
       fi
       if [[ "$ch" == '"' ]]; then C=$((C + 1)); RET="$out"; return; fi
@@ -481,7 +665,8 @@ _read_dq() {
         continue
       fi
       if [[ "$ch" == '`' ]]; then
-        C=$((C + 1)); _lex_context '`'; line="${LINES[L]}"; out="$out$CMDSUB"; continue
+        C=$((C + 1)); BQ=$((BQ + 1)); _lex_context '`'; BQ=$((BQ - 1))
+        line="${LINES[L]}"; out="$out$CMDSUB"; continue
       fi
       out="$out$ch"; C=$((C + 1))
     done
@@ -490,6 +675,53 @@ _read_dq() {
       L=$((L + 1)); C=0
     fi
   done
+}
+
+# Read a $'…' string starting at C (just past the opening quote). Unlike '…',
+# a backslash escapes the quote ($'it\'s'). Simple escapes are decoded; at the
+# first one that is not (\x41, \u…, octal, \cX) the rest of the string is
+# lost (QLOST). The result always ends in QMARK, so as a path it stays
+# unresolvable: only its literal start can be judged.
+_read_ansi() {
+  local out="" lost=0 line ch nx
+  while :; do
+    if (( L >= ${#LINES[@]} )); then PARSE_ERROR=1; break; fi
+    line="${LINES[L]}"
+    while (( C < ${#line} )); do
+      ch="${line:C:1}"
+      if [[ "$ch" == "'" ]]; then
+        C=$((C + 1))
+        out="${out//\$/$LITD}"
+        if (( lost )); then RET="$out$QLOST$QMARK"; else RET="$out$QMARK"; fi
+        return
+      fi
+      if [[ "$ch" == '\' ]]; then
+        nx="${line:$((C + 1)):1}"
+        C=$((C + 2))
+        (( lost )) && continue
+        case "$nx" in
+          "'"|'"'|'\'|'?') out="$out$nx" ;;
+          n) out="$out"$'\n' ;;
+          t) out="$out"$'\t' ;;
+          r) out="$out"$'\r' ;;
+          a) out="$out"$'\a' ;;
+          b) out="$out"$'\b' ;;
+          e|E) out="$out"$'\033' ;;
+          f) out="$out"$'\f' ;;
+          v) out="$out"$'\v' ;;
+          '') C=$((C - 1)); lost=1 ;;        # backslash at end of line
+          *) lost=1 ;;
+        esac
+        continue
+      fi
+      (( lost )) || out="$out$ch"
+      C=$((C + 1))
+    done
+    (( lost )) || out="$out"$'\n'
+    L=$((L + 1)); C=0
+  done
+  out="${out//\$/$LITD}"
+  RET="$out$QLOST$QMARK"
 }
 
 # Read a heredoc delimiter word starting at C; push it onto HD.
@@ -536,8 +768,10 @@ _consume_heredocs() {
       i=$((i + 1))
       if [[ "$ln" == "$d" || "$trimmed" == "$d" ]]; then break; fi
       # An UNQUOTED delimiter means the body expands: $(…) and `…` in it RUN.
+  # (_end_word keeps here-strings and input redirections for the same reason.)
       # Queue those lines to be lexed like a double-quoted string.
-      if [[ "$kind" == "U" && ( "$ln" == *'$('* || "$ln" == *'`'* ) ]]; then
+      # ${D:=…} in such a body assigns D, so those lines are lexed too.
+      if [[ "$kind" == "U" && ( "$ln" == *'$('* || "$ln" == *'`'* || "$ln" == *'${'* ) ]]; then
         bodies+=("$ln")
       fi
     done
@@ -556,6 +790,8 @@ _consume_heredocs() {
 
 IC_WORDS=()
 IC_REDIRS=()
+IC_OTHER=()      # input redirection targets (`< file`): read, but still expanded
+IC_HSTR=()       # here-string words (`<<< word`)
 
 # Stands in for a $(…) / `…` inside a word. Its value is only known at run time,
 # so the word must read as unresolvable (it contains a '$'), never as the empty
@@ -576,8 +812,7 @@ _check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argum
   if [[ "$kind" == "remote" && "$raw" =~ ^[^/]*: ]]; then
     return 0                                  # host:path — not this machine
   fi
-  _abs_path "$raw" "$CURDIR"
-  local p="$RET"
+  _expand_path "$raw"
   if [[ "$RETDANGER" == "1" ]]; then
     _block "write to '$raw', whose variable may point into a main checkout" "$CURDIR"
     return 0
@@ -586,18 +821,40 @@ _check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argum
     _block "relative write after cd to a directory that may be a main checkout ('$raw')" "$CURDIR"
     return 0
   fi
-  if [[ "$RETUNRES" == "1" ]]; then
+  # Judge every reading of the word (defaults like ${D:-<main>} included),
+  # against the working directory and, after a cd that may have failed,
+  # against the directory the shell may still be in.
+  local -a alts bases
+  local a b unres=0
+  _alt_candidates "$raw"; alts=("${ALTS[@]}")
+  bases=("$CURDIR"); _alt_active && bases+=("$DIR_ALT")
+  for a in "${alts[@]}"; do
+    for b in "${bases[@]}"; do
+      _dest_risk "$a" "$b"
+      case "$RET" in
+        danger)
+          _block "write to '$raw', whose variable may point into a main checkout" "$CURDIR"
+          return 0 ;;
+        main)
+          if [[ "$b" == "$CURDIR" ]]; then
+            _block "write to '$raw'$RETWHY" "$RETP"
+          else
+            _block "write to '$raw' after a cd that may have failed (its target does not exist)$RETWHY" "$RETP"
+          fi
+          return 0 ;;
+        unres) unres=1 ;;
+      esac
+    done
+  done
+  if (( unres )); then
     # Unresolvable variable in the path. If we are sitting in a main checkout a
     # relative/unknown target may well land in it — fail closed. Elsewhere the
     # risk is speculative, so allow.
-    if _dir_is_main "$CURDIR"; then
+    if _dir_is_main "$CURDIR" || { _alt_active && _dir_is_main "$DIR_ALT"; }; then
       _block "write to an unresolvable destination ('$raw')" "$CURDIR"
     fi
-    return 0
   fi
-  if _dir_is_main "$p"; then
-    _block "write to '$raw'" "$p"
-  fi
+  return 0
 }
 
 _block_if_cwd_main() { # $1 what — a content-introducing command run in CWD
@@ -608,7 +865,82 @@ _block_if_cwd_main() { # $1 what — a content-introducing command run in CWD
   fi
   if _dir_is_main "$CURDIR"; then
     _block "$what" "$CURDIR"
+  elif _alt_active && _dir_is_main "$DIR_ALT"; then
+    _block "$what (after a cd that may have failed: its target does not exist)" "$DIR_ALT"
   fi
+}
+
+# Change the modelled working directory the way `cd <target>` / `pushd <target>`
+# would.
+_cd_to() { # $1 target word
+  local target="$1" old="$CURDIR" oldun="$DIR_UNRESOLVED" olddg="$DIR_DANGER"
+  local e unres danger p a risky=0 viacdp="" cdp known ent
+  local -a alts ents
+  # A reading other than the word itself (cd "${D:-<main>}"), or an
+  # unresolvable part under a main checkout, may put us in a main checkout.
+  _alt_candidates "$target"; alts=("${ALTS[@]}")
+  for a in "${alts[@]}"; do
+    _dest_risk "$a" "$CURDIR"
+    [[ "$RET" == danger ]] && risky=1
+    [[ "$RET" == main && ( "$a" != "$target" || -n "$RETWHY" ) ]] && risky=1
+  done
+  _expand_path "$target"; e="$RET"; unres="$RETUNRES"; danger="$RETDANGER"
+  # CDPATH applies to a relative target that does not start with . or ..
+  if [[ "$unres" == "0" && "$e" != /* && "$e" != . && "$e" != .. && "$e" != ./* && "$e" != ../* ]]; then
+    known=1; cdp=""
+    if _var_get CDPATH; then cdp="$RET"
+    elif [[ "$CDPATH_TAINT" == "1" ]] || _var_is_danger CDPATH; then known=0
+    else cdp="${CDPATH:-}"
+    fi
+    if (( ! known )); then
+      unres=1; danger=1
+    elif [[ -n "$cdp" ]]; then
+      IFS=: read -r -a ents <<< "$cdp"
+      for ent in "${ents[@]}"; do
+        [[ -z "$ent" ]] && ent="$CURDIR"
+        [[ "$ent" != /* ]] && ent="$CURDIR/$ent"
+        if [[ -d "$ent/$e" ]]; then viacdp="$ent/$e"; break; fi
+      done
+    fi
+  fi
+  if [[ "$unres" == "1" ]]; then
+    DIR_UNRESOLVED=1
+    [[ "$danger" == "1" ]] && DIR_DANGER=1
+  else
+    if [[ -n "$viacdp" ]]; then p="$viacdp"; else p="$e"; [[ "$p" != /* ]] && p="$CURDIR/$p"; fi
+    if [[ -d "$p" ]] || _was_created "$p"; then
+      _nearest_dir "$p"; CURDIR="$RET"; DIR_UNRESOLVED=0; DIR_DANGER=0
+      # Only an absolute target settles where we are; a relative one may be
+      # relative to DIR_ALT.
+      [[ "$e" == /* ]] && DIR_ALT=""
+    else
+      # bash's cd fails here unless something this guard does not model creates
+      # the directory first; the shell may then still be where it was.
+      [[ -z "$DIR_ALT" ]] && DIR_ALT="$old"
+      ALT_GUARD=0; [[ "$LX_TERM" == and ]] && ALT_GUARD=1
+      _nearest_dir "$p"; CURDIR="$RET"
+      DIR_UNRESOLVED="$oldun"; DIR_DANGER="$olddg"
+    fi
+  fi
+  (( risky )) && { DIR_UNRESOLVED=1; DIR_DANGER=1; }
+  (( FN_SEEN )) && { DIR_UNRESOLVED=1; DIR_DANGER=1; }
+  OLD_CUR="$old"
+  return 0
+}
+
+# Return to a directory the line visited earlier (`cd -`, `popd`). The old
+# model ignored these, so a main checkout we are leaving stays a possibility.
+_cd_back() { # $1 directory, or "?" when unknown
+  local old="$CURDIR"
+  if [[ "$1" == "?" || -z "$1" ]]; then
+    DIR_UNRESOLVED=1; DIR_DANGER=1
+  else
+    CURDIR="$1"; DIR_UNRESOLVED=0; DIR_DANGER=0
+    if _dir_is_main "$old"; then DIR_ALT="$old"; ALT_GUARD=0; fi
+  fi
+  (( FN_SEEN )) && { DIR_UNRESOLVED=1; DIR_DANGER=1; }
+  OLD_CUR="$old"
+  return 0
 }
 
 _has_inplace_flag() { # $@ args -> 0 when a sed/perl in-place flag is present
@@ -634,11 +966,16 @@ _last_nonflag() { # $@ -> RET last non-option argument, RETCOUNT how many there 
 
 _inspect_cmd() {
   local -a w
-  local -a r
+  local -a r o h
   w=("${IC_WORDS[@]}")
   r=("${IC_REDIRS[@]}")
+  o=("${IC_OTHER[@]}")
+  h=("${IC_HSTR[@]}")
   local n=${#w[@]}
   local i=0 x base t j a prefixed=0 mode
+
+  # ${D:=…} / ${D=…} anywhere in the command assign D before anything is judged.
+  _scan_default_assigns "${r[@]}" "${o[@]}" "${h[@]}" "${w[@]}"
 
   # Redirection targets are writes wherever the command runs.
   for t in "${r[@]}"; do
@@ -704,6 +1041,35 @@ _inspect_cmd() {
   esac
 
   # Builtins that write a variable no argument names (bash 3.2 has no ;;&).
+  # A here-string gives read / mapfile a value we can see: judge the names it
+  # fills against it (read -r D <<< <main>).
+  if (( ${#h[@]} > 0 )); then
+    case "$base" in
+      read|mapfile|readarray)
+        local -a rnames=()
+        local hv first skipnext=0
+        for ((j = 0; j < ${#args[@]}; j++)); do
+          a="${args[j]}"
+          if (( skipnext )); then skipnext=0; continue; fi
+          case "$a" in
+            -a) rnames+=("${args[$((j + 1))]}"); j=$((j + 1)) ;;
+            -[dinNptuOsCc]) skipnext=1 ;;
+            -*) : ;;
+            *) rnames+=("$a") ;;
+          esac
+        done
+        [[ "$base" == read ]] && rnames+=(REPLY)
+        [[ "$base" != read ]] && rnames+=(MAPFILE)
+        for x in "${rnames[@]}"; do
+          [[ "$x" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+          for hv in "${h[@]}"; do
+            first="${hv#"${hv%%[![:space:]]*}"}"; first="${first%%[[:space:]]*}"
+            _var_poison "$x" "$hv"; _var_poison "$x" "$first"
+          done
+        done ;;
+    esac
+  fi
+
   case "$base" in
     read|select)       _var_get REPLY && _var_poison REPLY ;;
     mapfile|readarray) _var_get MAPFILE && _var_poison MAPFILE ;;
@@ -714,7 +1080,12 @@ _inspect_cmd() {
 
   case "$base" in
     export|declare|typeset|local|readonly)
+      # readonly / declare -r: a later assignment to the name fails in bash,
+      # but would look like a re-binding here.
+      local ro=0
+      [[ "$base" == readonly ]] && ro=1
       for a in "${args[@]}"; do
+        [[ "$base" != export && "$a" =~ ^[-+][A-Za-z]*r ]] && ro=1
         # declare -n makes a nameref: later writes to it land in another variable.
         if [[ "$a" =~ ^-[A-Za-z]*n ]]; then _var_clear_all; return 0; fi
         # `declare "$N=…"`: the target name itself is an expansion.
@@ -729,11 +1100,98 @@ _inspect_cmd() {
       for a in "${args[@]}"; do
         [[ "$a" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] && _assign "$a" "$mode"
       done
+      if (( ro )); then
+        _unmodelled "$base${args[0]:+ ${args[0]}} (a read-only variable: later assignments to it fail)"
+        _var_clear_all
+      fi
       return 0
       ;;
     fi|done|esac|for|case|select|function)
       LINE_CTRL=1
+      case "$base" in
+        for|select)
+          # After the loop the variable holds one of the listed words (or of
+          # "$@" when there is no `in`).
+          if [[ "${args[0]}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            if [[ "${args[1]}" == in ]]; then
+              for ((j = 2; j < ${#args[@]}; j++)); do _var_poison "${args[0]}" "${args[j]}"; done
+            elif [[ "$POS_DANGER" == "1" ]]; then
+              _var_is_danger "${args[0]}" || VAR_D+=("${args[0]}")
+            fi
+          fi ;;
+        function)
+          _unmodelled "a function definition"
+          _fn_taint ;;
+      esac
       ;;
+    alias)
+      # With expand_aliases, a later line runs the alias's text instead.
+      for a in "${args[@]}"; do
+        if [[ "$a" == *=* ]]; then
+          _unmodelled "alias"
+          _script_text "${a#*=}"; _analyze_deferred "$RET"
+          _fn_taint
+        fi
+      done
+      return 0 ;;
+    enable)
+      _unmodelled "enable (it can disable builtins such as cd)"
+      _fn_taint
+      return 0 ;;
+    shopt)
+      # cdable_vars lets `cd NAME` go to $NAME's value.
+      for a in "${args[@]}"; do
+        if [[ "$a" == cdable_vars ]]; then _unmodelled "shopt cdable_vars"; _fn_taint; fi
+      done
+      return 0 ;;
+    trap)
+      # trap 'CMD' SIG… runs CMD later, in this shell.
+      local -a targs=()
+      for ((j = 0; j < ${#args[@]}; j++)); do
+        case "${args[j]}" in
+          --) targs=("${args[@]:$((j + 1))}"); break ;;
+          -[lpP]) ;;
+          *) targs=("${args[@]:j}"); break ;;
+        esac
+      done
+      if (( ${#targs[@]} >= 2 )) && [[ "${targs[0]}" != - && -n "${targs[0]}" ]]; then
+        _unmodelled "trap (its command runs later in this shell)"
+        _script_text "${targs[0]}"; _analyze_deferred "$RET"
+        (( DEPTH == 1 )) && DEFERRED+=("$RET")
+      fi
+      return 0 ;;
+    set)
+      # set -r: restricted mode, where cd fails. Non-option words replace the
+      # positional parameters.
+      local pos=0
+      for ((j = 0; j < ${#args[@]}; j++)); do
+        a="${args[j]}"
+        if (( pos )); then _value_risky "$a" && POS_DANGER=1; continue; fi
+        case "$a" in
+          --|-|+) pos=1 ;;
+          -o|+o) j=$((j + 1)) ;;
+          -*r*) _unmodelled "set -r (restricted mode: cd fails)"; _fn_taint ;;
+          [-+]*) : ;;
+          *) pos=1; _value_risky "$a" && POS_DANGER=1 ;;
+        esac
+      done
+      return 0 ;;
+    mkdir)
+      # A directory created here makes a later cd into it succeed.
+      local skipm=0
+      for a in "${args[@]}"; do
+        if (( skipm )); then skipm=0; continue; fi
+        case "$a" in
+          -m) skipm=1 ;;
+          -*) : ;;
+          *) _expand_path "$a"
+             if [[ "$RETUNRES" == "0" ]]; then
+               x="$RET"; [[ "$x" != /* ]] && x="$CURDIR/$x"
+               CREATED+=("${x%/}")
+             fi ;;
+        esac
+      done
+      return 0 ;;
     printf|read|readarray|mapfile|unset|getopts|let|wait)
       # These can write a variable named by an argument (printf and wait only
       # with -v / -p). If an argument still holds an unresolved expansion, the
@@ -750,29 +1208,80 @@ _inspect_cmd() {
         _subst_vars "$a"
         if [[ "$RET" == *'$'* ]]; then _var_clear_all; break; fi
       done
+      # printf -v NAME FMT ARGS…: NAME may hold any argument, or FMT with its
+      # %s filled in (printf -v D '%s/%s' /path repo).
+      if [[ "$base" == printf ]]; then
+        local pv="" k=0
+        while (( k < ${#args[@]} )); do
+          a="${args[k]}"
+          case "$a" in
+            --) k=$((k + 1)); break ;;
+            -v) pv="${args[$((k + 1))]}"; k=$((k + 2)) ;;
+            -v*) pv="${a#-v}"; k=$((k + 1)) ;;
+            -*) k=$((k + 1)) ;;
+            *) break ;;
+          esac
+        done
+        pv="${pv%%\[*}"
+        if [[ "$pv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+          local -a pa=("${args[@]:k}")
+          local built="${pa[0]}" pi=1
+          for x in "${pa[@]}"; do _var_poison "$pv" "$x"; done
+          while [[ "$built" == *%s* ]] && (( pi < ${#pa[@]} )); do
+            built="${built/\%s/${pa[pi]}}"; pi=$((pi + 1))
+          done
+          _var_poison "$pv" "$built"
+        fi
+      fi
       ;;
     source|.)
       _var_clear_all   # a sourced file can set anything
       ;;
     cd|pushd)
-      local target=""
+      local target="" dashdash=0
       for ((j = 0; j < ${#args[@]}; j++)); do
-        case "${args[j]}" in -*) ;; *) target="${args[j]}"; break ;; esac
+        if (( dashdash )); then target="${args[j]}"; break; fi
+        case "${args[j]}" in
+          --) dashdash=1 ;;
+          -) target=-; break ;;
+          [-+][0-9]*) [[ "$base" == pushd ]] && { target="?"; break; } ;;
+          -*) ;;
+          *) target="${args[j]}"; break ;;
+        esac
       done
-      if [[ -z "$target" || "$target" == "-" ]]; then return 0; fi
-      _abs_path "$target" "$CURDIR"
-      if [[ "$RETUNRES" == "1" ]]; then
-        DIR_UNRESOLVED=1
-        [[ "$RETDANGER" == "1" ]] && DIR_DANGER=1
-      else
-        DIR_UNRESOLVED=0; DIR_DANGER=0
-        _nearest_dir "$RET"
-        CURDIR="$RET"
+      if [[ "$base" == pushd ]]; then
+        # pushd with no directory, or +N / -N, rotates the stack: unknown.
+        if [[ -z "$target" || "$target" == "?" ]]; then _cd_back "?"; return 0; fi
+        if [[ "$DIR_UNRESOLVED" == "1" ]]; then DIRSTK+=("?"); else DIRSTK+=("$CURDIR"); fi
       fi
+      [[ -z "$target" ]] && return 0
+      if [[ "$target" == "-" ]]; then
+        if [[ -n "$OLD_CUR" ]]; then _cd_back "$OLD_CUR"; else _cd_back "?"; fi
+        return 0
+      fi
+      _cd_to "$target"
+      return 0 ;;
+
+    popd)
+      for a in "${args[@]}"; do
+        case "$a" in
+          -n) return 0 ;;                       # stack only, no cd
+          [-+][0-9]*) _cd_back "?"; return 0 ;;
+        esac
+      done
+      local nd=${#DIRSTK[@]}
+      (( nd == 0 )) && return 0                 # empty stack: popd fails, no cd
+      _cd_back "${DIRSTK[$((nd - 1))]}"
+      unset "DIRSTK[$((nd - 1))]"
+      DIRSTK=("${DIRSTK[@]}")
       return 0 ;;
 
     eval)
-      _analyze_text "${args[*]}"
+      # eval re-parses its arguments, quoting and all: analyse the text, but a
+      # main checkout in play blocks regardless (fail closed).
+      _unmodelled "eval"
+      _script_text "${args[*]}"; _analyze_text "$RET"
+      _var_clear_all
       return 0 ;;
 
     bash|sh|zsh|dash|ksh)
@@ -783,6 +1292,8 @@ _inspect_cmd() {
       for ((j = 0; j < ${#args[@]}; j++)); do
         if [[ "${args[j]}" == "-c" ]]; then
           local sdir="$CURDIR" sunres="$DIR_UNRESOLVED" sddanger="$DIR_DANGER"
+          local salt="$DIR_ALT" sguard="$ALT_GUARD" sold="$OLD_CUR"
+          local -a sstk=("${DIRSTK[@]}")
           # A new shell does not inherit unexported variables. Rather than
           # track export state, hide every binding while analysing the child,
           # so its expansions are unresolved (fail closed) as without bindings.
@@ -811,9 +1322,10 @@ _inspect_cmd() {
             fi
           done
           VAR_K=(); VAR_V=()
-          _analyze_text "${args[$((j + 1))]}"
+          _script_text "${args[$((j + 1))]}"; _analyze_text "$RET"
           VAR_K=("${svk[@]}"); VAR_V=("${svv[@]}")
           CURDIR="$sdir"; DIR_UNRESOLVED="$sunres"; DIR_DANGER="$sddanger"
+          DIR_ALT="$salt"; ALT_GUARD="$sguard"; OLD_CUR="$sold"; DIRSTK=("${sstk[@]}")
           return 0
         fi
       done
@@ -888,13 +1400,18 @@ _inspect_cmd() {
       return 0 ;;
 
     git)
-      local gdir="$CURDIR" gunres="$DIR_UNRESOLVED" sub="" sub2="" k=0
+      local gdir="$CURDIR" gunres="$DIR_UNRESOLVED" sub="" sub2="" k=0 galt=""
       local m=${#args[@]}
+      _alt_active && galt="$DIR_ALT"
       while (( k < m )); do
         case "${args[k]}" in
           -C)
             _abs_path "${args[$((k + 1))]}" "$CURDIR"
             if [[ "$RETUNRES" == "1" ]]; then gunres=1; else gunres=0; gdir="$RET"; fi
+            if [[ -n "$galt" ]]; then
+              if [[ "${args[$((k + 1))]}" == /* ]]; then galt=""
+              else _abs_path "${args[$((k + 1))]}" "$galt"; galt="$RET"; fi
+            fi
             k=$((k + 2)) ;;
           -c|--git-dir|--work-tree|--namespace|--exec-path)
             k=$((k + 2)) ;;
@@ -908,6 +1425,21 @@ _inspect_cmd() {
       case "$sub" in
         apply|am|cherry-pick|revert) mutating=1 ;;
         stash) [[ "$sub2" == "pop" || "$sub2" == "apply" ]] && mutating=1 ;;
+        worktree)
+          # git worktree add <path> creates <path>; a later cd into it succeeds.
+          if [[ "$sub2" == add ]]; then
+            local wk=$((k + 2)) wa
+            while (( wk < m )); do
+              wa="${args[wk]}"
+              case "$wa" in
+                -b|-B|--reason) wk=$((wk + 2)); continue ;;
+                -*) wk=$((wk + 1)); continue ;;
+              esac
+              _abs_path "$wa" "$gdir"
+              [[ "$RETUNRES" == "0" && "$gunres" == "0" ]] && CREATED+=("${RET%/}")
+              break
+            done
+          fi ;;
       esac
       if (( mutating )); then
         if [[ "$gunres" == "1" ]]; then
@@ -916,6 +1448,8 @@ _inspect_cmd() {
           _nearest_dir "$gdir"
           if _is_main_checkout "$RET"; then
             _block "git $sub" "$RET"
+          elif [[ -n "$galt" ]] && _dir_is_main "$galt"; then
+            _block "git $sub (after a cd that may have failed: its target does not exist)" "$galt"
           fi
         fi
       fi
@@ -930,7 +1464,12 @@ _end_word() {
   (( LX_HAVE )) || return 0
   case "$LX_PEND" in
     1) LX_REDIRS+=("$LX_CUR") ;;
-    2) : ;;
+    2) LX_OTHER+=("$LX_CUR") ;;
+    3) LX_HSTR+=("$LX_CUR") ;;
+    4)
+      # `>& word`: an fd (2, 1-, -) — or, for anything else, a FILE that gets
+      # both stdout and stderr.
+      if [[ "$LX_CUR" =~ ^[0-9]*-?$ ]]; then LX_OTHER+=("$LX_CUR"); else LX_REDIRS+=("$LX_CUR"); fi ;;
     *) LX_WORDS+=("$LX_CUR") ;;
   esac
   LX_PEND=0; LX_CUR=""; LX_HAVE=0
@@ -939,12 +1478,19 @@ _end_word() {
 _end_cmd() {
   _end_word
   local had=${#LX_WORDS[@]}
-  if (( had > 0 )); then
+  if (( had > 0 || ${#LX_REDIRS[@]} + ${#LX_OTHER[@]} + ${#LX_HSTR[@]} > 0 )); then
     IC_WORDS=("${LX_WORDS[@]}")
     IC_REDIRS=("${LX_REDIRS[@]}")
+    IC_OTHER=("${LX_OTHER[@]}")
+    IC_HSTR=("${LX_HSTR[@]}")
     _inspect_cmd
   fi
-  LX_WORDS=(); LX_REDIRS=(); LX_PEND=0
+  LX_WORDS=(); LX_REDIRS=(); LX_OTHER=(); LX_HSTR=(); LX_PEND=0
+  # The commands after `cd <missing> &&` run only if that cd succeeded; the
+  # first one ending in ; / || / & closes that and-list.
+  if (( had > 0 )); then
+    case "$LX_TERM" in seq|or|bg) ALT_GUARD=0 ;; esac
+  fi
   # How the NEXT command is entered. An empty command ending at a newline (the
   # line after a trailing `&&`) leaves that state alone.
   case "$LX_TERM" in
@@ -964,6 +1510,8 @@ _leave_context() {
   CURDIR="$LX_SAVED_DIR"
   DIR_UNRESOLVED="$LX_SAVED_UNRES"
   DIR_DANGER="$LX_SAVED_DDANGER"
+  DIR_ALT="$LX_SAVED_ALT"; ALT_GUARD="$LX_SAVED_GUARD"; OLD_CUR="$LX_SAVED_OLD"
+  DIRSTK=("${LX_SAVED_STK[@]}")
   # Assignments in a subshell are scoped to it too.
   VAR_K=("${LX_SAVED_VK[@]}")
   VAR_V=("${LX_SAVED_VV[@]}")
@@ -977,8 +1525,12 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
   # the innermost one through bash's dynamic scoping.
   local -a LX_WORDS=()
   local -a LX_REDIRS=()
+  local -a LX_OTHER=()
+  local -a LX_HSTR=()
   local LX_CUR="" LX_HAVE=0 LX_PEND=0
   local LX_SAVED_DIR="$CURDIR" LX_SAVED_UNRES="$DIR_UNRESOLVED" LX_SAVED_DDANGER="$DIR_DANGER"
+  local LX_SAVED_ALT="$DIR_ALT" LX_SAVED_GUARD="$ALT_GUARD" LX_SAVED_OLD="$OLD_CUR"
+  local -a LX_SAVED_STK=("${DIRSTK[@]}")
   local -a LX_SAVED_VK=("${VAR_K[@]}") LX_SAVED_VV=("${VAR_V[@]}")
   local LX_SAVED_NC="$NEXT_COND" LX_SAVED_NP="$NEXT_PIPE"
   local line ch nx rest run
@@ -1018,21 +1570,30 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
         nx="${line:$((C + 1)):1}"
         if [[ -z "$nx" ]]; then
           C=$((C + 1))                       # line continuation
+        elif [[ "$nx" == '$' ]] && (( BQ == 0 )); then
+          LX_CUR="$LX_CUR$LITD"; LX_HAVE=1; C=$((C + 2))   # \$: a literal $
         else
           LX_CUR="$LX_CUR$nx"; LX_HAVE=1; C=$((C + 2))
         fi ;;
       "'")
-        C=$((C + 1)); _read_sq; LX_CUR="$LX_CUR$RET"; LX_HAVE=1 ;;
+        # Every $ in '…' is literal: mark it so it is never expanded.
+        C=$((C + 1)); _read_sq; LX_CUR="$LX_CUR${RET//\$/$LITD}"; LX_HAVE=1 ;;
       '"')
         C=$((C + 1)); _read_dq; LX_CUR="$LX_CUR$RET"; LX_HAVE=1 ;;
       '`')
         if [[ "$term" == '`' ]]; then C=$((C + 1)); _end_cmd; _leave_context; return; fi
-        C=$((C + 1)); _lex_context '`'; LX_CUR="$LX_CUR$CMDSUB"; LX_HAVE=1 ;;
+        C=$((C + 1)); BQ=$((BQ + 1)); _lex_context '`'; BQ=$((BQ - 1))
+        LX_CUR="$LX_CUR$CMDSUB"; LX_HAVE=1 ;;
       '$')
         if [[ "${line:$((C + 1)):1}" == '(' ]]; then
           local arith=0; [[ "${line:$((C + 2)):1}" == '(' ]] && arith=1
           C=$((C + 2)); _lex_context ')'; LX_CUR="$LX_CUR$CMDSUB"; LX_HAVE=1
           (( arith )) && _var_clear_all   # $((D=0)) assigns in this shell
+        elif [[ "${line:$((C + 1)):1}" == "'" ]]; then
+          C=$((C + 2)); _read_ansi; LX_CUR="$LX_CUR$RET"; LX_HAVE=1      # $'…'
+        elif [[ "${line:$((C + 1)):1}" == '"' ]]; then
+          # $"…" is "…" translated through the locale: its text may change.
+          C=$((C + 2)); _read_dq; LX_CUR="$LX_CUR$RET$QMARK"; LX_HAVE=1
         else
           LX_CUR="$LX_CUR$ch"; LX_HAVE=1; C=$((C + 1))
         fi ;;
@@ -1062,6 +1623,21 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
           [[ "${line:C:1}" == "&" ]] && C=$((C + 1))
         fi ;;
       '(')
+        # NAME() / function NAME(): a function definition, not a subshell.
+        local fnrest="${line:$((C + 1))}" fnname="" fnre='^([[:space:]]*\))'
+        if [[ "$fnrest" =~ $fnre ]]; then
+          local -a fnw=("${LX_WORDS[@]}")
+          (( LX_HAVE )) && fnw+=("$LX_CUR")
+          [[ "${fnw[0]}" == function ]] && fnw=("${fnw[@]:1}")
+          (( ${#fnw[@]} == 1 )) && [[ "${fnw[0]}" != *=* ]] && fnname="${fnw[0]}"
+        fi
+        if [[ -n "$fnname" ]]; then
+          C=$((C + 1 + ${#BASH_REMATCH[1]}))
+          LX_WORDS=(); LX_CUR=""; LX_HAVE=0
+          _unmodelled "a function definition ($fnname)"
+          _fn_taint
+          continue
+        fi
         _end_cmd
         # `((…))` is arithmetic in THIS shell, not a subshell: it can assign
         # (D=0, D++). The context below restores bindings on exit like a
@@ -1079,14 +1655,14 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
         _end_word; C=$((C + 1))
         [[ "${line:C:1}" == ">" ]] && C=$((C + 1))
         [[ "${line:C:1}" == "|" ]] && C=$((C + 1))
-        if [[ "${line:C:1}" == "&" ]]; then C=$((C + 1)); LX_PEND=2; else LX_PEND=1; fi ;;
+        if [[ "${line:C:1}" == "&" ]]; then C=$((C + 1)); LX_PEND=4; else LX_PEND=1; fi ;;
       '<')
         if [[ "$LX_CUR" =~ ^[0-9]+$ ]]; then LX_CUR=""; LX_HAVE=0; fi
         _end_word; C=$((C + 1))
         if [[ "${line:C:1}" == "<" ]]; then
           C=$((C + 1))
           if [[ "${line:C:1}" == "<" ]]; then
-            C=$((C + 1)); LX_PEND=2                    # here-string
+            C=$((C + 1)); LX_PEND=3                    # here-string
           else
             [[ "${line:C:1}" == "-" ]] && C=$((C + 1))
             _read_heredoc_delim; LX_PEND=0
@@ -1120,6 +1696,40 @@ _analyze_text() {
 
 # --- run --------------------------------------------------------------------
 
+# Print a worktree command that works here. Prefer the estate-wt launcher: on
+# PATH, beside this hook (agent-estate, reached through symlinks), or in the
+# repo. Repos that vendor this hook as a plain file usually have none of these
+# (delivery-ops#1088), so fall back to plain `git worktree add`.
+_worktree_hint() { # $1 repo top-level ("" when unknown), $2 verb ("edit" / "run it")
+  local top="$1" src dir ewt="" c def=""
+  if command -v estate-wt >/dev/null 2>&1; then
+    ewt=estate-wt
+  else
+    src=${BASH_SOURCE[0]}
+    while [ -L "$src" ]; do
+      dir=$(cd -P "$(dirname "$src")" && pwd); src=$(readlink "$src")
+      case $src in /*) ;; *) src=$dir/$src ;; esac
+    done
+    dir=$(cd -P "$(dirname "$src")/.." 2>/dev/null && pwd)
+    for c in ${dir:+"$dir/bin/estate-wt"} ${top:+"$top/bin/estate-wt" "$top/.agents/bin/estate-wt"}; do
+      if [ -f "$c" ] && [ -x "$c" ]; then ewt=$c; break; fi
+    done
+  fi
+  echo "   Create a worktree first, then $2 there:" >&2
+  if [ -n "$ewt" ]; then
+    echo "     $ewt -C ${top:-<repo>} new <slug>     (prints the new worktree's path)" >&2
+  else
+    if [ -n "$top" ]; then
+      def=$(git -C "$top" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+      def=${def#origin/}
+      for c in main master; do
+        [ -z "$def" ] && git -C "$top" rev-parse --verify --quiet "refs/remotes/origin/$c" >/dev/null && def=$c
+      done
+    fi
+    echo "     git -C ${top:-<repo>} worktree add .worktrees/<slug> -b <branch> origin/${def:-<default>}" >&2
+  fi
+}
+
 if (( DEGRADED )); then
   # Old-style, deliberately over-eager substring scan (see note above).
   legacy_re='(^|[;&|[:space:]])(bin/devcontainer-exec|rsync|patch[[:space:]]|sed[[:space:]]+-i|perl[[:space:]]+-i|git[[:space:]]+(stash[[:space:]]+(pop|apply)|apply([[:space:]]|$)|am([[:space:]]|$)|cherry-pick|revert))'
@@ -1134,6 +1744,9 @@ if (( DEGRADED )); then
 fi
 
 _analyze_text "$CMD"
+# Trap handlers run when the shell exits (or later signals): judge them again
+# in the state the line leaves behind.
+for _t in "${DEFERRED[@]}"; do _analyze_text "$_t"; done
 
 if (( BLOCKED )); then
   echo "❌ Blocked: tree-mutating Bash command targeting the MAIN checkout." >&2
@@ -1144,20 +1757,32 @@ if (( BLOCKED )); then
   echo "   The worktree-only mandate covers Bash writes too — rsync," >&2
   echo "   bin/devcontainer-exec, git stash pop/apply, git apply, patch, sed -i," >&2
   echo "   plus redirections / tee / cp / mv whose destination is a main checkout." >&2
-  # The launcher sits beside this hook in agent-estate; hooks reach us through symlinks.
-  _src=${BASH_SOURCE[0]}
-  while [ -L "$_src" ]; do
-    _dir=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
-    case $_src in /*) ;; *) _src=$_dir/$_src ;; esac
-  done
-  EWT=$(cd -P "$(dirname "$_src")/.." 2>/dev/null && pwd)/bin/estate-wt
-  command -v estate-wt >/dev/null 2>&1 && EWT=estate-wt
-  echo "   Create a worktree first, and run it there:" >&2
-  echo "     $EWT -C <repo> new <slug>     (prints the new worktree's path)" >&2
+  _nearest_dir "$BLOCK_WHERE"
+  _worktree_hint "$(cd "$RET" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" "run it"
   exit 2
 fi
 
-if (( PARSE_ERROR )) && { _dir_is_main "$CURDIR" || _dir_is_main "$PWD"; }; then
+_main_in_play() { # -> 0 when the line starts, ends or may still be in a main checkout
+  _dir_is_main "$CURDIR" || _dir_is_main "$PWD" || { [[ -n "$DIR_ALT" ]] && _dir_is_main "$DIR_ALT"; }
+}
+
+if [[ -n "$UNMOD_WHY" ]] && _main_in_play; then
+  _shown "$UNMOD_WHY"
+  echo "❌ Blocked: this Bash command uses $RET," >&2
+  echo "   which this guard cannot follow, and a MAIN checkout is in play — failing closed." >&2
+  echo "   Command: $CMD" >&2
+  echo "" >&2
+  _top=""
+  for _d in "$CURDIR" "$PWD" "$DIR_ALT"; do
+    if [[ -n "$_d" ]] && _dir_is_main "$_d"; then
+      _nearest_dir "$_d"; _top=$(cd "$RET" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null); break
+    fi
+  done
+  _worktree_hint "$_top" "run it"
+  exit 2
+fi
+
+if (( PARSE_ERROR )) && _main_in_play; then
   echo "❌ Blocked: could not parse this Bash command confidently, and a MAIN" >&2
   echo "   checkout is in play — failing closed." >&2
   echo "   Command: $CMD" >&2
