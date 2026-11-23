@@ -139,6 +139,23 @@ RSpec.describe StandardId::StepUp do
       expect(events).to be_empty
     end
 
+    context "with built-in e-mail delivery (c.passwordless.delivery = :built_in)" do
+      before { StandardId.config.passwordless.delivery = :built_in }
+
+      it "e-mails the step-up copy, not the sign-in copy" do
+        expect { described_class.start(account: account) }
+          .to have_enqueued_mail(StandardId::PasswordlessMailer, :step_up_email)
+          .with(params: hash_including(email: email, realm: "step_up"), args: [])
+      end
+
+      it "sends nothing built-in when c.step_up.delivery is :custom" do
+        StandardId.config.step_up.delivery = :custom
+
+        expect { described_class.start(account: account) }.not_to have_enqueued_mail
+        expect(issued_otp_code(email)).to be_present
+      end
+    end
+
     it "fails with STEP_UP_FAILED when there is nowhere to send a code" do
       StandardId::EmailIdentifier.where(account: account).update_all(verified_at: nil)
       result = nil

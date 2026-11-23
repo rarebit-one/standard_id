@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Built-in step-up e-mail.** Under built-in delivery (`c.step_up.delivery = :built_in` and
+  `c.passwordless.delivery = :built_in`), a step-up code (realm `c.step_up.realm`) now goes out as
+  `PasswordlessMailer#step_up_email` ("Confirm it's you"). It tells the user they are confirming a
+  sensitive action in a session that is already signed in, gives the code and its expiry, and says
+  what to do if it wasn't them. Copy is under `standard_id.passwordless_mailer.step_up_email.*`.
+  It replaces the generic `verification_email` that step-up codes used in 0.62; sign-in and
+  verification e-mails are unchanged, and `c.step_up.delivery = :custom` still sends nothing
+  built-in. See the Migration Guide, "Built-in step-up e-mail".
+
+### Documentation
+
+- README and Migration Guide now say plainly that implicit-flow tokens (`response_type=token`)
+  carry no `auth_time` and so always step up (use the authorization code flow with PKCE), and
+  that refreshed tokens keep the original sign-in's `auth_time`, so an API step-up stays recent
+  for `within:` but never past that one access token's lifetime: a refresh brings back the old
+  sign-in time.
+
 ## [0.62.0] - 2026-11-23
 
 ### Added

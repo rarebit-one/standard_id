@@ -58,6 +58,7 @@ RSpec.describe StandardId::Events::Subscribers::PasswordlessDeliverySubscriber d
 
       {
         "authentication" => :otp_email,
+        "step_up" => :step_up_email,
         "verification" => :verification_email,
         "widget_contact_verification" => :verification_email
       }.each do |realm, action|
@@ -74,6 +75,32 @@ RSpec.describe StandardId::Events::Subscribers::PasswordlessDeliverySubscriber d
             .with(params: hash_including(email: "user@example.com", otp_code: "123456", realm: realm, expires_in_minutes: 5), args: [])
           expect(challenge.built_in_delivered).to be(true)
         end
+      end
+
+      it "sends step_up_email for a configured c.step_up.realm, and verification_email for the default one" do
+        StandardId.config.step_up.realm = "reauth"
+        events = %w[reauth step_up].index_with do |realm|
+          StandardId::Events::Event.new(
+            name: "standard_id.passwordless.code.generated",
+            payload: { identifier: "user@example.com", channel: "email", realm: realm,
+                       code_challenge: StandardId::CodeChallenge.new(code: "123456") }
+          )
+        end
+
+        expect { described_class.new.call(events["reauth"]) }
+          .to have_enqueued_mail(StandardId::PasswordlessMailer, :step_up_email)
+        expect { described_class.new.call(events["step_up"]) }
+          .to have_enqueued_mail(StandardId::PasswordlessMailer, :verification_email)
+      end
+
+      it "sends nothing built-in for a step-up code issued with delivery: :custom" do
+        custom_event = StandardId::Events::Event.new(
+          name: "standard_id.passwordless.code.generated",
+          payload: { identifier: "user@example.com", channel: "email", realm: "step_up", delivery: :custom,
+                     code_challenge: StandardId::CodeChallenge.new(code: "123456") }
+        )
+
+        expect { described_class.new.call(custom_event) }.not_to have_enqueued_mail
       end
 
       it "does not mark the challenge delivered when the enqueue raises" do

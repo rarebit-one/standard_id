@@ -228,7 +228,8 @@ StandardId.configure do |c|
   c.step_up.enabled = true
   # c.step_up.max_age = 300               # default `within:`, in seconds
   # c.step_up.require_password = true     # also ask for the password when the account has one
-  # c.step_up.delivery = :built_in        # or :custom: your PASSWORDLESS_CODE_GENERATED subscriber, realm "step_up"
+  # c.step_up.delivery = :built_in        # the engine's step-up e-mail under passwordless.delivery = :built_in;
+  #                                       # or :custom: your PASSWORDLESS_CODE_GENERATED subscriber, realm "step_up"
   # c.step_up.url = "/step_up"            # where the web guard redirects
 end
 ```
@@ -258,9 +259,13 @@ The guard raises `StandardId::ConfigurationError` while `c.step_up.enabled` is o
 | `authorization_code` | the browser session's `authenticated_at` at `/authorize` |
 | `refresh_token` | the original grant's, carried on each refresh token (never refreshed into a newer time) |
 | `TokenMinter.mint` | `authenticated_at:` when you pass it, else none |
-| `client_credentials`, implicit | none |
+| `client_credentials`, implicit (`response_type=token`) | none |
 
 A token with no `auth_time` is never recent. While step-up is on, only the recorded authentication sets it: an `auth_time` from `oauth.custom_claims` or `TokenMinter` `claims:` is dropped, recorded time or not.
+
+**Implicit-flow tokens always step up.** A token from the implicit flow (`response_type=token`) carries no `auth_time`, so every guarded action answers it with the step-up challenge, however recently the user signed in. This is deliberate. Use the authorization code flow with PKCE instead: its tokens carry the browser session's sign-in time, and it is the flow OAuth 2.1 recommends for single-page and native apps anyway.
+
+**Refreshed tokens keep the original sign-in time.** A refresh never makes a token more recent: each refreshed access token carries the `auth_time` the grant started with (the sign-in, or for `authorization_code` the browser session's time at `/authorize`). A step-up through the API returns one access token with `auth_time` set to now, and no refresh token. So the fresh time lives on that one token only. It counts as recent for `within:` after the step-up (the guard checks on every request), and never past that token's expiry, about one access-token lifetime (`oauth.token_lifetimes[:step_up]`, else the default); whichever ends first. Once the token expires and the client refreshes, it holds the old sign-in time again, so a guarded action outside `within:` of that sign-in asks for another step-up.
 
 **Web flow.** A stale session is redirected to `/step_up`, and a GET's URL is remembered. The page sends a one-time code to the account's verified e-mail address, or its verified phone number if it has no e-mail. The user enters the code and, when the account has a password, the password. On success the session's `authenticated_at` is set to now and the user returns to the guarded page. Inertia apps render `<namespace>/step_up/show` with `channel`, `target`, `code_sent`, `password_required`, `step_up_path` and `flash`. Signed-out visitors go to login, as before.
 
@@ -275,7 +280,7 @@ WWW-Authenticate: Bearer realm="StandardId", error="insufficient_user_authentica
 
 The client steps up with its current token. `POST /step_up` sends the code and answers `202 {"channel":"email","password_required":true}`. `POST /step_up/verify` with `{"code":"123456","password":"…"}` answers with a new access token whose `auth_time` is now. That token keeps the old one's `client_id`, `scope` and `aud`, under `grant_type: "step_up"` (lifetime `oauth.token_lifetimes[:step_up]`, else the default). The client then retries with it. No refresh token is issued, so tokens refreshed later carry the original sign-in time. When the audience is bound to a profile type and an account may hold several such profiles, set `c.step_up.token_profile_resolver = ->(account:, claims:) { … }` to name the profile the token is for (from your own claim, e.g. `gid`); otherwise the strict lookup refuses an ambiguous account. Override `render_step_up_required(error)` to answer differently.
 
-**The code.** It is a `StandardId::Otp` code in its own realm (`c.step_up.realm`, default `"step_up"`), so a sign-in code cannot stand in for it, and it is bound to the account it was issued to. It is checked before the password, so each code buys at most one password guess, and a wrong password spends it. Issuing is limited by `passwordless.retry_delay` and the `rate_limits.otp_start_*` limits; verifying by `rate_limits.otp_verify_per_ip`. Events: `authentication.step_up.started`, `.succeeded` and `.failed` (see the event table).
+**The code.** It is a `StandardId::Otp` code in its own realm (`c.step_up.realm`, default `"step_up"`), so a sign-in code cannot stand in for it, and it is bound to the account it was issued to. Under built-in delivery (`c.step_up.delivery = :built_in` and `c.passwordless.delivery = :built_in`) it goes out as `PasswordlessMailer#step_up_email` ("Confirm it's you"), which tells the user they are confirming a sensitive action in a session that is already signed in, when the code expires, and what to do if it wasn't them. Its copy is under `standard_id.passwordless_mailer.step_up_email.*`. With `c.step_up.delivery = :custom` the engine sends nothing, and your `PASSWORDLESS_CODE_GENERATED` subscriber sees `realm: "step_up"` in the payload. There is no built-in SMS. It is checked before the password, so each code buys at most one password guess, and a wrong password spends it. Issuing is limited by `passwordless.retry_delay` and the `rate_limits.otp_start_*` limits; verifying by `rate_limits.otp_verify_per_ip`. Events: `authentication.step_up.started`, `.succeeded` and `.failed` (see the event table).
 
 ### OAuth Hardening Options
 
@@ -947,11 +952,13 @@ still works while records are published.
 Set `c.passwordless.delivery = :custom` (the default) so the engine's built-in
 `PasswordlessMailer` stays out of the way; with `:built_in` the engine emails
 the code itself — `otp_email` ("Your sign-in code") for the `"authentication"`
-realm and `verification_email` ("Your verification code") for every other realm
-(WebEngine `verify_email`, `Otp.issue` contact verification / step-up). There is
-no built-in SMS delivery. The copy is in `config/locales/en.yml` under
-`standard_id.passwordless_mailer.{otp_email,verification_email}.*` (`subject`,
-`greeting`, `intro`, `expiry`, `ignore`, `footer`); override any key in your own
+realm, `step_up_email` ("Confirm it's you") for the step-up realm
+(`c.step_up.realm`), and `verification_email` ("Your verification code") for
+every other realm (WebEngine `verify_email`, `Otp.issue` contact verification).
+There is no built-in SMS delivery. The copy is in `config/locales/en.yml` under
+`standard_id.passwordless_mailer.{otp_email,step_up_email,verification_email}.*`
+(`subject`, `greeting`, `intro`, `expiry`, `ignore`, `footer`; `step_up_email`
+has `warning` in place of `ignore`); override any key in your own
 locale files, or the templates in `app/views/standard_id/passwordless_mailer/`.
 An assigned `c.passwordless.mailer_subject` still sets the sign-in subject. The subscriber runs synchronously inside the request, so
 `I18n.locale`, `Current.*` and the like are still available.

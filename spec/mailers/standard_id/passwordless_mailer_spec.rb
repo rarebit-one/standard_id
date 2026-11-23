@@ -126,6 +126,44 @@ RSpec.describe StandardId::PasswordlessMailer, type: :mailer do
     end
   end
 
+  describe "#step_up_email" do
+    let(:mail) do
+      described_class.with(email: "user@example.com", otp_code: "246810", realm: "step_up", expires_in_minutes: 10).step_up_email
+    end
+
+    it "is addressed and coded like the other OTP emails" do
+      expect(mail.to).to eq(["user@example.com"])
+      expect(mail.html_part.body.to_s).to include("246810")
+      expect(mail.text_part.body.to_s).to include("246810")
+      expect(mail.text_part.body.to_s).to include("This code will expire in 10 minutes.")
+    end
+
+    it "says the account is confirming a sensitive action while signed in, and what to do if it wasn't them" do
+      StandardId.config.passwordless.mailer_subject = "Your sign-in code"
+
+      expect(mail.subject).to eq("Confirm it's you")
+      [mail.html_part.body.to_s, mail.text_part.body.to_s].each do |body|
+        expect(body).to include("already signed in")
+        expect(body).to include("something sensitive")
+        expect(body).to include("If you didn&#39;t ask for this").or include("If you didn't ask for this")
+        expect(body).not_to include("Use the following code to sign in")
+        expect(body).not_to include("complete your verification")
+      end
+    end
+
+    it "takes subject and copy from standard_id.passwordless_mailer.step_up_email.*" do
+      I18n.t("standard_id") # load the locale files first, or they overwrite the stored keys
+      I18n.backend.store_translations(:en, standard_id: { passwordless_mailer: { step_up_email: {
+        subject: "Confirm it's you on ACME", warning: "Not you? Call ACME support."
+      } } })
+
+      expect(mail.subject).to eq("Confirm it's you on ACME")
+      expect(mail.text_part.body.to_s).to include("Not you? Call ACME support.")
+    ensure
+      I18n.backend.reload!
+    end
+  end
+
   describe "under a locale the gem has no translations for" do
     around do |example|
       original = I18n.available_locales
@@ -138,10 +176,11 @@ RSpec.describe StandardId::PasswordlessMailer, type: :mailer do
     it "falls back to the English copy rather than rendering missing translations" do
       mails = [
         described_class.with(email: "user@example.com", otp_code: "123456").otp_email,
-        described_class.with(email: "user@example.com", otp_code: "123456", realm: "verification").verification_email
+        described_class.with(email: "user@example.com", otp_code: "123456", realm: "verification").verification_email,
+        described_class.with(email: "user@example.com", otp_code: "123456", realm: "step_up").step_up_email
       ]
 
-      expect(mails.map(&:subject)).to eq(["Your sign-in code", "Your verification code"])
+      expect(mails.map(&:subject)).to eq(["Your sign-in code", "Your verification code", "Confirm it's you"])
       mails.each do |mail|
         [mail.html_part.body.to_s, mail.text_part.body.to_s].each do |body|
           expect(body).not_to match(/translation missing/i)

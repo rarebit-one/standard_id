@@ -20,6 +20,15 @@ en:
           other: "This code will expire in %{count} minutes."
         ignore: "If you did not request this code, you can safely ignore this email."
         footer: "This is an automated message. Please do not reply."
+      step_up_email:
+        subject: "Confirm it's you"
+        greeting: "Hi,"
+        intro: "You're already signed in, and you've asked to do something sensitive on your account. To confirm it's you, enter this code:"
+        expiry:
+          one: "This code will expire in %{count} minute."
+          other: "This code will expire in %{count} minutes."
+        warning: "If you didn't ask for this, don't share the code with anyone. Someone else may be signed in to your account: change your password, if you have one, and check your account for anything you don't recognise."
+        footer: "This is an automated message. Please do not reply."
     account_notice_mailer:
       existing_account:
         subject: "Someone tried to sign up with your email"
