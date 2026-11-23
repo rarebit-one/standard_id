@@ -23,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - README and Migration Guide now say plainly that implicit-flow tokens (`response_type=token`)
   carry no `auth_time` and so always step up (use the authorization code flow with PKCE), and
   that refreshed tokens keep the original sign-in's `auth_time`, so an API step-up stays recent
-  for about one access-token lifetime.
+  for `within:` but never past that one access token's lifetime: a refresh brings back the old
+  sign-in time.
 
 ## [0.62.0] - 2026-11-23
 

@@ -108,11 +108,12 @@ What changes only once you enable it:
   browser session's sign-in time.
 - **Refreshed access tokens keep the original sign-in's `auth_time`**; a
   refresh never makes a token more recent. An API step-up returns one access
-  token with `auth_time` set to now and no refresh token, so a step-up stays
-  recent for about one access-token lifetime
-  (`oauth.token_lifetimes[:step_up]`, else the default). After the client
-  refreshes, it holds the old sign-in time again and steps up again for the
-  next guarded action outside `within:` of that sign-in.
+  token with `auth_time` set to now and no refresh token. That token counts
+  as recent for `within:` after the step-up, and never past its own expiry
+  (about one access-token lifetime, `oauth.token_lifetimes[:step_up]`, else
+  the default), whichever ends first. After the client refreshes, it holds
+  the old sign-in time again and steps up again for the next guarded action
+  outside `within:` of that sign-in.
 
 Host code that wraps or replaces `StandardId::Oauth::OauthSessionPersistence.persist!`
 should accept its new `authenticated_at:` keyword. The testing helper `create_browser_session` now stamps
