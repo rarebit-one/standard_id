@@ -43,7 +43,15 @@
 #      (unterminated quote, unbalanced `$(`, unresolvable `~user`/`$VAR` cd
 #      target). Fail closed: an over-block on an exotic command is much cheaper
 #      than letting a real write through.
-#   4. Anything that makes bash do something other than what this guard models,
+#   4. From a main checkout, any write destination bash computes (2026-11-23):
+#      a word with $VAR / ${…} / $(…) / `…` / $((…)) / $'…' / $"…", brace
+#      expansion, a glob, or a tilde form other than a plain ~ or ~/ prefix
+#      blocks, whatever value the guard thinks it has. "From a main checkout"
+#      means the hook's working directory, or the directory the line has cd'd
+#      to (or may still be in), is one. A computed cd target there makes the
+#      directory unknown, so later relative writes block. Literal paths are
+#      resolved as before; worktrees and other directories keep the rules below.
+#   5. Anything that makes bash do something other than what this guard models,
 #      while a main checkout is in play (2026-11-23): eval, readonly /
 #      declare|typeset|local -r, trap 'CMD', alias, enable, set -r, shopt
 #      cdable_vars, and function definitions. Function/alias/enable/set -r also
@@ -76,9 +84,10 @@
 #   * an opaque command name (`$(which rsync) …`) is not resolved — but its
 #     substitution IS analysed, and its destination paths are still checked;
 #   * remote execution (`ssh host rsync …`) is out of scope;
-#   * `dd of=…`, `touch`, and editors are not treated as writers;
+#   * `dd of=…`, `touch`, `mkdir` and editors are not treated as writers of a
+#     literal path; from a main checkout their computed targets block (rule 4);
 #   * values that only exist at run time (read from a file, $(…)) are
-#     unresolvable: they block in a main checkout, not elsewhere;
+#     unresolvable: they block from a main checkout (rule 4), not elsewhere;
 #   * aliases and functions inherited from the user's shell are not visible,
 #     and CDPATH is read from this hook's environment.
 #
@@ -149,23 +158,71 @@ POS_DANGER=0     # positional parameters ($1, $@, …) may hold a main-checkout 
 FN_SEEN=0        # a function/alias/enable may have changed what cd and friends do
 CDPATH_TAINT=0   # CDPATH is mentioned on this line: its value is not the inherited one
 CREATED=()       # directories mkdir / git worktree add create on this line
+HOME_TAINT=0     # HOME may change on this line: ~ and $HOME are not the inherited value
+TILDE_SEEN=0     # a write landed on a ~ path, or relative to a cd ~ (re-judged at the end)
+TILDE_CD=0       # the cwd still depends on a cd ~ / cd ~/… (saved and restored with it)
+TILDE_CD_EVER=0  # a cd ~ ran on this line: cd - / popd may return to it (sticky)
 
 _expand_path() { # $1 -> RET (expanded), RETUNRES=1 when it cannot be resolved
   local p="$1"
   RETUNRES=0
   RETDANGER=0
   case "$p" in
-    '~')            p="$HOME" ;;
-    '~/'*)          p="$HOME/${p#\~/}" ;;
-    '$HOME')        p="$HOME" ;;
-    '${HOME}')      p="$HOME" ;;
-    '~'*)           RETUNRES=1 ;;   # ~otheruser — cannot resolve
+    '~'|'~/'*)
+      if _home; then p="$RET${p#\~}"; else RETUNRES=1; fi ;;
+    '~'*) RETUNRES=1 ;;   # ~otheruser, ~+, ~- — cannot resolve
   esac
-  p="${p//\$\{HOME\}/$HOME}"
-  p="${p//\$HOME/$HOME}"
   case "$p" in *'$'*) _subst_vars "$p"; p="$RET" ;; esac
   case "$p" in *'$'*) RETUNRES=1 ;; esac
   RET="$p"
+}
+
+# What ~ and $HOME expand to: the inherited HOME. HOME is never bound
+# (_var_set); an assignment that may point it into a main checkout makes it
+# DANGER. HOME_TAINT does not change this reading (judging it keeps ~/<main>
+# blocked from a worktree); it only makes ~ computed for rule 4 (_nonliteral).
+_home() { # -> RET; return 1 when unknown (RETDANGER=1 when it may be a main path)
+  if _var_is_danger HOME; then RETDANGER=1; return 1; fi
+  RET="$HOME"
+}
+
+# A word whose value bash computes: any expansion, brace expansion, a glob, or
+# a tilde form other than a plain ~ / ~/ prefix under an unchanged HOME. The
+# lexer has dropped quoting, so a quoted '*' or '{' counts too (an accepted
+# false positive); every quoted `$` is already a placeholder holding one.
+_nonliteral() { # $1 lexed word -> 0 when bash computes its value
+  case "$1" in
+    *'$'*|*'`'*|*[{}*?[]*) return 0 ;;
+    '~'|'~/'*)
+      [[ "$HOME_TAINT" == "1" ]] && return 0
+      _var_is_danger HOME && return 0
+      return 1 ;;
+    '~'*) return 0 ;;
+  esac
+  return 1
+}
+
+_main_in_play() { # -> 0 when the line starts, is, or may still be in a main checkout
+  _dir_is_main "$CURDIR" || _dir_is_main "$PWD" || { [[ -n "$DIR_ALT" ]] && _dir_is_main "$DIR_ALT"; }
+}
+
+_main_dir() { # -> RET: the main checkout in play (for the block message)
+  local d
+  RET="$PWD"
+  for d in "$CURDIR" "$DIR_ALT" "$PWD"; do
+    if [[ -n "$d" ]] && _dir_is_main "$d"; then RET="$d"; return 0; fi
+  done
+}
+
+# Rule 4: from a main checkout, a computed write destination blocks.
+_check_literal() { # $1 lexed destination word -> 0 when it blocked
+  # HOME may change later on the line: the end of the run judges ~ writes again.
+  case "$1" in '~'|'~/'*) TILDE_SEEN=1 ;; /*) ;; *) (( TILDE_CD )) && TILDE_SEEN=1 ;; esac
+  _nonliteral "$1" || return 1
+  _main_in_play || return 1
+  _main_dir
+  _block "write to '$1', a destination built from an expansion" "$RET" nonliteral
+  return 0
 }
 
 # Variables assigned earlier in the SAME command line (`SP=/tmp/x; cat > "$SP/f"`,
@@ -296,6 +353,7 @@ _scan_default_assigns() { # $@ words
     while [[ "$rest" =~ $re ]]; do
       bang="${BASH_REMATCH[1]}" nm="${BASH_REMATCH[2]}" val="${BASH_REMATCH[4]}" rest="${BASH_REMATCH[5]}"
       if [[ -n "$bang" ]]; then _var_clear_all; continue; fi
+      [[ "$nm" == HOME ]] && HOME_TAINT=1
       _var_poison "$nm" "$val"
     done
   done
@@ -330,9 +388,10 @@ DEFERRED=()
 _analyze_deferred() { # $1 shell text
   local sdir="$CURDIR" sunres="$DIR_UNRESOLVED" sdanger="$DIR_DANGER"
   local salt="$DIR_ALT" sguard="$ALT_GUARD" sold="$OLD_CUR"
-  local snc="$NEXT_COND" snp="$NEXT_PIPE"
+  local snc="$NEXT_COND" snp="$NEXT_PIPE" stcd="$TILDE_CD"
   local -a sstk=("${DIRSTK[@]}") svk=("${VAR_K[@]}") svv=("${VAR_V[@]}")
   _analyze_text "$1"
+  TILDE_CD="$stcd"
   CURDIR="$sdir"; DIR_UNRESOLVED="$sunres"; DIR_DANGER="$sdanger"
   DIR_ALT="$salt"; ALT_GUARD="$sguard"; OLD_CUR="$sold"
   NEXT_COND="$snc"; NEXT_PIPE="$snp"
@@ -371,6 +430,9 @@ _var_set() { # $1 name, $2 raw value (already lexed: quotes removed)
   _var_poison "$1"
   # Never bound, but a main-checkout value still makes it DANGER.
   _shell_managed "$1" && { _var_poison "$1" "$2"; return 0; }
+  # HOME is never bound either: the lexer drops quoting, so a command word
+  # 'HOME=x' looks like an assignment, and ~ must keep its inherited reading.
+  [[ "$1" == HOME ]] && { _var_poison "$1" "$2"; return 0; }
   # The lexer has dropped quoting, so `P='$D'` (literal) and `P=$D` (expanded)
   # look the same here, as do `'~/x'` and `~/x`. Bind only plain literals.
   case "$2" in *'$'*|'~'*|*':~'*) _var_poison "$1" "$2"; return 0 ;; esac
@@ -403,8 +465,9 @@ _assign_mode() { # -> RET
 # special builtin (`D=x export D`), let/(( )), eval, bash -c. Rather than model
 # each, any word that names a bound variable (bare `D`, or `D=…`, `D+=…`,
 # `D[…`) poisons it; only the narrow binding paths below re-bind it.
+HOMEWORD='(^|[^A-Za-z0-9_])HOME([^A-Za-z0-9_]|$)'
 _poison_mentions() { # $@ words
-  local wd nm i
+  local wd nm i hw
   local -a all=()
   for wd in "$@"; do
     all+=("$wd")
@@ -414,6 +477,10 @@ _poison_mentions() { # $@ words
   for wd in "${all[@]}"; do
     # Any mention: cd stops trusting the inherited CDPATH (a binding still wins).
     [[ "$wd" == *CDPATH* ]] && CDPATH_TAINT=1
+    # A bare HOME (HOME=…, read HOME, printf -v HOME, …), not a $HOME read:
+    # ~ and $HOME may no longer hold the inherited value.
+    hw="${wd//\$\{HOME/}"; hw="${hw//\$HOME/}"
+    [[ "$hw" =~ $HOMEWORD ]] && HOME_TAINT=1
     if [[ "$wd" =~ ^([A-Za-z_][A-Za-z0-9_]*)\+=(.*)$ ]]; then
       nm="${BASH_REMATCH[1]}"
       # NAME+=lit: the new value is the old one with lit appended (or just lit
@@ -450,7 +517,7 @@ _var_clear_all() { # forget every binding and bind nothing more on this line
   for ((i = 0; i < ${#VAR_K[@]}; i++)); do
     [[ -n "${VAR_K[i]}" ]] && { _var_is_danger "${VAR_K[i]}" || VAR_D+=("${VAR_K[i]}"); }
   done
-  VAR_K=(); VAR_V=(); LINE_CTRL=1
+  VAR_K=(); VAR_V=(); LINE_CTRL=1; HOME_TAINT=1
 }
 
 _assign() { # $1 NAME=value word, $2 mode
@@ -481,6 +548,8 @@ _subst_vars() { # $1 string -> RET with known $NAME / ${NAME} substituted
     name="${BASH_REMATCH[3]}${BASH_REMATCH[4]}"
     pre="${BASH_REMATCH[1]}" whole="\$${BASH_REMATCH[2]}" post="${BASH_REMATCH[5]}"
     if _var_get "$name"; then
+      out="$out$pre$RET"
+    elif [[ "$name" == HOME ]] && _home; then
       out="$out$pre$RET"
     else
       _var_is_danger "$name" && RETDANGER=1
@@ -547,10 +616,12 @@ _dir_is_main() { # $1 dir-ish path (may not exist) -> 0 when in a main checkout
 BLOCKED=0
 BLOCK_WHAT=""
 BLOCK_WHERE=""
+BLOCK_KIND=""
 
-_block() { # $1 what, $2 where
+_block() { # $1 what, $2 where, [$3 kind: nonliteral]
   [[ "$BLOCKED" == "1" ]] && return 0
   BLOCKED=1
+  BLOCK_KIND="${3:-}"
   _shown "$1"; BLOCK_WHAT="$RET"
   BLOCK_WHERE="$2"
 }
@@ -809,6 +880,7 @@ _check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argum
     [[ "$raw" == '&'* ]] && return 0          # >&2, 2>&1: an fd, not a file
     [[ "$raw" =~ ^[0-9]+$ ]] && return 0      # fd number left over from N>&M
   fi
+  _check_literal "$raw" && return 0
   if [[ "$kind" == "remote" && "$raw" =~ ^[^/]*: ]]; then
     return 0                                  # host:path — not this machine
   fi
@@ -825,7 +897,7 @@ _check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argum
   # against the working directory and, after a cd that may have failed,
   # against the directory the shell may still be in.
   local -a alts bases
-  local a b unres=0
+  local a b
   _alt_candidates "$raw"; alts=("${ALTS[@]}")
   bases=("$CURDIR"); _alt_active && bases+=("$DIR_ALT")
   for a in "${alts[@]}"; do
@@ -842,23 +914,17 @@ _check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argum
             _block "write to '$raw' after a cd that may have failed (its target does not exist)$RETWHY" "$RETP"
           fi
           return 0 ;;
-        unres) unres=1 ;;
       esac
     done
   done
-  if (( unres )); then
-    # Unresolvable variable in the path. If we are sitting in a main checkout a
-    # relative/unknown target may well land in it — fail closed. Elsewhere the
-    # risk is speculative, so allow.
-    if _dir_is_main "$CURDIR" || { _alt_active && _dir_is_main "$DIR_ALT"; }; then
-      _block "write to an unresolvable destination ('$raw')" "$CURDIR"
-    fi
-  fi
+  # An unresolvable reading is only a risk from a main checkout, where
+  # _check_literal has already blocked it.
   return 0
 }
 
 _block_if_cwd_main() { # $1 what — a content-introducing command run in CWD
   local what="$1"
+  (( TILDE_CD )) && TILDE_SEEN=1
   if [[ "$DIR_UNRESOLVED" == "1" ]]; then
     _block "$what (unresolvable cd target — fail closed)" "$CURDIR"
     return 0
@@ -876,6 +942,11 @@ _cd_to() { # $1 target word
   local target="$1" old="$CURDIR" oldun="$DIR_UNRESOLVED" olddg="$DIR_DANGER"
   local e unres danger p a risky=0 viacdp="" cdp known ent
   local -a alts ents
+  # From a main checkout, a computed target leaves the directory unknown.
+  local computed=0
+  _nonliteral "$target" && _main_in_play && computed=1
+  local tcd=0
+  case "$target" in '~'|'~/'*) tcd=1 ;; esac
   # A reading other than the word itself (cd "${D:-<main>}"), or an
   # unresolvable part under a main checkout, may put us in a main checkout.
   _alt_candidates "$target"; alts=("${ALTS[@]}")
@@ -911,8 +982,9 @@ _cd_to() { # $1 target word
     if [[ -d "$p" ]] || _was_created "$p"; then
       _nearest_dir "$p"; CURDIR="$RET"; DIR_UNRESOLVED=0; DIR_DANGER=0
       # Only an absolute target settles where we are; a relative one may be
-      # relative to DIR_ALT.
-      [[ "$e" == /* ]] && DIR_ALT=""
+      # relative to DIR_ALT. Settling also ends a dependency on an earlier cd ~
+      # (a cd that may fail does not).
+      [[ "$e" == /* ]] && { DIR_ALT=""; TILDE_CD=0; }
     else
       # bash's cd fails here unless something this guard does not model creates
       # the directory first; the shell may then still be where it was.
@@ -922,8 +994,8 @@ _cd_to() { # $1 target word
       DIR_UNRESOLVED="$oldun"; DIR_DANGER="$olddg"
     fi
   fi
-  (( risky )) && { DIR_UNRESOLVED=1; DIR_DANGER=1; }
-  (( FN_SEEN )) && { DIR_UNRESOLVED=1; DIR_DANGER=1; }
+  (( risky || computed || FN_SEEN )) && { DIR_UNRESOLVED=1; DIR_DANGER=1; }
+  (( tcd )) && { TILDE_CD=1; TILDE_CD_EVER=1; }
   OLD_CUR="$old"
   return 0
 }
@@ -932,6 +1004,8 @@ _cd_to() { # $1 target word
 # model ignored these, so a main checkout we are leaving stays a possibility.
 _cd_back() { # $1 directory, or "?" when unknown
   local old="$CURDIR"
+  # The directory returned to may be one a cd ~ reached (not tracked per entry).
+  (( TILDE_CD_EVER )) && TILDE_CD=1
   if [[ "$1" == "?" || -z "$1" ]]; then
     DIR_UNRESOLVED=1; DIR_DANGER=1
   else
@@ -1176,9 +1250,22 @@ _inspect_cmd() {
         esac
       done
       return 0 ;;
+    touch)
+      # Not a writer of a literal path. From main, ANY computed argument blocks
+      # (rule 4): which words are option values depends on GNU option grammar
+      # (clusters, --, abbreviations, POSIXLY_CORRECT), which is not modelled.
+      for a in "${args[@]}"; do _check_literal "$a"; done
+      return 0 ;;
+    dd)
+      for a in "${args[@]}"; do
+        case "$a" in of=*) _check_literal "${a#of=}" ;; esac
+      done
+      return 0 ;;
     mkdir)
-      # A directory created here makes a later cd into it succeed.
+      # A directory created here makes a later cd into it succeed. From main,
+      # any computed argument blocks, as for touch.
       local skipm=0
+      for a in "${args[@]}"; do _check_literal "$a"; done
       for a in "${args[@]}"; do
         if (( skipm )); then skipm=0; continue; fi
         case "$a" in
@@ -1222,7 +1309,7 @@ _inspect_cmd() {
             *) break ;;
           esac
         done
-        pv="${pv%%\[*}"
+        _subst_vars "$pv"; pv="${RET%%\[*}"   # printf -v "$N": the name N holds
         if [[ "$pv" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
           local -a pa=("${args[@]:k}")
           local built="${pa[0]}" pi=1
@@ -1254,6 +1341,8 @@ _inspect_cmd() {
         if [[ -z "$target" || "$target" == "?" ]]; then _cd_back "?"; return 0; fi
         if [[ "$DIR_UNRESOLVED" == "1" ]]; then DIRSTK+=("?"); else DIRSTK+=("$CURDIR"); fi
       fi
+      # A bare cd goes to $HOME.
+      [[ -z "$target" && "$base" == cd && "$dashdash" == 0 ]] && target='~'
       [[ -z "$target" ]] && return 0
       if [[ "$target" == "-" ]]; then
         if [[ -n "$OLD_CUR" ]]; then _cd_back "$OLD_CUR"; else _cd_back "?"; fi
@@ -1292,7 +1381,7 @@ _inspect_cmd() {
       for ((j = 0; j < ${#args[@]}; j++)); do
         if [[ "${args[j]}" == "-c" ]]; then
           local sdir="$CURDIR" sunres="$DIR_UNRESOLVED" sddanger="$DIR_DANGER"
-          local salt="$DIR_ALT" sguard="$ALT_GUARD" sold="$OLD_CUR"
+          local salt="$DIR_ALT" sguard="$ALT_GUARD" sold="$OLD_CUR" stcd="$TILDE_CD"
           local -a sstk=("${DIRSTK[@]}")
           # A new shell does not inherit unexported variables. Rather than
           # track export state, hide every binding while analysing the child,
@@ -1326,6 +1415,7 @@ _inspect_cmd() {
           VAR_K=("${svk[@]}"); VAR_V=("${svv[@]}")
           CURDIR="$sdir"; DIR_UNRESOLVED="$sunres"; DIR_DANGER="$sddanger"
           DIR_ALT="$salt"; ALT_GUARD="$sguard"; OLD_CUR="$sold"; DIRSTK=("${sstk[@]}")
+          TILDE_CD="$stcd"
           return 0
         fi
       done
@@ -1400,12 +1490,14 @@ _inspect_cmd() {
       return 0 ;;
 
     git)
-      local gdir="$CURDIR" gunres="$DIR_UNRESOLVED" sub="" sub2="" k=0 galt=""
+      local gdir="$CURDIR" gunres="$DIR_UNRESOLVED" sub="" sub2="" k=0 galt="" gcomp="" gtilde=0 gcwd=1
       local m=${#args[@]}
       _alt_active && galt="$DIR_ALT"
       while (( k < m )); do
         case "${args[k]}" in
           -C)
+            [[ -z "$gcomp" ]] && _nonliteral "${args[$((k + 1))]}" && _main_in_play && gcomp="${args[$((k + 1))]}"
+            case "${args[$((k + 1))]}" in '~'|'~/'*) gtilde=1; gcwd=0 ;; /*) gtilde=0; gcwd=0 ;; esac
             _abs_path "${args[$((k + 1))]}" "$CURDIR"
             if [[ "$RETUNRES" == "1" ]]; then gunres=1; else gunres=0; gdir="$RET"; fi
             if [[ -n "$galt" ]]; then
@@ -1442,7 +1534,12 @@ _inspect_cmd() {
           fi ;;
       esac
       if (( mutating )); then
-        if [[ "$gunres" == "1" ]]; then
+        (( TILDE_CD && gcwd )) && TILDE_SEEN=1
+        [[ "$gtilde" == 1 ]] && TILDE_SEEN=1
+        if [[ -n "$gcomp" ]]; then
+          _main_dir
+          _block "git -C '$gcomp' $sub, a directory built from an expansion" "$RET" nonliteral
+        elif [[ "$gunres" == "1" ]]; then
           _block "git $sub (unresolvable target directory — fail closed)" "$gdir"
         else
           _nearest_dir "$gdir"
@@ -1511,7 +1608,7 @@ _leave_context() {
   DIR_UNRESOLVED="$LX_SAVED_UNRES"
   DIR_DANGER="$LX_SAVED_DDANGER"
   DIR_ALT="$LX_SAVED_ALT"; ALT_GUARD="$LX_SAVED_GUARD"; OLD_CUR="$LX_SAVED_OLD"
-  DIRSTK=("${LX_SAVED_STK[@]}")
+  DIRSTK=("${LX_SAVED_STK[@]}"); TILDE_CD="$LX_SAVED_TCD"
   # Assignments in a subshell are scoped to it too.
   VAR_K=("${LX_SAVED_VK[@]}")
   VAR_V=("${LX_SAVED_VV[@]}")
@@ -1529,7 +1626,7 @@ _lex_context() { # $1 terminator: "" (EOF), ")" or "`"
   local -a LX_HSTR=()
   local LX_CUR="" LX_HAVE=0 LX_PEND=0
   local LX_SAVED_DIR="$CURDIR" LX_SAVED_UNRES="$DIR_UNRESOLVED" LX_SAVED_DDANGER="$DIR_DANGER"
-  local LX_SAVED_ALT="$DIR_ALT" LX_SAVED_GUARD="$ALT_GUARD" LX_SAVED_OLD="$OLD_CUR"
+  local LX_SAVED_ALT="$DIR_ALT" LX_SAVED_GUARD="$ALT_GUARD" LX_SAVED_OLD="$OLD_CUR" LX_SAVED_TCD="$TILDE_CD"
   local -a LX_SAVED_STK=("${DIRSTK[@]}")
   local -a LX_SAVED_VK=("${VAR_K[@]}") LX_SAVED_VV=("${VAR_V[@]}")
   local LX_SAVED_NC="$NEXT_COND" LX_SAVED_NP="$NEXT_PIPE"
@@ -1748,6 +1845,29 @@ _analyze_text "$CMD"
 # in the state the line leaves behind.
 for _t in "${DEFERRED[@]}"; do _analyze_text "$_t"; done
 
+# A write went to a ~ path (or relative to a cd ~) taken as literal, but HOME
+# may change later on the line (in a loop, a later assignment runs first).
+if (( ! BLOCKED && TILDE_SEEN && HOME_TAINT )) && _main_in_play; then
+  _main_dir
+  _block "write to a ~ path on a line that may change HOME" "$RET" nonliteral
+fi
+
+if (( BLOCKED )) && [[ "$BLOCK_KIND" == nonliteral ]]; then
+  echo "❌ Blocked: a Bash write whose destination is built from an expansion," >&2
+  echo "   run from a MAIN checkout." >&2
+  echo "   Action:   $BLOCK_WHAT" >&2
+  echo "   Checkout: $BLOCK_WHERE" >&2
+  echo "   Command:  $CMD" >&2
+  echo "" >&2
+  echo "   From a main checkout every write destination must be a literal path:" >&2
+  echo "   no \$VAR, \${…}, \$(…), \$((…)), \$'…', ~user, {a,b} or globs (\$HOME and" >&2
+  echo "   \$TMPDIR included). Spell the path out (/tmp/x, ~/.cache/x), or run the" >&2
+  echo "   command from a worktree." >&2
+  _nearest_dir "$BLOCK_WHERE"
+  _worktree_hint "$(cd "$RET" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" "run it"
+  exit 2
+fi
+
 if (( BLOCKED )); then
   echo "❌ Blocked: tree-mutating Bash command targeting the MAIN checkout." >&2
   echo "   Action:  $BLOCK_WHAT" >&2
@@ -1761,10 +1881,6 @@ if (( BLOCKED )); then
   _worktree_hint "$(cd "$RET" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null)" "run it"
   exit 2
 fi
-
-_main_in_play() { # -> 0 when the line starts, ends or may still be in a main checkout
-  _dir_is_main "$CURDIR" || _dir_is_main "$PWD" || { [[ -n "$DIR_ALT" ]] && _dir_is_main "$DIR_ALT"; }
-}
 
 if [[ -n "$UNMOD_WHY" ]] && _main_in_play; then
   _shown "$UNMOD_WHY"
