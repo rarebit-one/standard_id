@@ -84,18 +84,43 @@ if [[ "$GIT_DIR" == *".git/worktrees/"* ]]; then
   exit 0
 fi
 
+# Print a worktree command that works here. Prefer the estate-wt launcher: on
+# PATH, beside this hook (agent-estate, reached through symlinks), or in the
+# repo. Repos that vendor this hook as a plain file usually have none of these
+# (delivery-ops#1088), so fall back to plain `git worktree add`.
+_worktree_hint() { # $1 repo top-level ("" when unknown), $2 verb ("edit" / "run it")
+  local top="$1" src dir ewt="" c def=""
+  if command -v estate-wt >/dev/null 2>&1; then
+    ewt=estate-wt
+  else
+    src=${BASH_SOURCE[0]}
+    while [ -L "$src" ]; do
+      dir=$(cd -P "$(dirname "$src")" && pwd); src=$(readlink "$src")
+      case $src in /*) ;; *) src=$dir/$src ;; esac
+    done
+    dir=$(cd -P "$(dirname "$src")/.." 2>/dev/null && pwd)
+    for c in ${dir:+"$dir/bin/estate-wt"} ${top:+"$top/bin/estate-wt" "$top/.agents/bin/estate-wt"}; do
+      if [ -f "$c" ] && [ -x "$c" ]; then ewt=$c; break; fi
+    done
+  fi
+  echo "   Create a worktree first, then $2 there:" >&2
+  if [ -n "$ewt" ]; then
+    echo "     $ewt -C ${top:-<repo>} new <slug>     (prints the new worktree's path)" >&2
+  else
+    if [ -n "$top" ]; then
+      def=$(git -C "$top" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)
+      def=${def#origin/}
+      for c in main master; do
+        [ -z "$def" ] && git -C "$top" rev-parse --verify --quiet "refs/remotes/origin/$c" >/dev/null && def=$c
+      done
+    fi
+    echo "     git -C ${top:-<repo>} worktree add .worktrees/<slug> -b <branch> origin/${def:-<default>}" >&2
+  fi
+}
+
 # We're in the main checkout — block
 echo "❌ Blocked: Cannot modify files in the main checkout." >&2
-TOP=$(cd "$CHECK_DIR" && git rev-parse --show-toplevel 2>/dev/null) || TOP="<repo>"
-# The launcher sits beside this hook in agent-estate; hooks reach us through symlinks.
-_src=${BASH_SOURCE[0]}
-while [ -L "$_src" ]; do
-  _dir=$(cd -P "$(dirname "$_src")" && pwd); _src=$(readlink "$_src")
-  case $_src in /*) ;; *) _src=$_dir/$_src ;; esac
-done
-EWT=$(cd -P "$(dirname "$_src")/.." 2>/dev/null && pwd)/bin/estate-wt
-command -v estate-wt >/dev/null 2>&1 && EWT=estate-wt
-echo "   Create a worktree first, then edit there:" >&2
-echo "     $EWT -C $TOP new <slug>     (prints the new worktree's path)" >&2
+TOP=$(cd "$CHECK_DIR" && git rev-parse --show-toplevel 2>/dev/null) || TOP=""
+_worktree_hint "$TOP" edit
 echo "   File: $FILE_PATH" >&2
 exit 2
