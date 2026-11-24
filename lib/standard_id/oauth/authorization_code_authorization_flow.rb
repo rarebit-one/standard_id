@@ -5,7 +5,7 @@ module StandardId
       # :audience is optional (RFC 6749 / RFC 8707 §2 treats `resource`/`audience`
       # as OPTIONAL at /authorize). Token-time validation in
       # TokenGrantFlow#validate_audience! already no-ops when audience is blank or
-      # when no allowed_audiences are configured, so omitting it is safe and lets
+      # when no mintable audiences are configured, so omitting it is safe and lets
       # standards-compliant clients (e.g. MCP) authorize without it.
       permit_params :audience, :resource, :scope, :redirect_uri, :state, :connection, :prompt, :organization, :invitation, :code_challenge, :code_challenge_method, :nonce
 

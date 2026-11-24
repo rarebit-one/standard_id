@@ -429,6 +429,41 @@ token needs `client_id:` (the refresh grant matches on it) and, under a
 judged as `:unspecified`. `expires_in:` must be positive. The grant is not
 reachable from `/oauth/token`.
 
+### Token Audiences: Minted vs Accepted
+
+`config.oauth.allowed_audiences` does two jobs: it lists the audiences this app
+may issue tokens for, and the audiences its API accepts in a bearer's `aud`. An
+identity provider that mints tokens for *other* services needs those jobs apart,
+or every audience it mints is also accepted on its own API. Two settings split
+them:
+
+```ruby
+StandardId.configure do |config|
+  # What this app mints: every /oauth/token grant (the authorization-code
+  # exchange, client_credentials, password, refresh, …), TokenMinter and the
+  # API step-up re-mint refuse any other audience (400 invalid_request).
+  config.oauth.mintable_audiences = %w[sidekick harness inference]
+
+  # What its API accepts: Api::TokenManager decodes bearers against this, so a
+  # token for any other audience is an invalid token (401).
+  config.oauth.accepted_audiences = %w[sidekick]
+end
+```
+
+Each defaults to `allowed_audiences` when unset (`nil`), so a host that sets
+neither keeps one list doing both jobs, exactly as before. When a host sets one,
+it wins for that side; `allowed_audiences` still supplies the other. An empty
+effective list means no check on that side, as an empty `allowed_audiences`
+always has, and an empty effective accepted list in production logs the boot
+warning (setting only `mintable_audiences` does not silence it). The audience is
+checked when the token is minted, so for the authorization-code flow that is the
+code exchange at `/oauth/token`; `/authorize` itself, including the implicit
+flow, does not check either list. The Web (cookie) token manager reads no JWT,
+so neither list applies to browser sessions. `JwtService.decode` and
+`JwtService.verify` check only the `allowed_audiences:` you pass them.
+`StandardId::Oauth::Audiences.mintable` / `.accepted` return the effective
+lists.
+
 ### Custom Token Claims
 
 You can add additional JWT claims for any token issued through the OAuth token endpoint by mapping scopes to claim names and providing callbacks to resolve each claim. Scopes listed in `oauth.scope_claims` are evaluated against the requested token scopes; when a scope matches, every claim listed for that scope is resolved via the callable defined in `oauth.claim_resolvers`.
@@ -525,9 +560,10 @@ stay in the host controller.
 Two things to know. The document's `resource` and the challenge URL are built from
 the request origin, as RFC 9728 §3.3 requires, so pin `Host` (`config.hosts`, or at
 the proxy): the document is served with `Cache-Control: public`. And a token minted
-for an audience outside `config.oauth.allowed_audiences` is refused at decode time
-as `401 invalid_token`, before the concern sees it; the `403 insufficient_scope` is
-for a token minted for another *allowed* audience.
+for an audience outside the accepted audiences (`config.oauth.accepted_audiences`,
+else `allowed_audiences`) is refused at decode time as `401 invalid_token`, before
+the concern sees it; the `403 insufficient_scope` is for a token minted for another
+*accepted* audience.
 
 ### Dynamic Client Registration (RFC 7591 / RFC 7592)
 
@@ -1646,8 +1682,9 @@ in front of the endpoint. The `resource` parameter is ignored until
 (RFC 8707 §2).
 
 For a client with no registered default, a client-supplied `audience` is taken as
-is, so `audience_scopes` enforcement for such clients is only as strong as
-`config.oauth.allowed_audiences` at the token endpoint.
+is, so `audience_scopes` enforcement for such clients is only as strong as the
+mintable audiences (`config.oauth.mintable_audiences`, else `allowed_audiences`) at
+the token endpoint.
 
 **Which scope?** `config.oauth.authorize_scope_resolver` normalises the requested
 scope once the client and audience are known and before `audience_scopes` is

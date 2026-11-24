@@ -6,26 +6,27 @@ module StandardId
   # StandardId enforces audience in three layers:
   #
   #   1. At encode time (`Oauth::TokenGrantFlow#validate_audience!`):
-  #      rejects issuance of tokens with an audience outside the global
-  #      `StandardId.config.oauth.allowed_audiences` list.
+  #      rejects issuance of tokens with an audience outside the mintable
+  #      list (`config.oauth.mintable_audiences`, else `allowed_audiences`).
   #   2. At decode time (`JwtService.decode(..., allowed_audiences:)`):
   #      rejects tokens whose `aud` claim does not match the caller-supplied
   #      list, raising `StandardId::InvalidAudienceError`. The engine's
   #      `Api::TokenManager#verify_jwt_token` wires this automatically when
-  #      `StandardId.config.oauth.allowed_audiences` is non-empty — a
+  #      the accepted list (`config.oauth.accepted_audiences`, else
+  #      `allowed_audiences`) is non-empty — a
   #      mismatch there is normalised to the same 401 "invalid token"
   #      response as a bad signature. Call sites that pass no arguments
   #      to `decode` directly still skip aud checks by design.
   #   3. At the controller, via this concern: layers on top as
   #      per-endpoint defense-in-depth. Required when a controller serves
-  #      a strict subset of the global allowed audiences (e.g., the global
+  #      a strict subset of the global accepted audiences (e.g., the global
   #      list is `%w[web api admin]` but `AdminController` must only
   #      accept `admin`).
   #
   # With the global decode-time check now automatic, this concern is
   # primarily useful for tightening the allowed audience per controller,
   # not for plugging the "controller forgot to verify aud" gap (which
-  # is closed globally when `config.oauth.allowed_audiences` is set).
+  # is closed globally when the accepted audiences are set).
   #
   # In addition, when `StandardId.config.oauth.audience_profile_types` is set,
   # this concern enforces the audience → profile-type binding: after the

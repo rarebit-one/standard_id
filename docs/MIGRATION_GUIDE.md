@@ -5,6 +5,7 @@ This guide helps you migrate between StandardId versions.
 ## Table of Contents
 
 - [Built-in step-up e-mail (unreleased)](#built-in-step-up-e-mail-unreleased)
+- [Minted vs accepted audiences (unreleased, opt-in)](#minted-vs-accepted-audiences-unreleased-opt-in)
 - [Upgrading to 0.62: what to do](#upgrading-to-062-what-to-do)
 - [Step-up authentication (0.62, opt-in)](#step-up-authentication-062-opt-in)
 - [Password pepper (0.62, opt-in)](#password-pepper-062-opt-in)
@@ -38,6 +39,43 @@ signed in, when the code expires, and what to do if it wasn't them.
 - With `c.step_up.delivery = :custom` nothing changes: the engine sends
   nothing, and your `PASSWORDLESS_CODE_GENERATED` subscriber gets the realm
   (`c.step_up.realm`, default `"step_up"`) in the payload as before.
+
+---
+
+## Minted vs accepted audiences (unreleased, opt-in)
+
+Nothing to do unless you want it. `c.oauth.allowed_audiences` keeps doing both
+of its jobs (the audiences you may mint tokens for, and the audiences your API
+accepts) until you set one of the two new settings:
+
+- `c.oauth.mintable_audiences`: checked by every `/oauth/token` grant,
+  `StandardId::TokenMinter` and the API step-up re-mint.
+- `c.oauth.accepted_audiences`: what `Api::TokenManager` decodes bearers
+  against; also what the production boot warning checks.
+
+Each is `nil` (unset) by default and then falls back to `allowed_audiences`.
+Set one and it replaces `allowed_audiences` for that side only. An identity
+provider that mints per-service tokens should list the services as mintable
+and keep accepted to its own API's audiences:
+
+```ruby
+# before: harness/inference tokens were also accepted on this app's API
+c.oauth.allowed_audiences = %w[sidekick harness inference]
+
+# after
+c.oauth.allowed_audiences  = %w[sidekick]                    # or drop it
+c.oauth.mintable_audiences = %w[sidekick harness inference]
+c.oauth.accepted_audiences = %w[sidekick]
+```
+
+Check before you narrow `accepted_audiences`: a caller that sends a service
+token to your own API (rather than to the service) gets `401` once that
+audience is no longer accepted. An empty list you set explicitly means no
+check on that side, like an empty `allowed_audiences`.
+
+If you stubbed `StandardId.config.oauth.allowed_audiences` in specs, the stub
+still works while the two new settings are unset. Engine code now reads the
+effective lists through `StandardId::Oauth::Audiences.mintable` / `.accepted`.
 
 ---
 

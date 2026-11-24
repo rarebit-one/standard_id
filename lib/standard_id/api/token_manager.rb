@@ -71,8 +71,9 @@ module StandardId
 
       # Verifies the bearer JWT and returns a decoded session.
       #
-      # When `StandardId.config.oauth.allowed_audiences` is non-empty,
-      # the token's `aud` claim is enforced against that list at decode
+      # When the accepted audiences (`config.oauth.accepted_audiences`,
+      # else `config.oauth.allowed_audiences`) are non-empty, the token's
+      # `aud` claim is enforced against that list at decode
       # time. A mismatch raises `StandardId::InvalidAudienceError`, which
       # is caught and treated as an invalid token (returns nil) so the
       # downstream 401 path in `Api::BaseController` handles it
@@ -125,8 +126,7 @@ module StandardId
       end
 
       def configured_allowed_audiences
-        audiences = StandardId.config.oauth.allowed_audiences
-        audiences.presence
+        StandardId::Oauth::Audiences.accepted.presence
       end
     end
   end

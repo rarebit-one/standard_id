@@ -361,6 +361,12 @@ StandardId.configure do |c|
   # validation entirely — set this in production.
   # Default: []
   # c.oauth.allowed_audiences = %w[web mobile admin]
+  #
+  # Split what this app mints from what its API accepts. Each defaults to
+  # allowed_audiences when unset (nil). An identity provider minting tokens
+  # for other services lists them as mintable but not accepted:
+  # c.oauth.mintable_audiences = %w[web harness inference]
+  # c.oauth.accepted_audiences = %w[web]
 
   # Scope-to-claims mapping — when a scope is granted, every listed claim is
   # resolved via claim_resolvers below and embedded in the access token.

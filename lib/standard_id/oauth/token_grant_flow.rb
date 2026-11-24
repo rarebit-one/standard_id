@@ -350,8 +350,10 @@ module StandardId
         params[:audience]
       end
 
+      # Against the audiences this app may mint (oauth.mintable_audiences,
+      # else oauth.allowed_audiences), not the ones its API accepts.
       def validate_audience!
-        allowed = StandardId.config.oauth.allowed_audiences
+        allowed = StandardId::Oauth::Audiences.mintable
         return if allowed.blank? # No restriction configured
         return if audience.blank? # Audience not provided (optional)
 
