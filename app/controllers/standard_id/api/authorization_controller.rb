@@ -17,6 +17,7 @@ module StandardId
 
       def show
         reject_invalid_redirect_uri!
+        emit_authorization_requested
         return redirect_to_consent if consent_required?
 
         response_data = flow_strategy_class.new(
@@ -50,6 +51,27 @@ module StandardId
         return if client.valid_redirect_uri?(params[:redirect_uri])
 
         raise StandardId::InvalidRequestError, "Invalid redirect_uri"
+      end
+
+      # Once per /authorize request for an active client, before consent and
+      # before anything is issued. The consent screen's approval resumes the
+      # flow without coming back here, so it is not published twice. An unknown
+      # client publishes nothing: the flow refuses it. A social connection
+      # names no account (it is resolved at the provider's callback), and its
+      # browser session is not read here, as it never was.
+      def emit_authorization_requested
+        return if consent_client.nil?
+
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_AUTHORIZATION_REQUESTED,
+          client_id: consent_client.client_id,
+          account: social_login? ? nil : current_account,
+          response_type: response_type,
+          scope: params[:scope].presence,
+          audience: params[:audience].presence,
+          redirect_uri: params[:redirect_uri].presence,
+          connection: params[:connection].presence
+        )
       end
 
       # An interactive authorization-code request needs a consent screen when:

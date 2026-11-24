@@ -24,7 +24,10 @@ module StandardId
           return redirect_to(standard_id_web.login_path, alert: "Invalid or expired verification code") if code.blank?
 
           result = StandardId::Otp.verify(realm: "verification", target: target, code: code, channel: :sms, request: request)
-          return redirect_to(standard_id_web.login_path, alert: result.error) unless result.success?
+          unless result.success?
+            StandardId::Identifier.publish_verification_failed(value: target, channel: :sms, realm: "verification", result: result)
+            return redirect_to(standard_id_web.login_path, alert: result.error)
+          end
 
           StandardId::PhoneNumberIdentifier.find_by(value: target)&.verify!
 

@@ -32,7 +32,6 @@ module StandardId
           "identifier.verification.started" => :debug,
           "identifier.verification.succeeded" => :info,
           "identifier.verification.failed" => :warn,
-          "identifier.linked" => :info,
           "oauth.authorization.requested" => :debug,
           "oauth.authorization.granted" => :info,
           "oauth.authorization.denied" => :info,

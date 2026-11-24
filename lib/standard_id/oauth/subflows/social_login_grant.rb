@@ -19,11 +19,20 @@ module StandardId
               raise StandardId::InvalidRequestError, "#{connection} sign-in requires the web login flow (PKCE)"
             end
 
-            provider.authorization_url(
+            callback_url = "#{params[:base_url]}/api/oauth/callback/#{connection}"
+            url = provider.authorization_url(
               state: encode_state_with_original_params,
-              redirect_uri: "#{params[:base_url]}/api/oauth/callback/#{connection}",
+              redirect_uri: callback_url,
               scope: provider.default_scope
             )
+            StandardId::Events.publish(
+              StandardId::Events::SOCIAL_AUTH_STARTED,
+              provider: provider.provider_name,
+              flow: "oauth_authorize",
+              client_id: params[:client_id],
+              redirect_uri: callback_url
+            )
+            url
           rescue StandardId::ProviderRegistry::ProviderNotFoundError => e
             raise StandardId::InvalidRequestError, e.message
           end

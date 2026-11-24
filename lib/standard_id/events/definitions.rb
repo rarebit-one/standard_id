@@ -5,6 +5,9 @@ module StandardId
       AUTHENTICATION_SUCCEEDED = "authentication.attempt.succeeded"
       AUTHENTICATION_FAILED = "authentication.attempt.failed"
       PASSWORD_VALIDATED = "authentication.password.validated"
+      # A password was checked against an existing password credential and did
+      # not match. A login that names no credential at all publishes only
+      # AUTHENTICATION_FAILED, as an OTP for a target with no challenge does.
       PASSWORD_VALIDATION_FAILED = "authentication.password.failed"
       OTP_VALIDATED = "authentication.otp.validated"
       OTP_VALIDATION_FAILED = "authentication.otp.failed"
@@ -23,11 +26,15 @@ module StandardId
       SESSION_VALIDATED = "session.validated"
       SESSION_EXPIRED = "session.expired"
       SESSION_REVOKED = "session.revoked"
+      # An OAuth token grant reused the device's active DeviceSession and moved
+      # its expires_at forward (session.session_type_resolver -> :device).
       SESSION_REFRESHED = "session.refreshed"
 
       ACCOUNT_CREATING = "account.creating"
       ACCOUNT_CREATED = "account.created"
       ACCOUNT_VERIFIED = "account.verified"
+      # Any committed change to AccountStatus's status column, published after
+      # ACCOUNT_ACTIVATED / ACCOUNT_DEACTIVATED.
       ACCOUNT_STATUS_CHANGED = "account.status_changed"
       ACCOUNT_ACTIVATED = "account.activated"
       ACCOUNT_DEACTIVATED = "account.deactivated"
@@ -35,16 +42,22 @@ module StandardId
       ACCOUNT_UNLOCKED = "account.unlocked"
 
       IDENTIFIER_CREATED = "identifier.created"
+      # Proving an address (the "verification" realm of /verify-email and
+      # /verify-phone, and c.email_password's sign-up code): a code was issued,
+      # the address was verified, or a wrong code was sent for a live code.
       IDENTIFIER_VERIFICATION_STARTED = "identifier.verification.started"
       IDENTIFIER_VERIFICATION_SUCCEEDED = "identifier.verification.succeeded"
       IDENTIFIER_VERIFICATION_FAILED = "identifier.verification.failed"
-      IDENTIFIER_LINKED = "identifier.linked"
 
+      # /authorize: a request for an active client arrived, an authorization
+      # response (code or implicit token) was issued, or the account refused
+      # the client on the consent screen.
       OAUTH_AUTHORIZATION_REQUESTED = "oauth.authorization.requested"
       OAUTH_AUTHORIZATION_GRANTED = "oauth.authorization.granted"
       OAUTH_AUTHORIZATION_DENIED = "oauth.authorization.denied"
       OAUTH_TOKEN_ISSUING = "oauth.token.issuing"
       OAUTH_TOKEN_ISSUED = "oauth.token.issued"
+      # A refresh_token grant rotated its token (after OAUTH_TOKEN_ISSUED).
       OAUTH_TOKEN_REFRESHED = "oauth.token.refreshed"
       OAUTH_CODE_CONSUMED = "oauth.code.consumed"
       OAUTH_TOKEN_REVOKED = "oauth.token.revoked"
@@ -62,6 +75,8 @@ module StandardId
       PASSWORDLESS_CODE_FAILED = "passwordless.code.failed"
       PASSWORDLESS_ACCOUNT_CREATED = "passwordless.account.created"
 
+      # The browser was sent to a social provider, and the provider's answer
+      # reached a callback.
       SOCIAL_AUTH_STARTED = "social.auth.started"
       SOCIAL_CALLBACK_RECEIVED = "social.auth.callback_received"
       SOCIAL_USER_INFO_FETCHED = "social.user_info.fetched"
@@ -122,8 +137,7 @@ module StandardId
         IDENTIFIER_CREATED,
         IDENTIFIER_VERIFICATION_STARTED,
         IDENTIFIER_VERIFICATION_SUCCEEDED,
-        IDENTIFIER_VERIFICATION_FAILED,
-        IDENTIFIER_LINKED
+        IDENTIFIER_VERIFICATION_FAILED
       ].freeze
 
       OAUTH_EVENTS = [

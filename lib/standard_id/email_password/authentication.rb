@@ -37,7 +37,8 @@ module StandardId
 
           identifier = password_credential.credential&.identifier
           verified_digest = password_credential.password_digest
-          failed!(email) unless identifier && password_credential.authenticate(password)
+          failed!(email) unless identifier
+          failed!(email, password_credential) unless password_credential.authenticate(password)
 
           account = identifier.account
           StandardId::Events.publish(
@@ -61,7 +62,19 @@ module StandardId
 
         private
 
-        def failed!(email)
+        # +password_credential+ is given when the address has one and the
+        # password did not match it: only then is PASSWORD_VALIDATION_FAILED
+        # published as well.
+        def failed!(email, password_credential = nil)
+          if password_credential
+            StandardId::Events.publish(
+              StandardId::Events::PASSWORD_VALIDATION_FAILED,
+              account_lookup: email,
+              account: password_credential.account,
+              credential_id: password_credential.id,
+              error_code: "invalid_password"
+            )
+          end
           StandardId::Events.publish(
             StandardId::Events::AUTHENTICATION_FAILED,
             account_lookup: email,

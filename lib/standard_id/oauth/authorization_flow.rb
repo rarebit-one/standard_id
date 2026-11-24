@@ -23,10 +23,30 @@ module StandardId
         validate_params!
         authenticate_client!
         enforce_audience_scopes!
-        generate_authorization_response
+        response = generate_authorization_response
+        emit_authorization_granted if grants_authorization?
+        response
       end
 
       private
+
+      # Whether #generate_authorization_response hands the client something
+      # for the account (a code, a token). False for a hand-off elsewhere.
+      def grants_authorization?
+        true
+      end
+
+      def emit_authorization_granted
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_AUTHORIZATION_GRANTED,
+          client_id: @client.client_id,
+          account: current_account,
+          response_type: params[:response_type],
+          scope: scope,
+          audience: audience,
+          redirect_uri: redirect_uri
+        )
+      end
 
       def validate_params!
         if params[:response_type].blank?

@@ -17,6 +17,8 @@ module StandardId
           skip_before_action :verify_authenticity_token, only: [:callback, :mobile_callback], if: :skip_csrf_verification?
 
           def callback
+            emit_social_callback_received(flow: "web")
+
             if params[:error].present?
               handle_callback_error
               return

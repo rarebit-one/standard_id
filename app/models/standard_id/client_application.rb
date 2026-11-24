@@ -281,18 +281,26 @@ module StandardId
       client_secret_credentials.active.first
     end
 
-    # Client secret rotation support
+    # Client secret rotation support. Publishes CREDENTIAL_CLIENT_SECRET_CREATED
+    # for the new secret and then CREDENTIAL_CLIENT_SECRET_ROTATED, both once
+    # the rotation commits.
     def rotate_client_secret!(new_secret_name: "Rotated Secret #{Time.current.strftime('%Y%m%d')}", client_secret: SecureRandom.hex(32))
       transaction do
         # Create new secret
         new_secret = create_client_secret!(name: new_secret_name, client_secret: client_secret)
 
         # Deactivate old secrets (but don't delete for audit trail)
+        revoked_at = Time.current
+        superseded = client_secret_credentials.where.not(id: new_secret.id).where(revoked_at: nil)
+        revoked_ids = superseded.pluck(:id)
         client_secret_credentials.where.not(id: new_secret.id).update_all(
           active: false,
-          revoked_at: Time.current
+          revoked_at: revoked_at
         )
 
+        ActiveRecord.after_all_transactions_commit do
+          publish_client_secret_rotated(new_secret, revoked_ids: revoked_ids, revoked_at: revoked_at)
+        end
         new_secret
       end
     end
@@ -303,6 +311,23 @@ module StandardId
     end
 
     private
+
+    # Ids only, never the secret records (see ClientSecretCredential's
+    # CREATED event). The rotation has committed, so a failing subscriber is
+    # reported rather than raised.
+    def publish_client_secret_rotated(new_secret, revoked_ids:, revoked_at:)
+      StandardId::Events.publish(
+        StandardId::Events::CREDENTIAL_CLIENT_SECRET_ROTATED,
+        credential_id: new_secret.id,
+        client_application_id: id,
+        client_id: client_id,
+        revoked_credential_ids: revoked_ids,
+        old_secret_revoked_at: revoked_at
+      )
+    rescue StandardError => e
+      StandardId::ErrorReporting.report(e, event: StandardId::Events.namespaced_event_name(StandardId::Events::CREDENTIAL_CLIENT_SECRET_ROTATED))
+      StandardId.logger&.error("[StandardId::ClientApplication] Failed to publish CREDENTIAL_CLIENT_SECRET_ROTATED for #{client_id}: #{e.class}: #{e.message}")
+    end
 
     # Registered redirect URIs must be absolute (include scheme + host) and
     # must NOT carry a query string or fragment. Allowing either would turn

@@ -13,6 +13,7 @@ module StandardId
         @account = authenticate_account(params[:username], params[:password])
 
         if @account.blank?
+          emit_password_validation_failed if @credential
           emit_authentication_failed
           raise StandardId::InvalidGrantError, "Invalid username or password"
         end
@@ -46,6 +47,17 @@ module StandardId
           auth_method: "password",
           error_code: error_code,
           error_message: error_message
+        )
+      end
+
+      # A credential exists for the username and the password did not match it.
+      def emit_password_validation_failed
+        StandardId::Events.publish(
+          StandardId::Events::PASSWORD_VALIDATION_FAILED,
+          account_lookup: params[:username],
+          account: @credential.credential&.account,
+          credential_id: @credential.id,
+          error_code: "invalid_password"
         )
       end
 

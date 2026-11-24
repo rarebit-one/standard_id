@@ -25,6 +25,12 @@ module StandardId
         subflow_for(params).call
       end
 
+      # A social connection only redirects to the provider; nothing is issued
+      # to the client until its callback.
+      def grants_authorization?
+        params[:connection].blank?
+      end
+
       def subflow_for(flow_params)
         builders = {
           social: -> do

@@ -74,7 +74,7 @@ module StandardId
         account.class.where(id: account.id).lock.first
 
         existing = active_device_session(account: account, device_id: device_id)
-        return refresh_device_session!(existing, ip_address: ip_address, user_agent: user_agent, authenticated_at: authenticated_at) if existing
+        return refresh_device_session!(existing, account: account, ip_address: ip_address, user_agent: user_agent, authenticated_at: authenticated_at, grant_type: grant_type) if existing
 
         begin
           # Savepoint, so a unique violation does not abort the enclosing token
@@ -96,7 +96,7 @@ module StandardId
           winner = active_device_session(account: account, device_id: device_id)
           raise unless winner
 
-          refresh_device_session!(winner, ip_address: ip_address, user_agent: user_agent, authenticated_at: authenticated_at)
+          refresh_device_session!(winner, account: account, ip_address: ip_address, user_agent: user_agent, authenticated_at: authenticated_at, grant_type: grant_type)
         end
       end
 
@@ -111,15 +111,36 @@ module StandardId
           .first
       end
 
-      def refresh_device_session!(session, ip_address:, user_agent:, authenticated_at: nil)
+      # SESSION_REFRESHED waits for the token transaction to commit (a grant
+      # that rolls back extended nothing), so a failing subscriber is reported
+      # rather than raised: the tokens have been issued by then.
+      def refresh_device_session!(session, account:, ip_address:, user_agent:, authenticated_at: nil, grant_type: nil)
         latest = [session.try(:authenticated_at), authenticated_at].compact.max
+        previous_expires_at = session.expires_at
         session.update!(
           expires_at: StandardId::DeviceSession.expiry,
           ip_address: ip_address || session.ip_address,
           device_agent: user_agent || session.device_agent,
           **authenticated_at_attributes(latest)
         )
+        ActiveRecord.after_all_transactions_commit do
+          publish_session_refreshed(session, account: account, previous_expires_at: previous_expires_at, grant_type: grant_type)
+        end
         session
+      end
+
+      def publish_session_refreshed(session, account:, previous_expires_at:, grant_type:)
+        StandardId::Events.publish(
+          StandardId::Events::SESSION_REFRESHED,
+          session: session,
+          account: account,
+          previous_expires_at: previous_expires_at,
+          expires_at: session.expires_at,
+          grant_type: grant_type
+        )
+      rescue StandardError => e
+        StandardId::ErrorReporting.report(e, event: StandardId::Events.namespaced_event_name(StandardId::Events::SESSION_REFRESHED))
+        StandardId.logger&.error("[StandardId] SESSION_REFRESHED subscriber raised after the session was extended: #{e.class}: #{e.message}")
       end
 
       # Nothing is written before migration 20261123000000 has run.
