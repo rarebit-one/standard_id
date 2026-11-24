@@ -643,9 +643,18 @@ StandardId.configure do |c|
   # the request as a block; must call the block and return its result. A
   # refusal by the wrapper itself (an open circuit) becomes
   # StandardId::ProviderUnavailableError, so sign-in fails as "temporarily
-  # unavailable" (API: 503) without the circuit's message.
+  # unavailable" (API: 503, with Retry-After when the refusal says how long
+  # to wait) without the circuit's message.
   # Default: nil (the request runs directly)
   # c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }
+
+  # Errors network_wrapper raises that mean your setup is wrong, not that the
+  # provider is down (a circuit that was never registered, say). They reach
+  # the caller and your error tracker unchanged instead of becoming
+  # ProviderUnavailableError. Classes or class names; a name that resolves to
+  # nothing (its gem isn't loaded) is ignored.
+  # Default: []
+  # c.network_wrapper_passthrough_errors = ["StandardCircuit::UnknownCircuit"]
 
   # Receives errors StandardId handles and carries on from (a subscriber that
   # raised after its change committed). Receives (error, context).

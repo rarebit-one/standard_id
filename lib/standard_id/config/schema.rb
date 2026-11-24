@@ -179,14 +179,29 @@ StandardId::ConfigSchema.define do
     #   (timeouts, refused connections) raises inside the wrapper and, re-raised,
     #   reaches the caller unchanged. A refusal by the wrapper itself (an open
     #   circuit) becomes StandardId::ProviderUnavailableError, `cause` set to it,
-    #   so a sign-in fails as "temporarily unavailable" (API: 503) without the
-    #   circuit's message. Programming errors in the wrapper, and errors it
-    #   raises after the block returned, pass through unchanged (see
-    #   StandardId::NetworkWrapper).
+    #   so a sign-in fails as "temporarily unavailable" (API: 503, with
+    #   Retry-After when the refusal says how long to wait) without the
+    #   circuit's message. Programming errors in the wrapper, errors listed in
+    #   network_wrapper_passthrough_errors, and errors it raises after the
+    #   block returned pass through unchanged (see StandardId::NetworkWrapper).
     # nil (the default) runs the block directly.
     #
     #   c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }
     field :network_wrapper, type: :any, default: nil
+
+    # network_wrapper_passthrough_errors: errors network_wrapper raises that
+    # mean the host's own setup is wrong, not that the provider is down, such
+    # as a circuit that was never registered. They reach the caller (and the
+    # error tracker) unchanged instead of becoming
+    # StandardId::ProviderUnavailableError. An error passes through when it
+    # `is_a?` any entry.
+    #   Entries: classes, or class names as Strings. A String is resolved
+    #   when a wrapper error is handled, so it may name a class from a gem
+    #   that is not loaded; a name that resolves to nothing is ignored.
+    # [] (the default) passes none through.
+    #
+    #   c.network_wrapper_passthrough_errors = ["StandardCircuit::UnknownCircuit"]
+    field :network_wrapper_passthrough_errors, type: :array, default: -> { [] }
 
     # error_reporter: receives errors StandardId handles and carries on from —
     # today, an event subscriber that raised after the change it reports had

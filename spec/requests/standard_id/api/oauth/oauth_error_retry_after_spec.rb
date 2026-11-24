@@ -73,6 +73,51 @@ RSpec.describe "Retry-After on OAuth error responses", type: :request do
     end
   end
 
+  describe "POST /api/oauth/callback/:provider when the network_wrapper refuses the request" do
+    let(:refusal_class) do
+      Class.new(StandardError) do
+        attr_reader :retry_after
+
+        def initialize(retry_after: nil)
+          super("oauth_google is open")
+          @retry_after = retry_after
+        end
+      end
+    end
+
+    before do
+      allow(StandardId.config).to receive(:google_client_id).and_return("google_client_123")
+      allow(Resolv).to receive(:getaddresses).and_return(["93.184.216.34"])
+      # A plugin's code exchange: one HttpClient call naming the provider, so
+      # it goes through the wrapper.
+      allow(StandardId::Providers::Google).to receive(:get_user_info) do
+        StandardId::HttpClient.post_form("https://oauth2.example.com/token", { code: "c" }, provider: :google)
+        raise "the wrapper refuses the request, so this is never reached"
+      end
+    end
+
+    def callback_refused_with(error)
+      StandardId.config.network_wrapper = ->(provider:, &_block) { raise error }
+      post "/api/oauth/callback/google", params: { code: "c" }
+    end
+
+    it "answers 503 temporarily_unavailable with Retry-After when the refusal carries retry_after" do
+      callback_refused_with(refusal_class.new(retry_after: 30))
+
+      expect(response).to have_http_status(:service_unavailable)
+      expect(response.headers["Retry-After"]).to eq("30")
+      expect(json).to eq("error" => "temporarily_unavailable", "error_description" => "Google is temporarily unavailable")
+    end
+
+    it "answers 503 without Retry-After when the refusal says nothing about waiting" do
+      callback_refused_with(refusal_class.new)
+
+      expect(response).to have_http_status(:service_unavailable)
+      expect(response.headers["Retry-After"]).to be_nil
+      expect(json).to eq("error" => "temporarily_unavailable", "error_description" => "Google is temporarily unavailable")
+    end
+  end
+
   describe "POST /api/oauth/token" do
     def token_request_raising(error)
       allow(StandardId::Oauth::GrantTypes).to receive(:disabled?).and_raise(error)
