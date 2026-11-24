@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Upgrading to 0.64: what to do](#upgrading-to-064-what-to-do)
 - [Upgrading to 0.63: what to do](#upgrading-to-063-what-to-do)
 - [Built-in step-up e-mail (0.63)](#built-in-step-up-e-mail-063)
 - [Minted vs accepted audiences (0.63, opt-in)](#minted-vs-accepted-audiences-063-opt-in)
@@ -20,6 +21,18 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Upgrading to 0.64: what to do
+
+**Nothing is required.** 0.64 has no new migrations, and both changes build on
+the 0.63 `network_wrapper` handling:
+
+| Change | What you do |
+| --- | --- |
+| `config.network_wrapper_passthrough_errors` | Opt-in. Defaults to `[]`, so nothing changes until you set it. List the errors your `network_wrapper` raises when its own setup is wrong (e.g. `"StandardCircuit::UnknownCircuit"`), so they reach the caller and your error tracker instead of becoming `ProviderUnavailableError`. Entries are classes or class-name Strings; a name that resolves to nothing is ignored. |
+| `Retry-After` on refused provider calls | Nothing. `ProviderUnavailableError#retry_after` is filled from the wrapper's error (`retry_after` as a `Time` or seconds, else `cool_off_time`), and the API's 503 `temporarily_unavailable` responses, such as `/api/oauth/callback/:provider`, now send a `Retry-After` header. Errors that carry no such value get no header, as before. |
 
 ---
 
