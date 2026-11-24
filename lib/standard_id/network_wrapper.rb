@@ -35,11 +35,20 @@ module StandardId
   #    ProviderUnavailableError carries it as `retry_after`, which the API
   #    sends as a Retry-After header.
   #
+  # An error let out under rules 3, 4 or 5 is marked as passed through (see
+  # .passed_through?), so StandardId::Providers::Base#rescue_to_oauth_error,
+  # which wraps every provider sign-in call, re-raises it unchanged instead of
+  # turning it into an OAuthError. The block's own errors (rule 2) are not
+  # marked: they map exactly as they do with no wrapper.
+  #
   # Non-StandardError exceptions (Interrupt, ...) are never touched.
   module NetworkWrapper
     # Errors a host wrapper raises because its own code is wrong, never
     # because the provider is down. NameError covers NoMethodError.
     PROGRAMMING_ERRORS = [NameError, TypeError, ArgumentError].freeze
+
+    # Extended into an error the wrapper let out under rules 3 to 5.
+    module PassedThrough; end
 
     module_function
 
@@ -74,12 +83,23 @@ module StandardId
         raise
       rescue StandardError => e
         raise if raised.any? { |error| error.equal?(e) }
-        raise if returned
-        raise if PROGRAMMING_ERRORS.any? { |klass| e.is_a?(klass) }
-        raise if passthrough_errors.any? { |klass| e.is_a?(klass) }
+        if returned || PROGRAMMING_ERRORS.any? { |klass| e.is_a?(klass) } || passthrough_errors.any? { |klass| e.is_a?(klass) }
+          # Never frozen: Ruby raises a copy of a frozen exception.
+          e.extend(PassedThrough) unless e.frozen?
+          raise
+        end
 
         raise StandardId::ProviderUnavailableError.new(provider: provider, retry_after: retry_after_from(e)), cause: e
       end
+    end
+
+    # Whether the wrapper let this error out on purpose (rules 3 to 5), so a
+    # caller that turns errors into OAuthErrors must re-raise it unchanged.
+    #
+    # @param error [Exception]
+    # @return [Boolean]
+    def passed_through?(error)
+      error.is_a?(PassedThrough)
     end
 
     # The classes in `config.network_wrapper_passthrough_errors`. A String

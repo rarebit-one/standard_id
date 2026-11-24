@@ -213,6 +213,21 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
         expect(WebMock).to have_requested(:post, "https://oauth2.example.com/token")
         expect(Account.find_by(email: "user@example.com").sessions.active).to exist
       end
+
+      it "lets an error the wrapper passes through propagate out of the provider's rescue_to_oauth_error" do
+        unknown_circuit = Class.new(StandardError)
+        StandardId.config.network_wrapper_passthrough_errors = [unknown_circuit]
+        StandardId.config.network_wrapper = ->(provider:, &_block) { raise unknown_circuit, "no circuit registered for :oauth_#{provider}" }
+        allow(StandardId::Providers::Google).to receive(:get_user_info) do
+          StandardId::Providers::Google.send(:rescue_to_oauth_error, "Failed to fetch Google JWKS") do
+            StandardId::HttpClient.post_form("https://oauth2.example.com/token", { code: "auth_code_123" }, provider: :google)
+          end
+        end
+
+        expect { http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" } }
+          .to raise_error(unknown_circuit, "no circuit registered for :oauth_google")
+        expect(Account.find_by(email: "user@example.com")).to be_nil
+      end
     end
 
     context "when a SocialLinkError is raised (policy error, not infrastructure)" do
