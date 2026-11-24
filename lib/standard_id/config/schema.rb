@@ -620,7 +620,25 @@ StandardId::ConfigSchema.define do
     # Empty (default) = no global audience validation; behavior matches
     # pre-threading releases. Production deployments should set this
     # explicitly (e.g., `%w[web api]`).
+    #
+    # It is the default for both of the two lists below: set either to split
+    # what this app mints from what it accepts (StandardId::Oauth::Audiences).
     field :allowed_audiences, type: :array, default: -> { [] }
+
+    # Audiences this app may issue tokens for: every /oauth/token grant
+    # (authorization-code exchange, client_credentials, password, refresh, …),
+    # StandardId::TokenMinter and the API step-up re-mint refuse any other.
+    # nil (default) = `allowed_audiences`. An identity provider that mints
+    # per-service tokens lists those services here without accepting them on
+    # its own API (see `accepted_audiences`).
+    field :mintable_audiences, type: :array, default: nil
+
+    # Audiences the API token manager accepts in a bearer's `aud` at decode
+    # time; any other is an invalid token (401). nil (default) =
+    # `allowed_audiences`. Empty = no decode-time audience check (warned about
+    # at boot in production). The Web (cookie) token manager reads no JWT, so
+    # neither list applies to it.
+    field :accepted_audiences, type: :array, default: nil
 
     # Audience → profile type binding (first-class audience modeling).
     #

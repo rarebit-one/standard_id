@@ -17,8 +17,9 @@ module StandardId
   #   result.access_token  # the JWT
   #   result.jti           # what OAUTH_TOKEN_ISSUED carried
   #
-  # What runs, in order: audience validation (oauth.allowed_audiences),
-  # audience → profile binding (oauth.audience_profile_types, fail-closed),
+  # What runs, in order: audience validation (oauth.mintable_audiences, else
+  # oauth.allowed_audiences), audience → profile binding
+  # (oauth.audience_profile_types, fail-closed),
   # OAUTH_TOKEN_ISSUING (AccountStatus / AccountLocking refuse here),
   # scope_claims + claim_resolvers and custom_claims, then the host's own
   # +claims+, then OAUTH_TOKEN_ISSUED. A refresh token is persisted only when

@@ -190,6 +190,45 @@ RSpec.describe StandardId::Engine do
       end
     end
 
+    context "in production with only mintable_audiences set" do
+      before do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+        allow(StandardId.config.oauth).to receive(:mintable_audiences).and_return(%w[harness])
+      end
+
+      it "still warns: nothing is accepted-checked" do
+        expect(logger).to receive(:warn).with(/allowed_audiences is empty in production/)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
+    end
+
+    context "in production with accepted_audiences set and allowed_audiences empty" do
+      before do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])
+        allow(StandardId.config.oauth).to receive(:accepted_audiences).and_return(%w[sidekick])
+      end
+
+      it "does not emit a warning" do
+        expect(logger).not_to receive(:warn)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
+    end
+
+    context "in production with accepted_audiences explicitly empty" do
+      before do
+        allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+        allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return(%w[web])
+        allow(StandardId.config.oauth).to receive(:accepted_audiences).and_return([])
+      end
+
+      it "warns and names accepted_audiences" do
+        expect(logger).to receive(:warn).with(/accepted_audiences is empty in production/)
+        described_class.warn_if_allowed_audiences_empty_in_production!
+      end
+    end
+
     context "on a staging box (RAILS_ENV=production, APP_ENVIRONMENT=staging)" do
       before do
         allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))

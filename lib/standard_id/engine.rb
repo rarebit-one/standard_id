@@ -157,18 +157,20 @@ module StandardId
     end
     private_class_method :host_secret_key_base
 
-    # Logs a production-only warning when no global audience allow-list is
-    # configured. With `allowed_audiences` empty, the API token manager
-    # skips decode-time aud enforcement, leaving cross-audience JWT replay
-    # mitigation dependent on per-controller `AudienceVerification`
-    # inclusion. Extracted to a module method so specs can exercise it
-    # directly without booting a second Rails app.
+    # Logs a production-only warning when the effective accepted audiences
+    # (`accepted_audiences`, else `allowed_audiences`) are empty. Then the API
+    # token manager skips decode-time aud enforcement, leaving cross-audience
+    # JWT replay mitigation dependent on per-controller
+    # `AudienceVerification` inclusion. Setting only `mintable_audiences`
+    # does not silence it. Extracted to a module method so specs can exercise
+    # it directly without booting a second Rails app.
     def self.warn_if_allowed_audiences_empty_in_production!
       return unless StandardId::AppEnvironment.production?
-      return if StandardId.config.oauth.allowed_audiences.present?
+      return if StandardId::Oauth::Audiences.accepted.present?
 
+      setting = StandardId.config.oauth.accepted_audiences.nil? ? "allowed_audiences" : "accepted_audiences"
       Rails.logger.warn(
-        "StandardId: config.oauth.allowed_audiences is empty in production — " \
+        "StandardId: config.oauth.#{setting} is empty in production — " \
         "JWT audience is not enforced globally. Set this to your expected " \
         "audiences (e.g., ['web', 'api']) to close cross-audience replay vectors."
       )

@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It replaces the generic `verification_email` that step-up codes used in 0.62; sign-in and
   verification e-mails are unchanged, and `c.step_up.delivery = :custom` still sends nothing
   built-in. See the Migration Guide, "Built-in step-up e-mail".
+- **Minted vs accepted audiences (opt-in).** `c.oauth.mintable_audiences` lists the audiences
+  this app may issue tokens for (every `/oauth/token` grant, including the authorization-code
+  exchange and `client_credentials`, plus `TokenMinter` and the API step-up re-mint);
+  `c.oauth.accepted_audiences` lists the audiences `Api::TokenManager` accepts at decode time.
+  Each defaults to `c.oauth.allowed_audiences` when unset, so hosts that set neither see no
+  change. An identity provider can now mint per-service tokens (e.g. `aud=harness`) without
+  also accepting them on its own API. The production boot warning now checks the effective
+  accepted list. `StandardId::Oauth::Audiences.mintable` / `.accepted` return the effective
+  lists. See the README, "Token Audiences: Minted vs Accepted", and the Migration Guide.
+  (rarebit-one/rarebit-ops#494)
 
 ### Fixed
 
