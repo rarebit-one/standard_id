@@ -38,7 +38,12 @@
 #      for git it is taken from `-C <path>` when present (the documented gap).
 #   2. A write whose DESTINATION PATH lands inside a main checkout, no matter
 #      where it is run from — shell redirections (`>`, `>>`), tee, cp, mv,
-#      install, rsync's destination, sed -i / perl -i's file arguments.
+#      install, ln, rsync's destination, sed -i / perl -i's file arguments,
+#      and (2026-11-25) touch, mkdir, rm, rmdir, unlink, truncate, shred,
+#      chmod / chown / chgrp, dd of=, sort -o, curl -o / -O, wget. A relative
+#      destination is resolved against the tracked working directory, exactly
+#      like a redirection's (after cd / cd . / cd .. / cd - / pushd / popd,
+#      and blocking after a cd it cannot resolve, rule 5).
 #   3. Anything it cannot parse confidently while a main checkout is in play
 #      (unterminated quote, unbalanced `$(`, unresolvable `~user`/`$VAR` cd
 #      target). Fail closed: an over-block on an exotic command is much cheaper
@@ -74,14 +79,24 @@
 #      shares none of the model's state. A literal destination of a redirection
 #      or a write command (cp mv install ln tee touch mkdir rm truncate chmod
 #      dd of= sed/perl -i rsync curl -o sort -o …) inside a main checkout
-#      blocks from anywhere. On a line with case / esac, ${…=…}, eval, a shell
-#      reading stdin, coproc, select, a function or an arithmetic assignment,
-#      a computed destination, or a relative one after a cd it cannot follow,
-#      blocks from anywhere.
+#      blocks from anywhere, and so does a relative one after cds it knows
+#      certainly ran and succeeded (cd <main>; touch f). On a line with case /
+#      esac, ${…=…}, eval, a shell reading stdin, coproc, select, a function
+#      or an arithmetic assignment, a computed destination, or a relative one
+#      after a cd it cannot follow, blocks from anywhere. Quoted text is data
+#      for those constructs, except on a line that re-parses text (bash / sh,
+#      eval, trap, alias, source of stdin), where every quoted string is code.
+#   8. $'…' (2026-11-25) is decoded only where bash 3.2, bash 5 and zsh agree
+#      (\a \b \e \f \n \r \t \v \\ \' \" \?, \xHH, octal up to \377).
+#      \u / \U, \cX, unknown escapes (\q, \/), \x with no digit and NUL read
+#      differently in one of them: in text the shell re-parses (bash -c / sh
+#      -c / eval / trap / alias) such an escape blocks the whole line, wherever
+#      it runs; the rest of the string is never dropped.
 #
 # Ambiguity is unresolved, and unresolved fails closed (2026-11-23):
 #   * a `$` that was quoted ('$D', \$D, "\$D") is literal: the word is
-#     unresolvable, never D's value. $'…' and $"…" strings are unresolvable too;
+#     unresolvable, never D's value. $'…' and $"…" strings are unresolvable too
+#     (rule 4), but a decoded $'…' is judged by its literal value (rule 8);
 #   * an unresolvable path whose literal start is inside a main checkout
 #     (`<main>/$X`) blocks from anywhere;
 #   * every reading of ${D:-w} / ${D=w} / ${D:+w} … is judged, and ${D:=w} /
@@ -111,10 +126,9 @@
 #   * an opaque command name (`$(which rsync) …`) is not resolved — but its
 #     substitution IS analysed, and its destination paths are still checked;
 #   * remote execution (`ssh host rsync …`) is out of scope;
-#   * the model does not treat `dd of=…`, `touch`, `mkdir` and editors as
-#     writers of a literal path (from a main checkout their computed targets
-#     block, rule 4); the backstop (rule 7) blocks their literal main targets,
-#     editors excepted;
+#   * editors are not treated as writers; option values of touch / mkdir /
+#     truncate … are skipped only for the options listed (a computed word of
+#     theirs blocks from a main checkout, rule 4);
 #   * values that only exist at run time (read from a file, $(…)) are
 #     unresolvable: they block from a main checkout (rule 4), not elsewhere;
 #   * aliases and functions inherited from the user's shell are not visible,
@@ -520,9 +534,16 @@ _fn_taint() {
   _var_clear_all
 }
 
+# A $'…' escape that shells decode differently (_ansi_decode) inside text that
+# is re-parsed as code: what that code does is unknown, so the whole line
+# blocks, wherever it runs. Holds the text shown in the message.
+UNDECODED=""
 _script_text() { # $1 lexed word -> RET: the text eval / bash -c / trap re-parse
   local s="$1" d='$'
-  if [[ "$s" == *"$QLOST"* ]]; then PARSE_ERROR=1; s="${s//"$QLOST"/}"; fi
+  if [[ "$s" == *"$QLOST"* ]]; then
+    [[ -z "$UNDECODED" ]] && { _shown "$s"; UNDECODED="$RET"; }
+    # (QLOST stays: re-parsed, it is an unknown ${…} expansion.)
+  fi
   s="${s//"$QMARK"/}"; s="${s//"$QTILDE"/\\}"
   RET="${s//"$LITD"/$d}"
 }
@@ -947,51 +968,86 @@ _read_dq() {
   done
 }
 
+# Decode the body of a $'…' string. Only escapes that bash 3.2, bash 5 and zsh
+# all decode the same way, to a byte other than NUL, are decoded: \a \b \e \E
+# \f \n \r \t \v \\ \' \" \?, \xH / \xHH and octal \N / \NN / \NNN up to \377.
+# Anything else reads differently in one of them (\u and \U: literal in bash
+# 3.2; \c: no control character in zsh; an unknown escape such as \q or \/:
+# zsh drops the backslash; \x with no digit: NUL in zsh; NUL itself; a
+# backslash before a newline). Each such escape becomes $2, RETUNRES=1, and
+# decoding goes on past it: the rest of the string is never dropped. A `$` in
+# the decoded text becomes $3 when given (never one inside $2).
+_ansi_decode() { # $1 body, $2 stand-in for an uncertain escape, [$3 for a `$`] -> RET, RETUNRES
+  local s="$1" out="" part c d o dl="${3:-\$}"
+  RETUNRES=0
+  while [[ "$s" == *'\'* ]]; do
+    part="${s%%\\*}"; out="$out${part//\$/$dl}"; s="${s:$((${#part} + 1))}"
+    c="${s:0:1}"; s="${s:1}"
+    case "$c" in
+      a) out="$out"$'\a' ;;
+      b) out="$out"$'\b' ;;
+      e|E) out="$out"$'\033' ;;
+      f) out="$out"$'\f' ;;
+      n) out="$out"$'\n' ;;
+      r) out="$out"$'\r' ;;
+      t) out="$out"$'\t' ;;
+      v) out="$out"$'\v' ;;
+      '\'|"'"|'"'|'?') out="$out$c" ;;
+      x|[0-7])
+        if [[ "$c" == x ]]; then
+          d=""
+          if [[ "${s:0:1}" == [0-9A-Fa-f] ]]; then
+            d="${s:0:1}"; [[ "${s:1:1}" == [0-9A-Fa-f] ]] && d="${s:0:2}"
+          fi
+          s="${s:${#d}}"; o=0; [[ -n "$d" ]] && o=$((16#$d))
+        else
+          d="$c"
+          if [[ "${s:0:1}" == [0-7] ]]; then
+            d="$d${s:0:1}"; [[ "${s:1:1}" == [0-7] ]] && d="$d${s:1:1}"
+          fi
+          s="${s:$((${#d} - 1))}"; o=$((8#$d))
+        fi
+        if (( o > 0 && o < 256 )); then
+          printf -v d '%03o' "$o"; printf -v d "\\$d"; out="$out${d//\$/$dl}"
+        else
+          out="$out$2"; RETUNRES=1
+        fi ;;
+      *) out="$out$2"; RETUNRES=1 ;;
+    esac
+  done
+  RET="$out${s//\$/$dl}"
+}
+
 # Read a $'…' string starting at C (just past the opening quote). Unlike '…',
-# a backslash escapes the quote ($'it\'s'). Simple escapes are decoded; at the
-# first one that is not (\x41, \u…, octal, \cX) the rest of the string is
-# lost (QLOST). The result always ends in QMARK, so as a path it stays
-# unresolvable: only its literal start can be judged.
+# a backslash escapes the quote ($'it\'s'). The body is decoded by
+# _ansi_decode; an escape it cannot decode with certainty becomes QLOST, and
+# the text after it is still decoded. The result always ends in QMARK, so as a
+# path it stays unresolvable: its literal start (all of it, when every escape
+# decoded) is what gets judged.
+ANSIRUN_RE=$'^([^\\\\\']*)'
 _read_ansi() {
-  local out="" lost=0 line ch nx
+  local raw="" line rest
   while :; do
-    if (( L >= ${#LINES[@]} )); then PARSE_ERROR=1; break; fi
+    if (( L >= ${#LINES[@]} )); then
+      PARSE_ERROR=1
+      _ansi_decode "$raw" "$QLOST" "$LITD"; RET="$RET$QLOST$QMARK"; return
+    fi
     line="${LINES[L]}"
     while (( C < ${#line} )); do
-      ch="${line:C:1}"
-      if [[ "$ch" == "'" ]]; then
+      rest="${line:C}"
+      [[ "$rest" =~ $ANSIRUN_RE ]]
+      raw="$raw${BASH_REMATCH[1]}"; C=$((C + ${#BASH_REMATCH[1]}))
+      (( C < ${#line} )) || break
+      if [[ "${line:C:1}" == "'" ]]; then
         C=$((C + 1))
-        out="${out//\$/$LITD}"
-        if (( lost )); then RET="$out$QLOST$QMARK"; else RET="$out$QMARK"; fi
+        _ansi_decode "$raw" "$QLOST" "$LITD"; RET="$RET$QMARK"
         return
       fi
-      if [[ "$ch" == '\' ]]; then
-        nx="${line:$((C + 1)):1}"
-        C=$((C + 2))
-        (( lost )) && continue
-        case "$nx" in
-          "'"|'"'|'\'|'?') out="$out$nx" ;;
-          n) out="$out"$'\n' ;;
-          t) out="$out"$'\t' ;;
-          r) out="$out"$'\r' ;;
-          a) out="$out"$'\a' ;;
-          b) out="$out"$'\b' ;;
-          e|E) out="$out"$'\033' ;;
-          f) out="$out"$'\f' ;;
-          v) out="$out"$'\v' ;;
-          '') C=$((C - 1)); lost=1 ;;        # backslash at end of line
-          *) lost=1 ;;
-        esac
-        continue
-      fi
-      (( lost )) || out="$out$ch"
-      C=$((C + 1))
+      raw="$raw${line:C:2}"; C=$((C + 2))   # an escape (a lone \ at the end: before the newline)
     done
-    (( lost )) || out="$out"$'\n'
+    raw="$raw"$'\n'
     L=$((L + 1)); C=0
   done
-  out="${out//\$/$LITD}"
-  RET="$out$QLOST$QMARK"
 }
 
 # Read a heredoc delimiter word starting at C; push it onto HD.
@@ -1127,6 +1183,59 @@ _check_dest() { # $1 destination, $2 kind: redir | remote | (empty: a file argum
   done
   # An unresolvable reading is only a risk from a main checkout, where
   # _check_literal has already blocked it.
+  return 0
+}
+
+# Non-option words of a write command (touch, mkdir, rm, chmod, …), skipping
+# the values of the options in $1 (space-separated; also the last letter of a
+# cluster such as -pm). Every word after -- is an operand.
+OPERANDS=()
+_operands() { # $1 options that take a value, $@ words -> OPERANDS
+  local takes=" $1 " a dd=0 skip=0
+  shift
+  OPERANDS=()
+  for a in "$@"; do
+    if (( skip )); then skip=0; continue; fi
+    if (( ! dd )); then
+      [[ "$a" == -- ]] && { dd=1; continue; }
+      if [[ "$a" == -?* ]]; then
+        [[ "$takes" == *" $a "* ]] && skip=1
+        [[ "$a" =~ ^-[A-Za-z]+$ && "$takes" == *" -${a: -1} "* ]] && skip=1
+        continue
+      fi
+    fi
+    OPERANDS+=("$a")
+  done
+}
+_check_operands() { # $1 options that take a value, $@ words: each operand is a destination
+  local o
+  _operands "$@"
+  for o in "${OPERANDS[@]}"; do _check_dest "$o"; done
+}
+
+# The files sort -o, curl -o / -O and wget -O / -P (or by default) write.
+_check_outputs() { # $1 command, $@ its words
+  local cmd="$1" k a nx wout=0
+  shift
+  local -a w=("$@")
+  for ((k = 0; k < ${#w[@]}; k++)); do
+    a="${w[k]}"; nx="${w[$((k + 1))]:-}"
+    case "$cmd:$a" in
+      sort:-o|sort:--output|curl:--output) _check_dest "$nx" ;;
+      sort:--output=*|curl:--output=*) _check_dest "${a#*=}" ;;
+      sort:-o?*) _check_dest "${a#-o}" ;;
+      curl:--remote-name|curl:--remote-name-all|curl:-J|curl:--remote-header-name) _check_dest . ;;
+      curl:--*|sort:*) ;;
+      curl:-*)
+        if [[ "$a" =~ ^-[A-Za-z0-9]*o$ ]]; then _check_dest "$nx"
+        elif [[ "$a" =~ ^-[A-Za-np-z0-9]*o(.+)$ ]]; then _check_dest "${BASH_REMATCH[1]}"; fi
+        [[ "$a" =~ ^-[A-Za-z0-9]*O ]] && _check_dest . ;;
+      wget:-O|wget:--output-document|wget:-P|wget:--directory-prefix) wout=1; [[ "$nx" == - ]] || _check_dest "$nx" ;;
+      wget:--output-document=*|wget:--directory-prefix=*) wout=1; [[ "${a#*=}" == - ]] || _check_dest "${a#*=}" ;;
+      wget:-O?*|wget:-P?*) wout=1; [[ "${a:2}" == - ]] || _check_dest "${a:2}" ;;
+    esac
+  done
+  [[ "$cmd" == wget ]] && (( ! wout )) && _check_dest .
   return 0
 }
 
@@ -1873,21 +1982,45 @@ _inspect_cmd() {
       done
       return 0 ;;
     touch)
-      # Not a writer of a literal path. From main, ANY computed argument blocks
-      # (rule 4): which words are option values depends on GNU option grammar
-      # (clusters, --, abbreviations, POSIXLY_CORRECT), which is not modelled.
+      # From main, ANY computed argument blocks (rule 4): which words are
+      # option values depends on GNU option grammar (clusters, --,
+      # abbreviations, POSIXLY_CORRECT), which is not modelled. Its operands
+      # are destinations, judged like a redirection's (relative ones against
+      # the tracked directory).
       for a in "${args[@]}"; do _check_literal "$a"; done
+      _check_operands "-d -r -t --date --reference" "${args[@]}"
       return 0 ;;
     dd)
       for a in "${args[@]}"; do
-        case "$a" in of=*) _check_literal "${a#of=}" ;; esac
+        case "$a" in of=*) _check_literal "${a#of=}"; _check_dest "${a#of=}" ;; esac
       done
+      return 0 ;;
+    rmdir|rm|unlink)
+      _check_operands "" "${args[@]}"
+      return 0 ;;
+    truncate|shred)
+      _check_operands "-s -r -n --size --reference --iterations --random-source" "${args[@]}"
+      return 0 ;;
+    chmod|chown|chgrp)
+      # The first operand is the mode / owner, unless --reference or a mode
+      # written like an option (chmod -x f).
+      local cfirst=1
+      for a in "${args[@]}"; do
+        [[ "$a" == --reference* || ( "$base" == chmod && "$a" =~ ^-[rwxXstugoa]+$ ) ]] && cfirst=0
+      done
+      _operands "" "${args[@]}"
+      for ((j = cfirst; j < ${#OPERANDS[@]}; j++)); do _check_dest "${OPERANDS[j]}"; done
+      return 0 ;;
+    sort|curl|wget)
+      _check_outputs "$base" "${args[@]}"
       return 0 ;;
     mkdir)
       # A directory created here makes a later cd into it succeed. From main,
-      # any computed argument blocks, as for touch.
+      # any computed argument blocks, as for touch; its operands are
+      # destinations.
       local skipm=0 mp=0
       for a in "${args[@]}"; do _check_literal "$a"; done
+      _check_operands "-m --mode" "${args[@]}"
       for a in "${args[@]}"; do
         [[ "$a" == --parents || "$a" =~ ^-[A-Za-z]*p ]] && mp=1
       done
@@ -2710,8 +2843,12 @@ _analyze_text() {
 #      (a cd that may not run keeps the old one).
 #
 # Over-blocking here is accepted by design (fail closed). Quoted text and
-# heredoc bodies are data, except on a line that re-parses text (eval, bash /
-# sh / zsh, trap, alias), where they are scanned as code too.
+# heredoc bodies are data, except on a line that re-parses text (bash / sh /
+# zsh, also as an argument such as find -exec sh -c; eval; trap; alias;
+# source of stdin or of a computed file), where every one of them is scanned
+# as code too: stdin, startup files (BASH_ENV, --rcfile), files the line
+# writes and positional arguments can all carry it into the shell. A -c text
+# and its positional arguments are also walked in order, as a script.
 
 BS_T=()      # per token: W (word) or the operator itself
 BS_V=()      # word value, quotes removed
@@ -2720,11 +2857,16 @@ BS_Q=()      # word: 1 when quoted before its first = (never a reserved word or 
 BS_SUBS=()   # code to walk separately: $( … ), ` … `, <( … ), >( … )
 BS_DATA=()   # quoted strings and heredoc bodies (code only when the line re-parses)
 BS_TRIG=""   # why rule B applies (empty: it does not)
-BS_REPARSE=0
+BS_REPARSE=0  # a shell reads stdin: scan every quoted string / heredoc body as code
+BS_ANYRP=0    # something on the line re-parses text
+BS_CODEQ=()   # text a command re-parses: walked as code
 BS_HIT=""    # rule A / B verdict: what blocked
 BS_WHERE=""
 BS_HOMEM=0   # HOME is mentioned: ~ is not the inherited value
 BS_INDATA=0  # walking quoted text re-scanned as code
+BS_UNDEC=""  # a $'…' with an escape shells decode differently (_ansi_decode)
+BS_CODETXT="" # the command with its single-quoted / $'…' strings and quoted heredoc
+              # bodies cut out by position (the construct check reads this)
 
 _bs_trig() { [[ -z "$BS_TRIG" ]] && BS_TRIG="$1"; return 0; }
 
@@ -2808,28 +2950,64 @@ _bs_close() { # $1 text, $2 start index -> RET
   RET=$n
 }
 
+# A heredoc body: $1 Q (quoted delimiter: data) or U (it expands), $2 text.
+_bs_body() {
+  BS_DATA+=("$2")
+  if [[ "$1" == U ]]; then
+    _bs_dqsubs "$2"
+    (( ${ct:-0} )) && BS_CODETXT="$BS_CODETXT$2"   # it expands: live (dynamic ct of _bs_lex)
+  fi
+}
+
 # Queue the $( … ) and ` … ` inside text that expands like a double-quoted
-# string (an unquoted heredoc body).
+# string (an unquoted heredoc body). Line by line, and only lines holding one
+# (indexing a long string costs its length); a substitution that does not
+# close on its line takes the following lines with it.
 _bs_dqsubs() { # $1 text
-  local t="$1" j=0 n=${#1} c e
-  while (( j < n )); do
-    c="${t:j:1}"
-    if [[ "$c" == '\' ]]; then j=$((j + 2)); continue; fi
-    if [[ "$c" == '$' && "${t:$((j + 1)):1}" == '(' ]]; then
-      _bs_close "$t" $((j + 2)); BS_SUBS+=("${t:$((j + 2)):$((RET - j - 2))}"); j=$((RET + 1)); continue
-    fi
-    if [[ "$c" == '`' ]]; then
-      e=$((j + 1)); while (( e < n )) && [[ "${t:e:1}" != '`' ]]; do [[ "${t:e:1}" == '\' ]] && e=$((e + 1)); e=$((e + 1)); done
-      BS_SUBS+=("${t:$((j + 1)):$((e - j - 1))}"); j=$((e + 1)); continue
-    fi
-    j=$((j + 1))
+  [[ "$1" == *'$('* || "$1" == *'`'* ]] || return 0
+  local u ln j n c e i=0
+  local -a ls=()
+  while IFS= read -r ln; do ls+=("$ln"); done <<< "$1"
+  while (( i < ${#ls[@]} )); do
+    u="${ls[i]}"; i=$((i + 1))
+    [[ "$u" == *'$('* || "$u" == *'`'* ]] || continue
+    j=0; n=${#u}
+    while (( j < n )); do
+      c="${u:j:1}"
+      if [[ "$c" == '\' ]]; then j=$((j + 2)); continue; fi
+      if [[ "$c" == '$' && "${u:$((j + 1)):1}" == '(' ]]; then
+        _bs_close "$u" $((j + 2))
+        while (( RET >= n && i < ${#ls[@]} )); do
+          u="$u"$'\n'"${ls[i]}"; i=$((i + 1)); n=${#u}; _bs_close "$u" $((j + 2))
+        done
+        BS_SUBS+=("${u:$((j + 2)):$((RET - j - 2))}"); j=$((RET + 1)); continue
+      fi
+      if [[ "$c" == '`' ]]; then
+        while :; do
+          e=$((j + 1)); while (( e < n )) && [[ "${u:e:1}" != '`' ]]; do [[ "${u:e:1}" == '\' ]] && e=$((e + 1)); e=$((e + 1)); done
+          (( e < n || i >= ${#ls[@]} )) && break
+          u="$u"$'\n'"${ls[i]}"; i=$((i + 1)); n=${#u}
+        done
+        BS_SUBS+=("${u:$((j + 1)):$((e - j - 1))}"); j=$((e + 1)); continue
+      fi
+      j=$((j + 1))
+    done
   done
 }
 
 # Tokenize one piece of code onto BS_T / BS_V / BS_L / BS_Q. Substitutions go
 # to BS_SUBS (walked as separate pieces), quoted text to BS_DATA.
-_bs_lex() { # $1 text
+# Text in [$1, $2) of t is data: cut it out of BS_CODETXT (dynamic t / cs /
+# ct of _bs_lex; it leaves a space, so the text around it never joins).
+_bs_ct() {
+  (( ct )) || return 0
+  BS_CODETXT="$BS_CODETXT${t:cs:$(( $1 - cs ))} "
+  cs=$2
+}
+
+_bs_lex() { # $1 text, [$2 1: record BS_CODETXT]
   local t="$1" n=${#1} j=0 c d w="" have=0 lit=1 q=0 tq=0 part rest e x
+  local ct="${2:-0}" cs=0 indq=0
   local -a hd=()
   local run_re=$'^([^\\\\\'"`$#;|&()<> \t\n*?[{}~]+)'
   while (( j <= n )); do
@@ -2843,8 +3021,9 @@ _bs_lex() { # $1 text
         if [[ "$d" == $'\n' ]]; then j=$((j + 2)); continue; fi
         [[ "$w" == *=* ]] || q=1; w="$w$d"; have=1; j=$((j + 2)) ;;
       "'")
-        rest="${t:$((j + 1))}"
+        rest="${t:$((j + 1))}"; e=$j
         if [[ "$rest" == *"'"* ]]; then part="${rest%%\'*}"; j=$((j + ${#part} + 2)); else part="$rest"; j=$n; fi
+        _bs_ct "$e" "$j"
         [[ "$w" == *=* ]] || q=1; w="$w$part"; have=1; BS_DATA+=("$part") ;;
       '"')
         _bs_lex_dq ;;
@@ -2862,18 +3041,23 @@ _bs_lex() { # $1 text
         _bs_endw; BS_T+=(NL); BS_V+=(""); BS_L+=(1); BS_Q+=(0)
         j=$((j + 1))
         if (( ${#hd[@]} )); then
-          for x in "${hd[@]}"; do
-            part=""
-            while (( j < n )); do
-              rest="${t:j}"; e="${rest%%$'\n'*}"
-              j=$((j + ${#e} + 1))
-              d="$e"; while [[ "$d" == $'\t'* ]]; do d="${d#?}"; done
-              [[ "$d" == "${x:1}" ]] && break
-              part="$part$e"$'\n'
-            done
-            BS_DATA+=("$part")
-            [[ "${x:0:1}" == U ]] && _bs_dqsubs "$part"
-          done
+          # The bodies are data: read them a line at a time from one copy of
+          # the rest, then drop what they used. (Indexing a string costs its
+          # length in bash, so a 75 KB body read through ${t:j…} took seconds.)
+          local ln hi=0 used=0
+          (( ct )) && BS_CODETXT="$BS_CODETXT${t:cs:$((j - cs))}"
+          rest="${t:j}"; part=""
+          while (( hi < ${#hd[@]} )) && IFS= read -r ln; do
+            used=$((used + ${#ln} + 1))
+            d="$ln"; while [[ "$d" == $'\t'* ]]; do d="${d#?}"; done
+            if [[ "$d" == "${hd[hi]:1}" ]]; then
+              _bs_body "${hd[hi]:0:1}" "$part"; part=""; hi=$((hi + 1))
+            else
+              part="$part$ln"$'\n'
+            fi
+          done <<< "$rest"
+          while (( hi < ${#hd[@]} )); do _bs_body "${hd[hi]:0:1}" "$part"; part=""; hi=$((hi + 1)); done
+          t="${rest:used}"; n=${#t}; j=0; cs=0
           hd=()
         fi ;;
       ';')
@@ -2950,6 +3134,8 @@ _bs_lex() { # $1 text
         w="$w$c"; have=1; lit=0; j=$((j + 1)) ;;
     esac
   done
+  (( ct )) && BS_CODETXT="$BS_CODETXT${t:cs}"
+  return 0
 }
 
 _bs_op() { BS_T+=("$1"); BS_V+=(""); BS_L+=(1); BS_Q+=(0); }
@@ -2974,7 +3160,7 @@ _bs_arith() { # $1 arithmetic text: an assignment in it is not modelled
 }
 
 _bs_lex_dq() { # at t[j] == '"' (dynamic scope of _bs_lex)
-  local start=$((j + 1)) c d dq_re=$'^([^"\\\\$`]+)'
+  local start=$((j + 1)) c d dq_re=$'^([^"\\\\$`]+)' indq=1
   j=$((j + 1)); [[ "$w" == *=* ]] || q=1; have=1
   while (( j < n )); do
     if [[ "${t:j:64}" =~ $dq_re ]]; then w="$w${BASH_REMATCH[1]}"; j=$((j + ${#BASH_REMATCH[1]})); continue; fi
@@ -3023,7 +3209,12 @@ _bs_lex_dollar() { # at t[j] == '$' (dynamic scope of _bs_lex)
       e=$((j + 2))
       while (( e < n )) && [[ "${t:e:1}" != "'" ]]; do [[ "${t:e:1}" == '\' ]] && e=$((e + 1)); e=$((e + 1)); done
       x="${t:$((j + 2)):$((e - j - 2))}"
-      [[ "$w" == *=* ]] || q=1; BS_DATA+=("$x"); w="$w$x"; lit=0; j=$((e + 1)) ;;
+      (( indq )) || _bs_ct "$j" $((e + 1))
+      # Decoded, it is literal text; an escape shells decode differently
+      # leaves an unknown expansion in its place.
+      _ansi_decode "$x" '${__undecoded_escape__}'
+      if (( RETUNRES )); then lit=0; [[ -z "$BS_UNDEC" ]] && BS_UNDEC="\$'$x'"; fi
+      [[ "$w" == *=* ]] || q=1; BS_DATA+=("$RET"); w="$w$RET"; j=$((e + 1)) ;;
     '"')
       j=$((j + 1)); _bs_lex_dq; lit=0 ;;
     *)
@@ -3042,6 +3233,9 @@ BS_NONLIT=""  # first computed destination (rule B)
 BS_RELU=""    # first relative destination after an unknown directory change (rule B)
 BS_RELM=""    # first relative destination that a possible directory puts in main (rule B)
 BS_RELMW=""
+BS_CSURE=1    # BS_CANDS is exactly where the shell is (every cd so far certainly ran here and succeeded)
+BS_RELS=""    # first relative destination in a main checkout while BS_CSURE (blocks from anywhere)
+BS_RELSW=""
 
 _bs_cand_add() { # $1 dir -> BS_CANDS and BS_ALLC (logical and physical readings)
   local d e
@@ -3074,14 +3268,17 @@ _bs_target() {
       local -a cs=("${BS_CANDS[@]}")
       (( ooo )) && cs=("${BS_ALLC[@]}")
       for c in "${cs[@]}"; do
+        _bs_wt_under "$c/$v" && continue
         if _dir_is_main "$c/$v"; then
           [[ -z "$BS_RELM" ]] && { BS_RELM="$v"; BS_RELMW="$c"; }
+          (( BS_CSURE && ! ooo )) && [[ -z "$BS_RELS" ]] && { BS_RELS="$v"; BS_RELSW="$c"; }
           return 0
         fi
       done
       return 0
     fi
   fi
+  _bs_wt_under "$p" && return 0
   if [[ -z "$BS_HIT" ]] && _dir_is_main "$p"; then
     BS_HIT="write to '$v'"; _nearest_dir "$p"; BS_WHERE="$RET"
   fi
@@ -3132,6 +3329,12 @@ _bs_cmd() { # $1 1 when out of order, $2 the operator that ended it
   fi
   # Before a | or &, or after env / sudo / … (a new process), nothing it does
   # to the directory reaches this shell. builtin / command run it here.
+  case "$base" in
+    bash|sh|zsh|dash|ksh) ;;
+    *) for ((k = 0; k < ${#BW_A[@]}; k++)); do
+         case "${BW_A[k]##*/}" in bash|sh|zsh|dash|ksh) _bs_shell_c $((k + 1)) 1 ;; esac
+       done ;;
+  esac
   local child=0
   [[ "$endop" == '|' || "$endop" == '&' ]] && child=1
   [[ -n "$BW_PFX" && "$BW_PFX" != builtin && "$BW_PFX" != command ]] && child=1
@@ -3147,27 +3350,38 @@ _bs_cmd() { # $1 1 when out of order, $2 the operator that ended it
         done
       fi
       return 0 ;;
-    source|.) (( child )) || { BS_CWDT=1; BS_CDN=$((BS_CDN + 1)); BS_CWDU=1; }; return 0 ;;
+    source|.)
+      # It runs a file's commands here. Reading stdin (/dev/stdin, a here-
+      # string or heredoc), a computed file, or no file word (<(…)): what
+      # it runs may be any quoted text on the line.
+      local sf="${BW_A[0]:-}" sl="${BW_L[0]:-1}"
+      [[ "$sf" == -- ]] && { sf="${BW_A[1]:-}"; sl="${BW_L[1]:-1}"; }
+      case "$sf" in
+        ''|-|/dev/stdin|/dev/fd/*|/proc/*/fd/*) BS_REPARSE=1; BS_ANYRP=1; _bs_trig "$base reading commands from stdin" ;;
+        *) [[ "$sl" == 0 ]] && { BS_REPARSE=1; BS_ANYRP=1; _bs_trig "$base of a computed file"; } ;;
+      esac
+      (( child )) || { BS_CWDT=1; BS_CDN=$((BS_CDN + 1)); BS_CWDU=1; }; return 0 ;;
     eval)
-      _bs_trig eval; BS_REPARSE=1
+      _bs_trig eval; _bs_codeq "${BW_A[*]}" "$(_bs_anylit0)"
       (( child )) || _bs_text_cds "${BW_A[*]}" "$(_bs_anylit0)"
       return 0 ;;
     bash|sh|zsh|dash|ksh)
-      # Re-parsed text is scanned for literal destinations (BS_REPARSE). A
-      # shell with no -c and no script reads its commands from stdin (| sh,
-      # sh <<EOF), which the model does not follow.
-      BS_REPARSE=1
-      local sc=0 so=0
-      for a in "${BW_A[@]}"; do
-        case "$a" in -*c*) sc=1 ;; -*|+*) ;; *) so=1 ;; esac
-      done
-      (( sc || so )) || _bs_trig "a shell reading commands from stdin ($base)"
+      # Every quoted string on the line may reach it as code: stdin, a
+      # startup file (BASH_ENV, --rcfile), a file the line writes, a
+      # positional argument. All of them are scanned as code, and its -c text
+      # is also walked in order (_bs_shell_c). A shell with no -c and no
+      # script reads its commands from stdin (| sh, sh <<EOF), which the
+      # model does not follow.
+      BS_ANYRP=1; BS_REPARSE=1
+      _bs_shell_c 0
+      (( RETCOUNT )) || _bs_trig "a shell reading commands from stdin ($base)"
       return 0 ;;
     trap)
       # Its handler runs later: mid-line for anything but EXIT.
-      BS_REPARSE=1
+      BS_ANYRP=1
       local -a ta=()
       for a in "${BW_A[@]}"; do [[ "$a" == -* && ${#ta[@]} == 0 ]] || ta+=("$a"); done
+      (( ${#ta[@]} )) && _bs_codeq "${ta[0]}" "$(_bs_anylit0)"
       if (( ${#ta[@]} >= 2 )) && (( ! child )); then
         local sig mid=0
         for sig in "${ta[@]:1}"; do case "$sig" in EXIT|exit|SIGEXIT|0) ;; *) mid=1 ;; esac; done
@@ -3175,7 +3389,8 @@ _bs_cmd() { # $1 1 when out of order, $2 the operator that ended it
       fi
       return 0 ;;
     alias|enable)
-      BS_REPARSE=1
+      BS_ANYRP=1
+      for a in "${BW_A[@]}"; do _bs_codeq "${a#*=}" "$(_bs_anylit0)"; done
       (( child )) || _bs_text_cds "${BW_A[*]}" "$(_bs_anylit0)"
       [[ "$base" == enable ]] && (( ! child )) && { BS_CWDT=1; BS_CDN=$((BS_CDN + 1)); BS_CWDU=1; }
       return 0 ;;
@@ -3319,6 +3534,7 @@ _bs_cmd() { # $1 1 when out of order, $2 the operator that ended it
           *) sub="$a"; sub2="${BW_A[$((k + 1))]:-}"; break ;;
         esac
       done
+      if [[ "$sub" == worktree && "$sub2" == add ]]; then _bs_wtadd "$gd" "$gl" $((k + 2)) "$ooo" "$endop"; return 0; fi
       case "$sub" in
         apply|am|cherry-pick|revert) ;;
         stash) [[ "$sub2" == pop || "$sub2" == apply ]] || return 0 ;;
@@ -3327,6 +3543,88 @@ _bs_cmd() { # $1 1 when out of order, $2 the operator that ended it
       if [[ "$gl" == 0 ]]; then _bs_target "$gd" 0 "$ooo"
       else _bs_target "${gd:-.}" 1 "$ooo"; fi ;;
   esac
+  return 0
+}
+
+# git worktree add PATH … before && : the rest of the chain runs only if PATH
+# is now a worktree, so writes under it there are not writes to the main
+# checkout it sits in (a fresh .worktrees/x does not exist yet, so it would
+# read as main). Only for that chain (cleared by _bs_gend).
+BS_WTADD=()
+_bs_wtadd() { # $1 -C dir, $2 its literal flag, $3 index of the first word after `add`, $4 out of order, $5 operator after it
+  local gd="$1" k="$3" a v="" l=1 c
+  [[ "$5" == '&&' && "$4" == 0 && "$2" != 0 ]] || return 0
+  (( ${#BS_STK[@]} == 0 && ! BS_POISON )) || return 0
+  case "$BW_PREV" in start|';'|NL|'&&') ;; *) return 0 ;; esac
+  while (( k < ${#BW_A[@]} )); do
+    a="${BW_A[k]}"
+    case "$a" in
+      -b|-B|--reason) k=$((k + 2)); continue ;;
+      --) v="${BW_A[$((k + 1))]:-}"; l="${BW_L[$((k + 1))]:-1}"; break ;;
+      -*) k=$((k + 1)); continue ;;
+      *) v="$a"; l="${BW_L[k]}"; break ;;
+    esac
+  done
+  [[ -n "$v" && "$l" != 0 ]] || return 0
+  if [[ "$l" == 2 ]]; then v="$HOME${v#\~}"
+  elif [[ "$v" != /* ]]; then
+    if [[ "$gd" == /* ]]; then v="$gd/$v"
+    elif (( BS_CWDU || ${#BS_CANDS[@]} != 1 )); then return 0
+    else v="${BS_CANDS[0]}/${gd:+$gd/}$v"; fi
+  fi
+  _lexnorm "$v"; BS_WTADD+=("$RET")
+  return 0
+}
+_bs_wt_under() { # $1 absolute path -> 0 when it is under a worktree the chain just added
+  local p c
+  (( ${#BS_WTADD[@]} )) || return 1
+  _lexnorm "$1"; p="$RET"
+  for c in "${BS_WTADD[@]}"; do [[ "$p" == "$c" || "$p" == "$c"/* ]] && return 0; done
+  return 1
+}
+
+# A shell's arguments from BW_A[$1]: its -c TEXT, and the positional
+# parameters after it (which TEXT may re-parse: sh -c "$1"), are queued to be
+# walked in order as code; every quoted string on the line is scanned as code
+# as well (BS_REPARSE). RETCOUNT = 1 when it has
+# -c TEXT or a script operand, 0 when it reads commands from stdin (no operand,
+# -s / -i, or an operand naming stdin). With $2 = 1, only -c TEXT counts (a
+# shell named as an argument: find -exec sh -c TEXT, flock F sh -c …).
+_bs_shell_c() { # $1 first index, [$2 1: only -c]
+  local k="$1" a c=0 sin=0
+  RETCOUNT=0
+  while (( k < ${#BW_A[@]} )); do
+    a="${BW_A[k]}"
+    case "$a" in
+      --) k=$((k + 1)); break ;;
+      -o|+o|-O|+O|--rcfile|--init-file) k=$((k + 2)); continue ;;
+      --*) ;;
+      -*c*) c=1 ;;
+      -*[si]*) sin=1 ;;
+      -*|+*) ;;
+      *) break ;;
+    esac
+    k=$((k + 1))
+  done
+  if (( c )); then
+    (( k < ${#BW_A[@]} )) || return 0
+    BS_ANYRP=1; BS_REPARSE=1; RETCOUNT=1
+    for ((; k < ${#BW_A[@]}; k++)); do
+      BS_CODEQ+=("${BW_A[k]}"); [[ "${BW_L[k]}" == 0 ]] && BS_REPARSE=1
+    done
+    return 0
+  fi
+  [[ "${2:-0}" == 1 ]] && return 0
+  (( k < ${#BW_A[@]} && ! sin )) || return 0
+  case "${BW_A[k]}" in /dev/stdin|/dev/fd/*|/proc/*/fd/*) return 0 ;; esac
+  [[ "${BW_L[k]}" == 0 ]] && return 0
+  RETCOUNT=1
+}
+
+# Text a command re-parses (eval's words, a trap handler, an alias): queued as
+# code; a computed word means the code is not known (BS_REPARSE).
+_bs_codeq() { # $1 text, $2 1 when computed (kept for the message; every quoted string is scanned anyway)
+  BS_ANYRP=1; BS_REPARSE=1; BS_CODEQ+=("$1")
   return 0
 }
 
@@ -3344,8 +3642,10 @@ _bs_text_cds() { # $1 text, $2 1 when computed
   if [[ "$2" == 1 ]] || (( BS_DEPTH > 6 )); then BS_CWDT=1; BS_CDN=$((BS_CDN + 1)); BS_CWDU=1; BS_DSTK=("?"); return 0; fi
   # Walk the text with this pass's own walker (its writes are judged like
   # any others); if it changes directory, the directory is unknown after it.
-  local -a sc=("${BS_CANDS[@]}") sstk=("${BS_STK[@]}") sd=("${BS_DSTK[@]}")
+  local -a sc=("${BS_CANDS[@]}") sstk=("${BS_STK[@]}") sd=("${BS_DSTK[@]}") sga=("${BS_GALT[@]}")
   local st="$BS_CWDT" su="$BS_CWDU" sp="$BS_POISON" sprev="$BW_PREV" scdn="$BS_CDN" lo=${#BS_T[@]}
+  local sgact="$BS_GACT" sgau="$BS_GALTU" sgs="$BS_GSURE" scs="$BS_CSURE"
+  local -a swt=("${BS_WTADD[@]}")
   local -a sbwa=("${BW_A[@]}") sbwl=("${BW_L[@]}")
   local sbwc="$BW_C" sbwcl="$BW_CL" sbwp="$BW_PFX"
   BS_DEPTH=$((BS_DEPTH + 1))
@@ -3355,6 +3655,8 @@ _bs_text_cds() { # $1 text, $2 1 when computed
   [[ "$BS_CDN" != "$scdn" ]] && moved=1
   BS_CANDS=("${sc[@]}"); BS_STK=("${sstk[@]}"); BS_DSTK=("${sd[@]}")
   BS_CWDT="$st"; BS_CWDU="$su"; BS_POISON="$sp"; BW_PREV="$sprev"
+  BS_GACT="$sgact"; BS_GALT=("${sga[@]}"); BS_GALTU="$sgau"; BS_WTADD=("${swt[@]}")
+  BS_GSURE="$sgs"; BS_CSURE="$scs"
   BW_A=("${sbwa[@]}"); BW_L=("${sbwl[@]}"); BW_C="$sbwc"; BW_CL="$sbwcl"; BW_PFX="$sbwp"
   (( moved )) && { BS_CWDT=1; BS_CDN=$((BS_CDN + 1)); BS_CWDU=1; BS_DSTK=("?"); }
   return 0
@@ -3376,7 +3678,7 @@ _bs_cd() { # $1 base, $2 out of order, $3 operator after it
     unset "BS_DSTK[$((nd - 1))]"; BS_DSTK=("${BS_DSTK[@]}")
     if [[ "$top" == U ]]; then BS_CWDU=1; return 0; fi
     _split "${top#?}"
-    if (( definite )); then BS_CANDS=(); BS_CWDU=0; elif (( BS_CWDU )); then return 0; fi
+    if (( definite )); then BS_CANDS=(); BS_CWDU=0; BS_CSURE=1; elif (( BS_CWDU )); then return 0; else BS_CSURE=0; fi
     for p in "${SPLIT[@]}"; do _bs_cand_add "$p"; done
     return 0
   fi
@@ -3406,20 +3708,60 @@ _bs_cd() { # $1 base, $2 out of order, $3 operator after it
     if (( BS_CWDU )) || [[ -n "${CDPATH:-}" ]] || (( BS_CDPM )); then BS_CWDU=1; return 0; fi
     for c in "${BS_CANDS[@]}"; do news+=("$c/$tv"); done
   fi
+  # Before && (and not after ||), in this shell: the rest of the && chain runs
+  # only if the cd ran and succeeded.
+  local guard=0
+  if [[ "$endop" == '&&' ]] && (( ${#BS_STK[@]} == 0 && ! BS_POISON && ! ooo )); then
+    case "$BW_PREV" in start|';'|NL|'&&') guard=1 ;; esac
+  fi
   # It certainly runs, in this shell, and certainly succeeds: only then does
   # it replace the directories the line may be in.
   (( ${#BS_STK[@]} == 0 && ! BS_POISON && ! ooo )) || definite=0
   case "$BW_PREV" in start|';'|NL) ;; *) definite=0 ;; esac
   for p in "${news[@]}"; do [[ -d "$p" ]] || definite=0; done
   if (( definite )); then
-    BS_CANDS=(); BS_CWDU=0
-  elif (( BS_CWDU )); then
-    return 0
+    BS_CANDS=(); BS_CWDU=0; BS_CSURE=1
+  else
+    BS_CSURE=0
   fi
-  for p in "${news[@]}"; do
-    _bs_cand_add "$p"
-    _phys "$p"; [[ -n "$RET" ]] && _bs_cand_add "$RET"
-  done
+  if (( definite || ! BS_CWDU )); then
+    for p in "${news[@]}"; do _bs_cd_add "$p"; done
+  fi
+  if (( guard )); then
+    # Within the chain the shell is where the cd went; once the chain ends
+    # (_bs_gend) it may be anywhere the reading above allows.
+    (( BS_GACT )) || BS_GSURE=1
+    BS_GACT=1; (( BS_CWDU )) && BS_GALTU=1; (( BS_CSURE )) || BS_GSURE=0
+    for p in "${BS_CANDS[@]}"; do _bs_in "$p" "${BS_GALT[@]}" || BS_GALT+=("$p"); done
+    BS_CANDS=(); BS_CWDU=0; BS_CSURE=1
+    for p in "${news[@]}"; do _bs_cd_add "$p"; done
+  fi
+  return 0
+}
+
+# Add a cd target: its logical and physical readings (set -P, or cd -P, is
+# not tracked here). When they differ, where the shell is is not certain.
+_bs_cd_add() { # $1 directory
+  local lg
+  _bs_cand_add "$1"
+  _lexnorm "$1"; lg="$RET"
+  _phys "$1"
+  if [[ -n "$RET" ]]; then
+    [[ "$RET" == "$lg" ]] || BS_CSURE=0
+    _bs_cand_add "$RET"
+  fi
+}
+
+# A && chain that followed a guarded cd has ended (; newline || & ;; or the
+# end of the piece): add back where the shell may be if the chain stopped.
+BS_GACT=0; BS_GALT=(); BS_GALTU=0; BS_GSURE=1
+_bs_gend() {
+  (( BS_GACT )) || return 0
+  local p
+  for p in "${BS_GALT[@]}"; do _bs_in "$p" "${BS_CANDS[@]}" || BS_CANDS+=("$p"); done
+  (( BS_GALTU )) && BS_CWDU=1
+  BS_CSURE="$BS_GSURE"
+  BS_GACT=0; BS_GALT=(); BS_GALTU=0
   return 0
 }
 
@@ -3438,7 +3780,7 @@ _bs_pop() { # $1 kind: pop it when it is the innermost, else the structure is lo
 _bs_walk() {
   local from="$1" to="$2" ooo="$3" k ty v l qq cmdpos=1 cs=0 pend="" pfx="" pskip=0 tout=0 aftert=0
   BW_C=""; BW_CL=1; BW_A=(); BW_L=(); BW_PFX=""; BW_PREV=start
-  BS_STK=(); BS_POISON=0
+  BS_STK=(); BS_POISON=0; BS_GACT=0; BS_GALT=(); BS_GALTU=0; BS_WTADD=()
   (( ooo )) && BS_STK=(paren)
   for ((k = from; k < to; k++)); do
     ty="${BS_T[k]}"; v="${BS_V[k]}"; l="${BS_L[k]}"; qq="${BS_Q[k]}"
@@ -3452,6 +3794,7 @@ _bs_walk() {
         _bs_cmd "$ooo" ";"; BW_C=""; BW_A=(); BW_L=(); cmdpos=1; continue
       fi
       _bs_cmd "$ooo" "$ty"
+      case "$ty" in ';'|NL|'||'|'&'|';;') _bs_gend; BS_WTADD=() ;; esac
       BW_C=""; BW_CL=1; BW_A=(); BW_L=(); BW_PFX=""; pfx=""; pskip=0; tout=0; aftert=0; cmdpos=1
       case "$ty" in
         ';;') local nn=${#BS_STK[@]}
@@ -3526,6 +3869,7 @@ _bs_walk() {
     BW_C="$v"; BW_CL="$l"; cmdpos=0
   done
   _bs_cmd "$ooo" ";"
+  _bs_gend; BS_WTADD=()
   BW_C=""; BW_A=(); BW_L=()
   (( cs != 0 || ${#BS_STK[@]} > ooo )) && BS_POISON=1
   return 0
@@ -3536,25 +3880,29 @@ _backstop() {
   local i lo hi rounds=0
   [[ "$CMD" =~ HOME ]] && BS_HOMEM=1
   [[ "$CMD" == *CDPATH* ]] && BS_CDPM=1
-  local dre='\$\{[#!]?[A-Za-z0-9_@*#?$!-]+(\[[^]]*\])?:?='
-  [[ "$CMD" =~ $dre ]] && _bs_trig '${…=…} (an assignment inside an expansion)'
-  [[ "$CMD" == *'$['* ]] && _bs_trig 'an arithmetic expansion $[…]'
   BS_CANDS=("$PWD"); BS_ALLC=("$PWD")
-  _bs_lex "$CMD"
+  BS_CODETXT=""; _bs_lex "$CMD" 1
   hi=${#BS_T[@]}
   _bs_walk 0 "$hi" 0
   if (( BS_LOOP && BS_CWDT )); then
     # In a loop, a cd later on the line may run before an earlier write.
-    BS_CANDS=("${BS_ALLC[@]}")
+    BS_CANDS=("${BS_ALLC[@]}"); BS_CSURE=0
     _bs_walk 0 "$hi" 0
   fi
   # Substitutions (and, on a line that re-parses text, quoted text and heredoc
   # bodies) as separate pieces, in any directory the line may be in.
-  local si=0 di=0
+  local si=0 di=0 ci=0
   while (( rounds < 64 )); do
     rounds=$((rounds + 1))
     if (( si < ${#BS_SUBS[@]} )); then
       lo=${#BS_T[@]}; _bs_lex "${BS_SUBS[si]}"; si=$((si + 1))
+    elif (( ci < ${#BS_CODEQ[@]} )); then
+      # Re-parsed text runs as a script of its own, in order, from wherever
+      # the line may be (certain only when that is one directory).
+      lo=${#BS_T[@]}; _bs_lex "${BS_CODEQ[ci]}"; ci=$((ci + 1)); BS_INDATA=1
+      BS_CANDS=("${BS_ALLC[@]}"); BS_CSURE=0; (( ${#BS_ALLC[@]} == 1 )) && BS_CSURE=1
+      _bs_walk "$lo" "${#BS_T[@]}" 0
+      continue
     elif (( BS_REPARSE && di < ${#BS_DATA[@]} )); then
       lo=${#BS_T[@]}; _bs_lex "${BS_DATA[di]}"; di=$((di + 1)); BS_INDATA=1
     else
@@ -3564,7 +3912,24 @@ _backstop() {
     _bs_walk "$lo" "${#BS_T[@]}" 1
   done
   (( rounds >= 64 )) && _bs_trig "more nested text than this pass follows"
+  # ${D:=w} / $[…] in code (single-quoted text and quoted heredoc bodies are
+  # data, unless the line re-parses text: then they may be code too).
+  local code="$CMD" dre='\$\{[#!]?[A-Za-z0-9_@*#?$!-]+(\[[^]]*\])?:?='
+  (( BS_ANYRP )) || code="$BS_CODETXT"
+  [[ "$code" =~ $dre ]] && _bs_trig '${…=…} (an assignment inside an expansion)'
+  [[ "$code" == *'$['* ]] && _bs_trig 'an arithmetic expansion $[…]'
   [[ -n "$BS_HIT" ]] && return 0
+  if (( BS_ANYRP )) && [[ -n "$BS_UNDEC" ]]; then
+    BS_HIT="text re-parsed as code holding $BS_UNDEC, which shells decode differently"; BS_WHERE=""
+    return 0
+  fi
+  # A relative destination after cds that certainly ran, in this shell, into
+  # directories that exist (or within a cd's && chain) is judged like a
+  # literal one: wherever the line runs.
+  if [[ -n "$BS_RELS" ]]; then
+    BS_HIT="relative write to '$BS_RELS', which lands in a main checkout (the shell is in $BS_RELSW)"; BS_WHERE="$BS_RELSW"
+    return 0
+  fi
   if [[ -n "$BS_TRIG" ]]; then
     if [[ -n "$BS_NONLIT" ]]; then BS_HIT="write to '$BS_NONLIT', a destination built from an expansion"; BS_WHERE=""
     elif [[ -n "$BS_RELU" ]]; then BS_HIT="relative write to '$BS_RELU' after a directory change this pass cannot follow"; BS_WHERE=""
@@ -3628,6 +3993,19 @@ _analyze_text "$CMD"
 # in the state the line leaves behind.
 for _t in "${DEFERRED[@]}"; do _analyze_text "$_t"; done
 
+if [[ -n "$UNDECODED" ]]; then
+  echo "❌ Blocked: text this Bash command re-parses as code (bash -c / sh -c / eval /" >&2
+  echo "   trap / alias) holds a \$'…' escape that shells decode differently." >&2
+  echo "   Text:    $UNDECODED" >&2
+  echo "   Command: $CMD" >&2
+  echo "" >&2
+  echo "   \\u / \\U (literal in bash 3.2), \\cX (not decoded by zsh), \\x with no digit," >&2
+  echo "   NUL and unknown escapes such as \\q or \\/ mean the guard cannot tell what the" >&2
+  echo "   code does, so every write in it is unresolved. Write the characters out, or" >&2
+  echo "   use \\xHH / octal escapes." >&2
+  exit 2
+fi
+
 # A write went to a ~ path (or relative to a cd ~) taken as literal, but HOME
 # may change later on the line (in a loop, a later assignment runs first).
 if (( ! BLOCKED && TILDE_SEEN && HOME_TAINT )) && _main_in_play; then
@@ -3645,11 +4023,12 @@ if (( ! BLOCKED )); then
     [[ -n "$BS_TRIG" ]] && echo "   Because: the line uses $BS_TRIG, which the guard does not fully model." >&2
     echo "   Command: $CMD" >&2
     echo "" >&2
-    echo "   A literal destination inside a main checkout always blocks. On a line with" >&2
-    echo "   case / esac, \${…=…}, eval, bash -c, trap, alias, coproc, a function or an" >&2
-    echo "   arithmetic assignment, so does every destination built from an expansion" >&2
-    echo "   and every relative one after a cd it cannot follow. Spell the path out," >&2
-    echo "   drop the construct, or run the command from a worktree." >&2
+    echo "   A literal destination inside a main checkout always blocks, and so does a" >&2
+    echo "   relative one after a cd into one. On a line with case / esac, \${…=…}," >&2
+    echo "   eval, trap, alias, coproc, a function or an arithmetic assignment, so does" >&2
+    echo "   every destination built from an expansion and every relative one after a" >&2
+    echo "   cd it cannot follow. Spell the path out, drop the construct, or run the" >&2
+    echo "   command from a worktree." >&2
     _top=""
     for _d in "$BS_WHERE" "$PWD"; do
       if [[ -n "$_d" ]] && _dir_is_main "$_d"; then

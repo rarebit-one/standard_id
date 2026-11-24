@@ -1750,6 +1750,177 @@ printf x > $MAIN/probe"
 check block "repro2: printf > main, from scratch" "$SCRATCH" \
   "printf x > $MAIN/probe"
 
+# --- repro4 (agent-estate#84 follow-up): ANSI-C payloads, relative writes ---
+# Inside $'…', \x2f is a `/`: MAIN spelled that way.
+MAINX="${MAIN//\//\\x2f}"
+mkdir -p "$MAIN/ewbsub"
+
+check block "repro4: bash -c \$'…\\x78…' after cd main, from scratch" "$SCRATCH" \
+  "bash -c \$':; cd $MAIN; printf \\x78 > p1'"
+check block "repro4: sh -c \$'…\\x78…' after cd main, from scratch" "$SCRATCH" \
+  "sh -c \$':; cd $MAIN; printf \\x78 > p1'"
+check block "repro4: bash -lc \$'…\\x78…' after cd main, from scratch" "$SCRATCH" \
+  "bash -lc \$'cd $MAIN\\nprintf \\x78 > p1'"
+check block "repro4: bash -o pipefail -c \$'…' after cd main, from scratch" "$SCRATCH" \
+  "bash -o pipefail -c \$'cd $MAIN; touch \\x70\\x31'"
+check block "repro4: bash -c \$'…' target spelled with \\x2f, from scratch" "$SCRATCH" \
+  "bash -c \$'printf x > $MAINX\\x2fp1'"
+check block "repro4: nested bash -c inside bash -c, \\x2f path, from scratch" "$SCRATCH" \
+  "bash -c \"bash -c \$'touch $MAINX\\x2fp1'\""
+check block "repro4: touch \$'…\\x2f…' into main, from scratch" "$SCRATCH" \
+  "touch \$'$MAINX\\x2fp1'"
+check block "repro4: octal-escaped command name in a payload, from scratch" "$SCRATCH" \
+  "sh -c \$'cd $MAIN; \\164ouch p1'"
+check block "repro4: eval \$'…\\n…' after cd main, from scratch" "$SCRATCH" \
+  "eval \$'cd $MAIN\\nprintf x > e1'"
+check block "repro4: find -exec sh -c \$'…' into main, from scratch" "$SCRATCH" \
+  "find . -maxdepth 0 -exec sh -c \$'touch $MAINX\\x2fp1' \\;"
+check block "repro4: bash -s ARG reads commands from stdin (Codex P1), from scratch" "$SCRATCH" \
+  "bash -s arg <<< 'printf x > $MAIN/probe'"
+check block "repro4: bash -i / bash /dev/stdin / sh - read stdin, from scratch" "$SCRATCH" \
+  "bash /dev/stdin <<< 'printf x > $MAIN/probe'"
+check block "repro4: sh -c \"\$1\" re-parses a literal positional argument (Codex P1), from scratch" "$SCRATCH" \
+  "bash -c 'sh -c \"\$1\"' -- 'printf x > $MAIN/probe'"
+check block "repro4: find -exec sh -c with the code in a positional argument, from scratch" "$SCRATCH" \
+  "find . -maxdepth 0 -exec sh -c 'sh -c \"\$1\"' _ 'printf x > $MAIN/probe' \\;"
+check block "repro4: bash -c \"\$X\" with X's code quoted on the line, from scratch" "$SCRATCH" \
+  "X='printf x > $MAIN/probe'; bash -c \"\$X\""
+check block "repro4: eval \"\$X\" with code quoted later on the line, from scratch" "$SCRATCH" \
+  "eval \"\$X\"; Y='printf x > $MAIN/probe'"
+check block "repro4: bash -c '. /dev/stdin' <<< code (Codex P1), from scratch" "$SCRATCH" \
+  "bash -c '. /dev/stdin' <<< 'printf x > $MAIN/probe'"
+check block "repro4: source /dev/stdin with a quoted heredoc, from scratch" "$SCRATCH" \
+  "source /dev/stdin <<'EOF'
+printf x > $MAIN/probe
+EOF"
+check block "repro4: bash -c 'source <(cat)' <<< code, from scratch" "$SCRATCH" \
+  "bash -c 'source <(cat)' <<< 'printf x > $MAIN/probe'"
+check allow "repro4: source a literal file, then jq 'select(…)' to /tmp, from a worktree" "$WT" \
+  "source $SCRATCH/env.sh; jq '.[] | select(.a)' $SCRATCH/in.json > /tmp/ewb-o.json"
+check block "repro4: BASH_ENV=/dev/stdin bash -c true <<< code (Codex P1), from scratch" "$SCRATCH" \
+  "BASH_ENV=/dev/stdin bash -c true <<< 'printf x > $MAIN/probe'"
+check block "repro4: bash --rcfile /dev/stdin -ic true <<< code (Codex P1), from scratch" "$SCRATCH" \
+  "bash --rcfile /dev/stdin -ic true <<< 'printf x > $MAIN/probe'"
+check block "repro4: bash /dev/./stdin <<< code (Codex P1), from scratch" "$SCRATCH" \
+  "bash /dev/./stdin <<< 'printf x > $MAIN/probe'"
+check block "repro4: a script file the line writes from quoted text, then bash runs it, from scratch" "$SCRATCH" \
+  "printf '%s' 'printf x > $MAIN/probe' > /tmp/ewb-s.sh; bash /tmp/ewb-s.sh"
+check block "repro4: on a bash -c line every quoted string is code (accepted over-block)" "$SCRATCH" \
+  "bash -c 'true'; printf '%s' '<!-- a --> b' > /tmp/ewb-o.html; echo '> $MAIN/x'"
+check allow "repro4: bash -c with a literal positional argument that only prints, to /tmp" "$SCRATCH" \
+  "bash -c 'echo \"\$1\"' _ hi > /tmp/ewb-o"
+check block "repro4: an escape shells decode differently (\\q) in a payload, from scratch" "$SCRATCH" \
+  "bash -c \$'cd $MAIN; printf \\q > p1'"
+check block "repro4: \\u in a payload is unresolved (literal in bash 3.2), even to /tmp (accepted)" "$SCRATCH" \
+  "bash -c \$'echo \\u41 > /tmp/ewb-u41'"
+check block "repro4: \\c in a payload is unresolved (zsh does not decode it)" "$SCRATCH" \
+  "bash -c \$'cd $MAIN; echo \\cA > p1'"
+check block "repro4: NUL in a payload is unresolved" "$SCRATCH" \
+  "bash -c \$'cd $MAIN; echo \\x00 > p1'"
+check block "repro4: cd main; touch, from a worktree" "$WT" \
+  "cd $MAIN; touch p2"
+check block "repro4: cd main; touch, from scratch" "$SCRATCH" \
+  "cd $MAIN; touch p2"
+check block "repro4: cd main && touch, from a worktree" "$WT" \
+  "cd $MAIN && touch p2"
+check block "repro4: cd .; touch, from main" "$MAIN" \
+  "cd .; touch p3"
+check block "repro4: cd ..; touch into main, from scratch" "$SCRATCH" \
+  "cd $MAIN/ewbsub; cd ..; touch p3"
+check block "repro4: cd -; touch back in main, from a worktree" "$WT" \
+  "cd $MAIN; cd $SCRATCH; cd -; touch p3"
+check block "repro4: pushd main; touch, from a worktree" "$WT" \
+  "pushd $MAIN; touch p3"
+check block "repro4: pushd main; pushd scratch; popd; touch, from a worktree" "$WT" \
+  "pushd $MAIN; pushd $SCRATCH; popd; touch p3"
+check block "repro4: ( cd main; touch ), from a worktree" "$WT" \
+  "( cd $MAIN; touch p3 )"
+check block "repro4: cd main; mkdir, from a worktree" "$WT" \
+  "cd $MAIN; mkdir newdir"
+check block "repro4: cd main; rm, from a worktree" "$WT" \
+  "cd $MAIN; rm -f file.txt"
+check block "repro4: cd main; rmdir, from a worktree" "$WT" \
+  "cd $MAIN; rmdir ewbsub"
+check block "repro4: cd main; ln -s, from a worktree" "$WT" \
+  "cd $MAIN; ln -s /tmp/x link"
+check block "repro4: cd main; chmod, from a worktree" "$WT" \
+  "cd $MAIN; chmod 644 file.txt"
+check block "repro4: cd main; truncate, from a worktree" "$WT" \
+  "cd $MAIN; truncate -s 0 file.txt"
+check block "repro4: cd main; dd of=, from a worktree" "$WT" \
+  "cd $MAIN; dd if=/dev/null of=d.bin"
+check block "repro4: cd main; sort -o, from a worktree" "$WT" \
+  "cd $MAIN; sort -o s.txt $SCRATCH/in.txt"
+check block "repro4: cd main; curl -o, from a worktree" "$WT" \
+  "cd $MAIN; curl -sSo c.txt https://example.com"
+check block "repro4: cd main; cp / mv into ., from a worktree" "$WT" \
+  "cd $MAIN; cp $SCRATCH/in.txt ."
+check block "repro4: cd main; tee, from a worktree" "$WT" \
+  "cd $MAIN; echo x | tee t.txt"
+check block "repro4: unresolved cd; touch, from a worktree" "$WT" \
+  "cd \"\$X\"; touch p4"
+check block "repro4: unresolved cd; mkdir, from scratch" "$SCRATCH" \
+  "cd \$(dirname $MAIN/x); mkdir q"
+check block "repro4: a quoted '=' does not hide a live \${X:=y} (Codex P1), from a worktree" "$WT" \
+  ": \${X:=y}; printf '=' > \"\$D/probe\""
+check block "repro4: a quoted \$'=' does not hide a live \${X:=y}, from a worktree" "$WT" \
+  ": \${X:=y}; printf \$'=' > \"\$D/probe\""
+check block "repro4: \${X:='a'} is live (its value is quoted, the expansion is not), from a worktree" "$WT" \
+  ": \${X:='a'}; printf x > \"\$D/probe\""
+check block "repro4: \"\${X:=y}\" in double quotes is live, from a worktree" "$WT" \
+  "printf '%s' \"\${X:=y}\" > \"\$D/probe\""
+check block "repro4: an unquoted heredoc's \${X:=y} stays live, from a worktree" "$WT" \
+  "cat <<EOF > \"\$D/x\"
+\${X:=y}
+EOF"
+
+# Should-allow: quoted text is data; everyday commands.
+check allow "repro4: <<'EOF' body with \${X:=y} and case, computed destination, from a worktree" "$WT" \
+  "cat <<'EOF' > \"\$TMPDIR/ewb-x\"
+x=\${X:=y}
+case \$1 in a) f;; esac
+EOF"
+check allow "repro4: <<\"EOF\" body with \${X:=y} and a function, ~ destination, from a worktree" "$WT" \
+  "cat <<\"EOF\" > ~/.cache/ewb-x.sh
+f() { echo \${X:=y}; }
+EOF"
+check allow "repro4: <<\\EOF body with \${X:=y}, computed destination, from a worktree" "$WT" \
+  "cat <<\\EOF > \"\$TMPDIR/ewb-x\"
+\${X:=y} \$(touch nothing)
+EOF"
+check allow "repro4: '\${X:=y}' single-quoted, computed destination, from a worktree" "$WT" \
+  "printf '%s\\n' '\${X:=y}' > \"\$TMPDIR/ewb-x\""
+check allow "repro4: jq 'select(…)', computed destination, from a worktree" "$WT" \
+  "jq '.[] | select(.draft)' $SCRATCH/in.json > \"\$TMPDIR/ewb-o.json\""
+check allow "repro4: printf '<!-- … -->' to /tmp, from main" "$MAIN" \
+  "printf '%s' '<!-- a --> b' > /tmp/ewb-o.html"
+check allow "repro4: <<'EOF' defining a function, computed destination, from a worktree" "$WT" \
+  "cat <<'EOF' > \"\$TMPDIR/ewb-f.sh\"
+f() { select x in a; do :; done; }
+EOF"
+check allow "repro4: a decodable \$'…' payload writing to /tmp, from main" "$MAIN" \
+  "bash -c \$'printf x\\\\n > /tmp/ewb-ok2'"
+check allow "repro4: printf > \$'\\x2ftmp…', from a worktree" "$WT" \
+  "printf x > \$'\\x2ftmp\\x2fewb-ok3'"
+check allow "repro4: git worktree add, from main" "$MAIN" \
+  "git worktree add .worktrees/x -b x origin/main"
+check allow "repro4: bin/estate-wt new, from main" "$MAIN" \
+  "bin/estate-wt new x"
+check allow "repro4: git fetch, from main" "$MAIN" \
+  "git fetch"
+check allow "repro4: git pull --ff-only, from main" "$MAIN" \
+  "git pull --ff-only"
+check allow "repro4: printf > /tmp, from main" "$MAIN" \
+  "printf x > /tmp/ok.txt"
+check block "repro4: git worktree add && cd into it && touch: judged like a redirection there (accepted)" "$MAIN" \
+  "git worktree add .worktrees/n -b n origin/main && cd .worktrees/n && touch f"
+check allow "repro4: mkdir -p scratch/new && cd && touch, from main" "$MAIN" \
+  "mkdir -p $SCRATCH/n2 && cd $SCRATCH/n2 && touch f"
+check allow "repro4: cd scratch; mkdir / rm / chmod there, from main" "$MAIN" \
+  "cd $SCRATCH; mkdir -p d; rm -f d/x; chmod 644 in.txt; touch t"
+check allow "repro4: touch / mkdir / rm relative, from a worktree" "$WT" \
+  "touch a.txt; mkdir -p d; rm -f a.txt"
+
 echo
 echo "  $PASS passed, $FAIL failed"
 [[ "$FAIL" == "0" ]] || exit 1
