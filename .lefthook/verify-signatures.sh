@@ -1,7 +1,8 @@
 #!/bin/bash
 # Verify all commits to be pushed have valid signatures (GPG or SSH).
 #
-# Checks every commit between the remote tracking branch and HEAD.
+# Checks every commit between the remote tracking branch and HEAD that is not
+# already on the remote's default branch.
 # Exits non-zero if any unsigned or badly-signed commits are found.
 #
 # Accepted signature statuses: G (good), U (good but untrusted key)
@@ -11,7 +12,16 @@ set -eo pipefail
 
 source "$(dirname "$0")/lib/git-upstream.sh"
 
-COMMITS=$(git log "$MERGE_BASE..HEAD" --format="%H" 2>/dev/null) || {
+# Commits already on the remote's default branch are not introduced by this push.
+# After a rebase onto main they fall inside MERGE_BASE..HEAD, and GitHub's
+# web-flow signature on squash merges shows as E (can't check) locally.
+DEFAULT_BRANCH=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null) || DEFAULT_BRANCH="origin/main"
+EXCLUDE=()
+if git rev-parse --verify --quiet "$DEFAULT_BRANCH" >/dev/null; then
+  EXCLUDE=(--not "$DEFAULT_BRANCH")
+fi
+
+COMMITS=$(git log "$MERGE_BASE..HEAD" "${EXCLUDE[@]}" --format="%H" 2>/dev/null) || {
   echo "Failed to list commits between merge-base and HEAD" >&2
   exit 1
 }
