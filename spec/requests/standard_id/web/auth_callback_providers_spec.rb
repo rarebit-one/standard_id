@@ -169,6 +169,52 @@ RSpec.describe "StandardId Web Social Auth Callbacks", type: :request do
       end
     end
 
+    context "when the provider's request goes through the host's network_wrapper" do
+      let(:circuit_open) { Class.new(StandardError) }
+
+      before do
+        allow(Resolv).to receive(:getaddresses).and_return(["93.184.216.34"])
+        stub_request(:post, "https://oauth2.example.com/token").to_return(status: 200, body: "{}")
+        # A plugin's code exchange: one HttpClient call naming the provider.
+        allow(StandardId::Providers::Google).to receive(:get_user_info) do
+          StandardId::HttpClient.post_form("https://oauth2.example.com/token", { code: "auth_code_123" }, provider: :google)
+          {
+            user_info: { "email" => "user@example.com", "name" => "Test User", "sub" => "prov_123" },
+            tokens: { access_token: "token_123" }
+          }.with_indifferent_access
+        end
+      end
+
+      it "fails the sign-in as temporarily unavailable when the wrapper refuses the request (an open circuit)" do
+        error = circuit_open
+        StandardId.config.network_wrapper = ->(provider:, &_block) { raise error, "oauth_#{provider} is open" }
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) { |event| events << event }
+
+        begin
+          http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+        ensure
+          StandardId::Events.unsubscribe(subscription)
+        end
+
+        expect(response).to redirect_to(standard_id_web.login_path(redirect_uri: redirect_uri))
+        expect(flash[:alert]).to eq("Authentication failed: Google is temporarily unavailable")
+        expect(events.map { |event| event[:error_class] }).to eq(["StandardId::ProviderUnavailableError"])
+        expect(WebMock).not_to have_requested(:post, "https://oauth2.example.com/token")
+        expect(Account.find_by(email: "user@example.com")).to be_nil
+      end
+
+      it "signs in as before when the wrapper runs the request" do
+        StandardId.config.network_wrapper = ->(provider:, &block) { block.call }
+
+        http_get "/auth/callback/google", params: { state: state, code: "auth_code_123" }
+
+        expect(response).to redirect_to("/dashboard")
+        expect(WebMock).to have_requested(:post, "https://oauth2.example.com/token")
+        expect(Account.find_by(email: "user@example.com").sessions.active).to exist
+      end
+    end
+
     context "when a SocialLinkError is raised (policy error, not infrastructure)" do
       let(:link_error) do
         StandardId::SocialLinkError.new(email: "user@example.com", provider_name: "google")

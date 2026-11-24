@@ -27,6 +27,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepted list. `StandardId::Oauth::Audiences.mintable` / `.accepted` return the effective
   lists. See the README, "Token Audiences: Minted vs Accepted", and the Migration Guide.
   (rarebit-one/rarebit-ops#494)
+- **`StandardId::ProviderUnavailableError`** (an `OAuthError`: `temporarily_unavailable`, HTTP
+  503) and **`StandardId::NetworkWrapper.run(provider:) { ... }`**. When the host's
+  `config.network_wrapper` refuses a request itself, such as an open circuit that never ran it,
+  or a breaker that turns the request's failure into its own error, StandardId now raises
+  `ProviderUnavailableError` with the wrapper's error as `cause`. Plugins can then map an outage
+  without knowing the host's circuit-breaker library.
+  - Google and Apple sign-in already turned any error into an `OAuthError` (`rescue_to_oauth_error`),
+    so they failed, but with the wrapper's message (circuit names, host internals) in the flash
+    and the API's `error_description`, and the API answered 400 `invalid_request`. They now show
+    "Google is temporarily unavailable", and the API answers 503 `temporarily_unavailable`.
+  - The paths that really returned a 500 are fixed in the plugins that own them (Apple's
+    `revoke` / `exchange_authorization_code`, Void-Which-Binds sign-in), using this error.
+  - Some errors still reach the caller unchanged:
+    - an error the request raises (a timeout, a refused connection) that the wrapper re-raises
+    - a `StandardId::OAuthError` the wrapper raises on purpose
+    - an error the wrapper raises after the request went through (a failing tracer: the request
+      may have spent a single-use code, so "try again" would be wrong)
+    - a programming error in the wrapper (`NetworkWrapper::PROGRAMMING_ERRORS`: `NameError`,
+      including `NoMethodError`, `TypeError`, `ArgumentError`), so the error tracker sees it
+  - `HttpClient` runs every request through `NetworkWrapper`; a plugin with its own HTTP code can
+    call it to get the same wrapper and error. A host that rescued its breaker's error (e.g.
+    `Stoplight::Error::RedLight`) around a StandardId provider call now finds it as
+    `error.cause`.
 
 ### Fixed
 

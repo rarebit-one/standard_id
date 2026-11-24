@@ -76,20 +76,13 @@ module StandardId
       # Private, but provider plugins call it through `send` to fetch a JWKS
       # with a plain GET, so its signature is part of the plugin contract:
       # `provider:` is optional and new keywords must stay optional.
+      #
+      # The host's `network_wrapper` sees the whole connection (connect,
+      # request, response), so a timeout or refused connection raises inside
+      # it and reaches the caller as is; an error the wrapper raises itself
+      # becomes StandardId::ProviderUnavailableError (see NetworkWrapper).
       def start_connection(uri, resolved_ip: nil, provider: DEFAULT_PROVIDER, &block)
-        with_network_wrapper(provider) { open_connection(uri, resolved_ip:, &block) }
-      end
-
-      # Runs the block through `StandardId.config.network_wrapper`, or
-      # directly when none is configured. The wrapper sees the whole
-      # connection (connect, request, response), so a timeout or refused
-      # connection raises inside it; whatever it raises or returns is the
-      # caller's.
-      def with_network_wrapper(provider, &block)
-        wrapper = StandardId.config.network_wrapper
-        return yield unless wrapper.respond_to?(:call)
-
-        wrapper.call(**StandardId::Utils::CallableParameterFilter.filter(wrapper, { provider: provider&.to_sym }), &block)
+        NetworkWrapper.run(provider:) { open_connection(uri, resolved_ip:, &block) }
       end
 
       def open_connection(uri, resolved_ip: nil, &block)

@@ -429,14 +429,39 @@ RSpec.describe StandardId::HttpClient do
       expect(seen).to eq([Net::OpenTimeout])
     end
 
-    it "propagates an error the wrapper raises itself, without making the request" do
+    it "raises ProviderUnavailableError for an error the wrapper raises itself, without making the request" do
       circuit_open = Class.new(StandardError)
       StandardId.config.network_wrapper = ->(provider:, &_block) { raise circuit_open, "#{provider} open" }
 
       expect {
         described_class.post_form("https://example.com/token", {}, provider: :google)
-      }.to raise_error(circuit_open, "google open")
+      }.to raise_error(StandardId::ProviderUnavailableError, "Google is temporarily unavailable") { |error|
+        expect(error.provider).to eq(:google)
+        expect(error.cause).to be_a(circuit_open)
+      }
       expect(WebMock).not_to have_requested(:post, "https://example.com/token")
+    end
+
+    it "raises ProviderUnavailableError from get_with_bearer and from start_connection too" do
+      StandardId.config.network_wrapper = ->(&_block) { raise "circuit open" }
+      uri, resolved_ip = described_class.send(:validate_url!, "https://example.com/api")
+
+      expect {
+        described_class.get_with_bearer("https://example.com/api", "token", provider: :apple)
+      }.to raise_error(StandardId::ProviderUnavailableError, "Apple is temporarily unavailable")
+      expect {
+        described_class.send(:start_connection, uri, resolved_ip: resolved_ip, provider: :google) { |http| http.request(Net::HTTP::Get.new(uri)) }
+      }.to raise_error(StandardId::ProviderUnavailableError, "Google is temporarily unavailable")
+      expect(WebMock).not_to have_requested(:get, "https://example.com/api")
+    end
+
+    it "leaves a transport error unchanged when there is no wrapper" do
+      StandardId.config.network_wrapper = nil
+      stub_request(:post, "https://example.com/token").to_timeout
+
+      expect {
+        described_class.post_form("https://example.com/token", {}, provider: :google)
+      }.to raise_error(Net::OpenTimeout)
     end
 
     it "validates the URL before the wrapper runs, so an SSRF refusal never counts against a provider" do

@@ -779,8 +779,23 @@ c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}"
 ```
 
 It must call the block and return its result. A timeout or refused connection
-raises inside the wrapper, and whatever the wrapper raises (an open circuit,
-say) reaches the provider's caller as is. `provider` is the plugin's name
+raises inside the wrapper and, re-raised, reaches the provider as is. When the
+wrapper refuses the request itself (an open circuit that never ran it, or a
+breaker that turns the request's failure into its own error), StandardId raises
+`StandardId::ProviderUnavailableError` instead, with the wrapper's error as its
+`cause`. That is an `OAuthError`, so the web callback sends the user back to the
+login page with "Google is temporarily unavailable" and the API answers 503
+`temporarily_unavailable`. The circuit's own message never reaches the user.
+
+Some errors from the wrapper are passed through unchanged:
+- a `StandardId::OAuthError` it raises on purpose
+- an error it raises after the block returned (the request went through, so
+  "try again" would be wrong)
+- a programming error (`NameError`/`NoMethodError`, `TypeError`,
+  `ArgumentError`; see `StandardId::NetworkWrapper::PROGRAMMING_ERRORS`), so
+  your error tracker sees the bug
+
+`provider` is the plugin's name
 (`:google`, `:apple`, ...), or `:standard_id` for a plugin release that does not
 pass one yet. A lambda must take the block as `&block`; the boot check rejects
 one that doesn't, since it would silently skip the request.
@@ -2201,6 +2216,8 @@ end
 ```
 
 Pass `provider:` to every `HttpClient` call so the host's `config.network_wrapper` can tell providers apart (see [Social Login Setup](#social-login-setup)). The keyword is new in 0.61.0; a plugin that supports older standard_id releases should check for it, e.g. `HttpClient.method(:post_form).parameters.include?([:key, :provider])`, and leave it out when absent.
+
+When the host's wrapper refuses a request itself (an open circuit), `HttpClient` raises `StandardId::ProviderUnavailableError`, an `OAuthError`, so `rescue_to_oauth_error` passes it through and the sign-in fails as "temporarily unavailable" rather than with the circuit's message. A plugin with its own error for an unreachable provider rescues it next to its transport errors (guard with `defined?(StandardId::ProviderUnavailableError)` to support older releases). A plugin that makes requests without `HttpClient` runs them through `StandardId::NetworkWrapper.run(provider: :github) { ... }` to get the same wrapper and the same error.
 
 **Required interface:** `provider_name`, `authorization_url`, `get_user_info`.
 

@@ -204,6 +204,48 @@ module StandardId
     def oauth_error_code = :invalid_client_metadata
   end
 
+  # The host's `config.network_wrapper` refused a provider request itself (an
+  # open circuit breaker, say), as opposed to the request failing in transit:
+  # StandardId::NetworkWrapper raises it in place of the wrapper's own error,
+  # which stays reachable as `cause` (see NetworkWrapper for the rules). An
+  # error the request raises and the wrapper re-raises unchanged (a timeout,
+  # a refused connection) is never turned into it; it reaches the provider as
+  # it always has. Nor are programming errors in the wrapper, or an error the
+  # wrapper raises after the request went through.
+  #
+  # An OAuthError, so a sign-in that hits it takes the ordinary failure path:
+  # the web callback redirects to the login page with the message, and the
+  # API renders `temporarily_unavailable` with HTTP 503 (RFC 6749 §4.1.2.1).
+  # The message names only the provider, never the wrapper's error, which may
+  # carry circuit names or host internals. Plugins map it to their own
+  # unavailable error where they have one.
+  class ProviderUnavailableError < OAuthError
+    # Providers no user would recognise, so the message names none:
+    # HttpClient::DEFAULT_PROVIDER, which HttpClient passes when its caller
+    # names no provider. Kept here rather than read from HttpClient so the
+    # error has no load-order or stubbing dependency on it.
+    UNNAMED_PROVIDERS = [:standard_id].freeze
+
+    # @return [Symbol, nil] the provider the request was for (`:google`, ...)
+    attr_reader :provider
+
+    def initialize(message = nil, provider: nil)
+      @provider = provider
+      super(message || "#{provider_label(provider)} is temporarily unavailable")
+    end
+
+    def oauth_error_code = :temporarily_unavailable
+    def http_status = :service_unavailable
+
+    private
+
+    def provider_label(provider)
+      return "The provider" if provider.nil? || UNNAMED_PROVIDERS.include?(provider.to_sym)
+
+      provider.to_s.humanize
+    end
+  end
+
   # Lifecycle hook errors
   class AuthenticationDenied < StandardError; end
 

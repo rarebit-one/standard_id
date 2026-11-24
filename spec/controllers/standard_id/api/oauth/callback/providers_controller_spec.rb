@@ -216,6 +216,34 @@ RSpec.describe StandardId::Api::Oauth::Callback::ProvidersController, type: :con
       end
     end
 
+    context "when the host's network_wrapper refuses the provider's request (an open circuit)" do
+      before do
+        allow(Resolv).to receive(:getaddresses).and_return(["17.32.194.99"])
+        StandardId.config.network_wrapper = ->(provider:, &_block) { raise "oauth_#{provider} is open" }
+        allow_any_instance_of(described_class).to receive(:get_user_info_from_provider) do
+          StandardId::HttpClient.post_form("https://appleid.example.com/auth/token", { code: "abc123" }, provider: :apple)
+        end
+      end
+
+      it "renders 503 temporarily_unavailable and publishes SOCIAL_AUTH_FAILED, not a 500" do
+        events = []
+        subscription = StandardId::Events.subscribe(StandardId::Events::SOCIAL_AUTH_FAILED) { |event| events << event }
+
+        begin
+          post :callback, params: { provider: "apple", code: "abc123" }
+        ensure
+          StandardId::Events.unsubscribe(subscription)
+        end
+
+        expect(response).to have_http_status(:service_unavailable)
+        expect(response.parsed_body).to eq(
+          "error" => "temporarily_unavailable", "error_description" => "Apple is temporarily unavailable"
+        )
+        expect(events.map { |event| event[:error_class] }).to eq(["StandardId::ProviderUnavailableError"])
+        expect(StandardId::Oauth::SocialFlow).not_to have_received(:new)
+      end
+    end
+
     context "when the provider raises an OAuthError (e.g. HTTP/DNS/SSL failure)" do
       let(:oauth_error) { StandardId::OAuthError.new("Connection refused") }
 
