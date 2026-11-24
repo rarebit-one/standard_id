@@ -5,10 +5,49 @@ targets = ["claude"]
 
 [estate]
 repo = "rarebit-one/agent-estate"
-sha = "e23f61311ccd68e34a4aa7a412184be90d66ff97"
+sha = "e91ff5f25df6d34952f7e9c227e3e363c79e9a92"
 
 [vendored]
 "enforce-signed-commits" = "sha256:c7bc4295c9f0a2a693523c5a22345396782a4080b0a0ce77920f6bc24aa4d9b3"
 "enforce-worktree" = "sha256:724e5c4ddeb2b1558d9fbc3757c1f16c95a688b5bebe10ab02b1a3f5dfbd441f"
-"enforce-worktree-bash" = "sha256:61d53081c68072dd45cae17b226678e91e1eb429e2a56dd82f9910e210c3408d"
+"enforce-worktree-bash" = "sha256:a4b842d9af86b009569b34aae9ce07304686edee7f82bea80d7b75b6b5dfbb13"
 "pre-push-prepare" = "sha256:d5782fcb01570d3c597701063629845dfdd54065a1b6330088141e43acb012c7"
+
+[sources]
+"rarebit-one/agent-estate" = "e91ff5f25df6d34952f7e9c227e3e363c79e9a92"
+
+[[file]]
+path = ".agents/hooks/tests/enforce-signed-commits.test.sh"
+source = "rarebit-one/agent-estate"
+from = "hooks/tests/enforce-signed-commits.test.sh"
+sha256 = "sha256:7ff73d8b30d3d7cbc122eb6a034f5017f605fedf26b710d35dd4b879af9aea9b"
+
+[[file]]
+path = ".agents/hooks/tests/enforce-worktree-bash.test.sh"
+source = "rarebit-one/agent-estate"
+from = "hooks/tests/enforce-worktree-bash.test.sh"
+sha256 = "sha256:2d423655621c956ddf8072ee6ce69bdc071ba0ac3c87aefe8212d161d64d8997"
+
+[[file]]
+path = ".agents/hooks/tests/pre-push-prepare-rebase.test.sh"
+source = "rarebit-one/agent-estate"
+from = "hooks/tests/pre-push-prepare-rebase.test.sh"
+sha256 = "sha256:edc442282f36a0f1da2d6e045ce4e0ad4e8f37bab18678dce6a8d9f206b3c17e"
+
+[[file]]
+path = ".agents/hooks/tests/pre-push-prepare.test.sh"
+source = "rarebit-one/agent-estate"
+from = "hooks/tests/pre-push-prepare.test.sh"
+sha256 = "sha256:eb9176fbd6b7bf4e207332d8d59574c7e33f0e7f678ef4ec7850b158264b62fc"
+
+[[file]]
+path = ".agents/hooks/tests/resolve-push-root.test.sh"
+source = "rarebit-one/agent-estate"
+from = "hooks/tests/resolve-push-root.test.sh"
+sha256 = "sha256:aaabc021d711c1ad5f746716a6f2537ba591c7da7094103fac2128c9127c46ae"
+
+[[file]]
+path = ".agents/hooks/tests/worktree-hint.test.sh"
+source = "rarebit-one/agent-estate"
+from = "hooks/tests/worktree-hint.test.sh"
+sha256 = "sha256:02221c90c67be171b23a1fd6b3501ed4c9c7cd87ebd19f3c00a55d77d4a9c0e7"
