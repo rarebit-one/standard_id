@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-11-25
+
 ### Fixed
 
 - **Errors the `network_wrapper` passes through now survive a provider's error mapping.** An error
