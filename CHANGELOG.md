@@ -27,6 +27,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   accepted list. `StandardId::Oauth::Audiences.mintable` / `.accepted` return the effective
   lists. See the README, "Token Audiences: Minted vs Accepted", and the Migration Guide.
   (rarebit-one/rarebit-ops#494)
+- **`StandardId::ProviderUnavailableError`** (an `OAuthError`: `temporarily_unavailable`, HTTP
+  503) and **`StandardId::NetworkWrapper.run(provider:) { ... }`**. An error the host's
+  `config.network_wrapper` raises itself, such as an open circuit that never ran the request, is
+  now raised as `ProviderUnavailableError` with the wrapper's error as `cause`, so a social
+  sign-in fails as "Google is temporarily unavailable" (web: back to the login page; API: 503)
+  instead of a 500, and plugins can map an outage without knowing the host's circuit-breaker
+  library. Errors raised by the request itself (timeouts, refused connections), re-raised by the
+  wrapper, still reach the provider unchanged, as does a `StandardId::OAuthError` the wrapper
+  raises on purpose. `HttpClient` runs every request through `NetworkWrapper`; a plugin with its
+  own HTTP code can call it to get the same wrapper and error. A host that rescued its breaker's
+  error (e.g. `Stoplight::Error::RedLight`) around a StandardId provider call now finds it as
+  `error.cause`.
 
 ### Fixed
 

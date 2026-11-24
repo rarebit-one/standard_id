@@ -204,6 +204,32 @@ module StandardId
     def oauth_error_code = :invalid_client_metadata
   end
 
+  # The host's `config.network_wrapper` refused a provider request itself (an
+  # open circuit breaker, say), as opposed to the request failing in transit:
+  # StandardId::NetworkWrapper raises it in place of the wrapper's own error,
+  # which stays reachable as `cause`. Errors raised by the request (timeouts,
+  # refused connections) are never turned into it; they reach the provider as
+  # they always have.
+  #
+  # An OAuthError, so a sign-in that hits it takes the ordinary failure path:
+  # the web callback redirects to the login page with the message, and the
+  # API renders `temporarily_unavailable` with HTTP 503 (RFC 6749 §4.1.2.1).
+  # The message names only the provider, never the wrapper's error, which may
+  # carry circuit names or host internals. Plugins map it to their own
+  # unavailable error where they have one.
+  class ProviderUnavailableError < OAuthError
+    # @return [Symbol, nil] the provider the request was for (`:google`, ...)
+    attr_reader :provider
+
+    def initialize(message = nil, provider: nil)
+      @provider = provider
+      super(message || "#{provider ? provider.to_s.humanize : 'The provider'} is temporarily unavailable")
+    end
+
+    def oauth_error_code = :temporarily_unavailable
+    def http_status = :service_unavailable
+  end
+
   # Lifecycle hook errors
   class AuthenticationDenied < StandardError; end
 

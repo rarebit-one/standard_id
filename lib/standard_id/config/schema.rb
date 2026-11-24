@@ -176,8 +176,10 @@ StandardId::ConfigSchema.define do
     #   Receives: provider: (Symbol — :google, :apple, ...; :standard_id when the
     #             caller names none) and a block that performs the request.
     #   Must call the block and return its result. Whatever the block raises
-    #   (timeouts, refused connections) raises inside the wrapper; whatever the
-    #   wrapper raises reaches the caller unchanged.
+    #   (timeouts, refused connections) raises inside the wrapper and, re-raised,
+    #   reaches the caller unchanged. An error the wrapper raises itself (an open
+    #   circuit) becomes StandardId::ProviderUnavailableError, `cause` set to it,
+    #   so a sign-in fails as "temporarily unavailable" instead of with a 500.
     # nil (the default) runs the block directly.
     #
     #   c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }
