@@ -4,8 +4,10 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
-- [Built-in step-up e-mail (unreleased)](#built-in-step-up-e-mail-unreleased)
-- [Minted vs accepted audiences (unreleased, opt-in)](#minted-vs-accepted-audiences-unreleased-opt-in)
+- [Upgrading to 0.63: what to do](#upgrading-to-063-what-to-do)
+- [Built-in step-up e-mail (0.63)](#built-in-step-up-e-mail-063)
+- [Minted vs accepted audiences (0.63, opt-in)](#minted-vs-accepted-audiences-063-opt-in)
+- [Provider calls refused by `network_wrapper` (0.63)](#provider-calls-refused-by-network_wrapper-063)
 - [Upgrading to 0.62: what to do](#upgrading-to-062-what-to-do)
 - [Step-up authentication (0.62, opt-in)](#step-up-authentication-062-opt-in)
 - [Password pepper (0.62, opt-in)](#password-pepper-062-opt-in)
@@ -21,7 +23,21 @@ This guide helps you migrate between StandardId versions.
 
 ---
 
-## Built-in step-up e-mail (unreleased)
+## Upgrading to 0.63: what to do
+
+**Nothing is required.** 0.63 has no new migrations, and every change is
+either opt-in or affects only hosts using the feature it names:
+
+| Change | What you do |
+| --- | --- |
+| Built-in step-up e-mail | Nothing, unless you customised the verification e-mail copy for step-up; see [below](#built-in-step-up-e-mail-063). |
+| Minted vs accepted audiences | Opt-in. Nothing changes until `c.oauth.mintable_audiences` or `c.oauth.accepted_audiences` is set; see [below](#minted-vs-accepted-audiences-063-opt-in). |
+| `ProviderUnavailableError` for a `network_wrapper` refusal | Nothing without a `network_wrapper`. With one, check any code that rescues your breaker's error around a provider call; see [below](#provider-calls-refused-by-network_wrapper-063). |
+| `Retry-After` on `/api/oauth/*` routes | Nothing. The gem's own responses are unchanged; an error with a positive `retry_after` raised from host code (hooks, subscribers, plugins) on those routes now gets the header. |
+
+---
+
+## Built-in step-up e-mail (0.63)
 
 Nothing to do unless you use step-up with built-in delivery
 (`c.step_up.delivery = :built_in`, the default, and
@@ -42,7 +58,7 @@ signed in, when the code expires, and what to do if it wasn't them.
 
 ---
 
-## Minted vs accepted audiences (unreleased, opt-in)
+## Minted vs accepted audiences (0.63, opt-in)
 
 Nothing to do unless you want it. `c.oauth.allowed_audiences` keeps doing both
 of its jobs (the audiences you may mint tokens for, and the audiences your API
@@ -76,6 +92,41 @@ check on that side, like an empty `allowed_audiences`.
 If you stubbed `StandardId.config.oauth.allowed_audiences` in specs, the stub
 still works while the two new settings are unset. Engine code now reads the
 effective lists through `StandardId::Oauth::Audiences.mintable` / `.accepted`.
+
+---
+
+## Provider calls refused by `network_wrapper` (0.63)
+
+Nothing changes unless you set `config.network_wrapper` (new in 0.61.0), and
+nothing changes for a wrapper that calls the block: successes and transport
+errors (a timeout, a refused connection) reach the caller as before.
+
+What changes is a wrapper that refuses the request itself: an open circuit
+that never ran the block, or a breaker that turns the request's failure into
+its own error. StandardId now raises `StandardId::ProviderUnavailableError`
+(an `OAuthError`: `temporarily_unavailable`, HTTP 503) instead of the
+wrapper's error, which stays reachable as `error.cause`. The message names
+only the provider ("Google is temporarily unavailable").
+
+- **Code that rescued your breaker's error** (e.g.
+  `Stoplight::Error::RedLight`) around a StandardId provider call: rescue
+  `StandardId::ProviderUnavailableError` and read `error.cause` if you need
+  the original.
+- **Google and Apple sign-in** already failed in this case, but showed the
+  wrapper's message (for example the circuit's name) in the flash and the
+  API's `error_description`, and the API callback answered 400
+  `invalid_request`. The web callback now redirects to login with
+  "Authentication failed: Google is temporarily unavailable", and the API
+  callback answers 503 `temporarily_unavailable`. `SOCIAL_AUTH_FAILED` is
+  still published, with `error_class` `StandardId::ProviderUnavailableError`.
+  A client or dashboard keyed on the old 400 sees 503.
+- These still reach the caller unchanged: a `StandardId::OAuthError` the
+  wrapper raises on purpose; an error the request raised that the wrapper
+  re-raises; an error the wrapper raises after the request went through; and
+  a programming error in the wrapper (`StandardId::NetworkWrapper::PROGRAMMING_ERRORS`).
+- **Plugins** with their own HTTP code can run requests through
+  `StandardId::NetworkWrapper.run(provider:) { ... }` to get the same wrapper
+  and error; see the README, "Writing a Provider Plugin".
 
 ---
 
