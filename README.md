@@ -786,6 +786,10 @@ breaker that turns the request's failure into its own error), StandardId raises
 `cause`. That is an `OAuthError`, so the web callback sends the user back to the
 login page with "Google is temporarily unavailable" and the API answers 503
 `temporarily_unavailable`. The circuit's own message never reaches the user.
+When the wrapper's error says how long to wait, the 503 carries a `Retry-After`
+header: StandardId reads `retry_after` (a `Time` or a number of seconds) or,
+failing that, `cool_off_time` (seconds) from it, as Stoplight's `RedLight`
+provides. It knows no breaker library, so any error with those methods works.
 
 Some errors from the wrapper are passed through unchanged:
 - a `StandardId::OAuthError` it raises on purpose
@@ -794,6 +798,22 @@ Some errors from the wrapper are passed through unchanged:
 - a programming error (`NameError`/`NoMethodError`, `TypeError`,
   `ArgumentError`; see `StandardId::NetworkWrapper::PROGRAMMING_ERRORS`), so
   your error tracker sees the bug
+- an error you list in `config.network_wrapper_passthrough_errors`
+
+That last setting is for errors that mean your own setup is wrong rather than
+the provider being down. `StandardCircuit.run` raises
+`StandardCircuit::UnknownCircuit` (not a programming error) when no circuit is
+registered under the name, and without the setting that misconfiguration would
+look like an outage to users and never reach your error tracker:
+
+```ruby
+c.network_wrapper_passthrough_errors = ["StandardCircuit::UnknownCircuit"]
+```
+
+Entries are classes or class names. A name is resolved when a wrapper error is
+handled, so it may name a class from a gem that isn't loaded; a name that
+resolves to nothing is ignored. An error passes through when it `is_a?` any
+entry. Errors the request itself raised are passed through regardless.
 
 `provider` is the plugin's name
 (`:google`, `:apple`, ...), or `:standard_id` for a plugin release that does not

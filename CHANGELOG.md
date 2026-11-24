@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`config.network_wrapper_passthrough_errors`.** Errors the host's `network_wrapper` raises
+  that mean its own setup is wrong, not that the provider is down, reach the caller unchanged
+  instead of becoming `ProviderUnavailableError`. An example is `StandardCircuit::UnknownCircuit`
+  for a circuit that was never registered. Without the setting, such a misconfiguration shows
+  users "temporarily unavailable" and never reaches the error tracker. Entries are classes or
+  class-name Strings; a String is resolved when a wrapper error is handled, so it may name a
+  class from a gem that isn't loaded, and a name that resolves to nothing is ignored. Defaults
+  to `[]`, so nothing changes unless you set it.
+- **`Retry-After` for a refused provider call.** `ProviderUnavailableError` now has
+  `retry_after` (Integer seconds, or nil). `NetworkWrapper` fills it in from the wrapper's
+  error: a `retry_after` that is a `Time` (seconds until then) or a number of seconds, or else
+  `cool_off_time` in seconds, as Stoplight's `RedLight` provides. It is duck-typed and assumes
+  no breaker library. The API's 503 `temporarily_unavailable` responses, such as
+  `/api/oauth/callback/:provider`, then send a `Retry-After` header. Errors that say nothing
+  get no header, as before.
+
 ## [0.63.0] - 2026-11-24
 
 ### Added

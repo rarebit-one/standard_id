@@ -229,8 +229,14 @@ module StandardId
     # @return [Symbol, nil] the provider the request was for (`:google`, ...)
     attr_reader :provider
 
-    def initialize(message = nil, provider: nil)
+    # @return [Integer, nil] seconds the wrapper's error says to wait before
+    #   retrying (StandardId::NetworkWrapper reads it from the error), sent
+    #   by the API as a Retry-After header; nil when it doesn't say
+    attr_reader :retry_after
+
+    def initialize(message = nil, provider: nil, retry_after: nil)
       @provider = provider
+      @retry_after = retry_after
       super(message || "#{provider_label(provider)} is temporarily unavailable")
     end
 
