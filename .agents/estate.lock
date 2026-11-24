@@ -5,16 +5,16 @@ targets = ["claude"]
 
 [estate]
 repo = "rarebit-one/agent-estate"
-sha = "e91ff5f25df6d34952f7e9c227e3e363c79e9a92"
+sha = "ef19eca7b072a7ae2c8413da686960226e271e37"
 
 [vendored]
 "enforce-signed-commits" = "sha256:c7bc4295c9f0a2a693523c5a22345396782a4080b0a0ce77920f6bc24aa4d9b3"
 "enforce-worktree" = "sha256:724e5c4ddeb2b1558d9fbc3757c1f16c95a688b5bebe10ab02b1a3f5dfbd441f"
-"enforce-worktree-bash" = "sha256:a4b842d9af86b009569b34aae9ce07304686edee7f82bea80d7b75b6b5dfbb13"
+"enforce-worktree-bash" = "sha256:91df8723fe72d730bb855cf47e31c110deaa9fee126833ba19ec9d827fd3e84f"
 "pre-push-prepare" = "sha256:d5782fcb01570d3c597701063629845dfdd54065a1b6330088141e43acb012c7"
 
 [sources]
-"rarebit-one/agent-estate" = "e91ff5f25df6d34952f7e9c227e3e363c79e9a92"
+"rarebit-one/agent-estate" = "ef19eca7b072a7ae2c8413da686960226e271e37"
 
 [[file]]
 path = ".agents/hooks/tests/enforce-signed-commits.test.sh"
@@ -26,7 +26,7 @@ sha256 = "sha256:7ff73d8b30d3d7cbc122eb6a034f5017f605fedf26b710d35dd4b879af9aea9
 path = ".agents/hooks/tests/enforce-worktree-bash.test.sh"
 source = "rarebit-one/agent-estate"
 from = "hooks/tests/enforce-worktree-bash.test.sh"
-sha256 = "sha256:2d423655621c956ddf8072ee6ce69bdc071ba0ac3c87aefe8212d161d64d8997"
+sha256 = "sha256:abb207cc0b0d16c9efe7c16ae51e628b784984c69e2f4bf716b38ba03e9aa351"
 
 [[file]]
 path = ".agents/hooks/tests/pre-push-prepare-rebase.test.sh"
