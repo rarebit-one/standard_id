@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-11-24
+
 ### Added
 
 - **Built-in step-up e-mail.** Under built-in delivery (`c.step_up.delivery = :built_in` and
@@ -37,8 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     so they failed, but with the wrapper's message (circuit names, host internals) in the flash
     and the API's `error_description`, and the API answered 400 `invalid_request`. They now show
     "Google is temporarily unavailable", and the API answers 503 `temporarily_unavailable`.
-  - The paths that really returned a 500 are fixed in the plugins that own them (Apple's
-    `revoke` / `exchange_authorization_code`, Void-Which-Binds sign-in), using this error.
+  - The paths that really returned a 500 are for the plugins that own them to fix with this
+    error (Apple's `revoke` / `exchange_authorization_code`, Void-Which-Binds sign-in); the
+    companion plugin changes detect it, so they keep working on older standard_id.
   - Some errors still reach the caller unchanged:
     - an error the request raises (a timeout, a refused connection) that the wrapper re-raises
     - a `StandardId::OAuthError` the wrapper raises on purpose
@@ -49,7 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `HttpClient` runs every request through `NetworkWrapper`; a plugin with its own HTTP code can
     call it to get the same wrapper and error. A host that rescued its breaker's error (e.g.
     `Stoplight::Error::RedLight`) around a StandardId provider call now finds it as
-    `error.cause`.
+    `error.cause`. Nothing changes without a `network_wrapper`, or for a wrapper that calls the
+    block. See the Migration Guide, "Provider calls refused by `network_wrapper`".
 
 ### Fixed
 
