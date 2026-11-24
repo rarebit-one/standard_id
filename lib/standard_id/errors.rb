@@ -207,9 +207,11 @@ module StandardId
   # The host's `config.network_wrapper` refused a provider request itself (an
   # open circuit breaker, say), as opposed to the request failing in transit:
   # StandardId::NetworkWrapper raises it in place of the wrapper's own error,
-  # which stays reachable as `cause`. Errors raised by the request (timeouts,
-  # refused connections) are never turned into it; they reach the provider as
-  # they always have.
+  # which stays reachable as `cause` (see NetworkWrapper for the rules). An
+  # error the request raises and the wrapper re-raises unchanged (a timeout,
+  # a refused connection) is never turned into it; it reaches the provider as
+  # it always has. Nor are programming errors in the wrapper, or an error the
+  # wrapper raises after the request went through.
   #
   # An OAuthError, so a sign-in that hits it takes the ordinary failure path:
   # the web callback redirects to the login page with the message, and the
@@ -223,11 +225,21 @@ module StandardId
 
     def initialize(message = nil, provider: nil)
       @provider = provider
-      super(message || "#{provider ? provider.to_s.humanize : 'The provider'} is temporarily unavailable")
+      super(message || "#{provider_label(provider)} is temporarily unavailable")
     end
 
     def oauth_error_code = :temporarily_unavailable
     def http_status = :service_unavailable
+
+    private
+
+    # HttpClient names `:standard_id` when its caller names no provider; that
+    # is no provider a user would recognise, so it reads like none.
+    def provider_label(provider)
+      return "The provider" if provider.nil? || provider.to_sym == StandardId::HttpClient::DEFAULT_PROVIDER
+
+      provider.to_s.humanize
+    end
   end
 
   # Lifecycle hook errors

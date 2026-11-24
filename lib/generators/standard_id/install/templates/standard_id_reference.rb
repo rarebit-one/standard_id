@@ -640,10 +640,10 @@ StandardId.configure do |c|
 
   # Wraps every outbound provider request (token exchange, userinfo, JWKS),
   # e.g. in a circuit breaker. Receives provider: (:google, :apple, ...) and
-  # the request as a block; must call the block and return its result. An
-  # error the wrapper raises itself (an open circuit) becomes
+  # the request as a block; must call the block and return its result. A
+  # refusal by the wrapper itself (an open circuit) becomes
   # StandardId::ProviderUnavailableError, so sign-in fails as "temporarily
-  # unavailable" rather than with a 500.
+  # unavailable" (API: 503) without the circuit's message.
   # Default: nil (the request runs directly)
   # c.network_wrapper = ->(provider:, &b) { StandardCircuit.run(:"oauth_#{provider}", &b) }
 
