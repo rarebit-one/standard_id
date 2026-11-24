@@ -43,6 +43,33 @@ RSpec.describe StandardId::Providers::Base, "plugin helpers" do
         .to raise_error(StandardId::OAuthError, "Failed to fetch JWK: getaddrinfo")
     end
 
+    it "re-raises an error the network_wrapper passed through on purpose, unchanged" do
+      unknown_circuit = Class.new(StandardError)
+      StandardId.config.network_wrapper_passthrough_errors = [unknown_circuit]
+      StandardId.config.network_wrapper = ->(provider:, &_block) { raise unknown_circuit, "no circuit registered for :oauth_#{provider}" }
+
+      expect { provider.wrap("Failed to fetch Google JWKS") { StandardId::NetworkWrapper.run(provider: :google) { nil } } }
+        .to raise_error(unknown_circuit, "no circuit registered for :oauth_google") { |e|
+          expect(e).not_to be_a(StandardId::OAuthError)
+        }
+    end
+
+    it "still wraps the block's own error from inside the network_wrapper" do
+      StandardId.config.network_wrapper = ->(&block) { block.call }
+
+      expect { provider.wrap("Failed to fetch Google JWKS") { StandardId::NetworkWrapper.run(provider: :google) { raise SocketError, "getaddrinfo" } } }
+        .to raise_error(StandardId::OAuthError, "Failed to fetch Google JWKS: getaddrinfo") { |e|
+          expect(e.cause).to be_a(SocketError)
+        }
+    end
+
+    it "lets a ProviderUnavailableError from the network_wrapper through as the OAuthError it is" do
+      StandardId.config.network_wrapper = ->(&_block) { raise "circuit open" }
+
+      expect { provider.wrap("Failed to fetch Google JWKS") { StandardId::NetworkWrapper.run(provider: :google) { nil } } }
+        .to raise_error(StandardId::ProviderUnavailableError, "Google is temporarily unavailable")
+    end
+
     it "is not callable from outside the provider" do
       expect { provider.rescue_to_oauth_error { 1 } }.to raise_error(NoMethodError)
     end

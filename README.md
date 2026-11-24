@@ -815,6 +815,13 @@ handled, so it may name a class from a gem that isn't loaded; a name that
 resolves to nothing is ignored. An error passes through when it `is_a?` any
 entry. Errors the request itself raised are passed through regardless.
 
+A passed-through error also gets past the provider plugins' own error mapping
+(`rescue_to_oauth_error`, which turns other failures into an `OAuthError`), so
+it propagates out of the sign-in instead of becoming a 400 that names your
+circuit (fixed in 0.64.1). `StandardId::NetworkWrapper.passed_through?(error)`
+tells you whether an error left the wrapper this way, for a plugin with its own
+rescue around a provider request.
+
 `provider` is the plugin's name
 (`:google`, `:apple`, ...), or `:standard_id` for a plugin release that does not
 pass one yet. A lambda must take the block as `&block`; the boot check rejects

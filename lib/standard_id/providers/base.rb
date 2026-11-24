@@ -453,6 +453,12 @@ module StandardId
         # errors — is wrapped so callers only ever handle OAuthError, with the
         # original exception kept as `cause`.
         #
+        # An error the host's network_wrapper let out on purpose (see
+        # StandardId::NetworkWrapper.passed_through?: a programming error, a
+        # listed misconfiguration such as an unregistered circuit, or an error
+        # after the request went through) propagates unchanged too, so it
+        # reaches the error tracker instead of becoming a handled 400.
+        #
         # @param message_prefix [String, nil] Prepended to the wrapped error's
         #   message, e.g. "Failed to fetch JWK" → "Failed to fetch JWK: <msg>"
         # @return [Object] the block's return value
@@ -471,6 +477,8 @@ module StandardId
         rescue StandardId::OAuthError
           raise
         rescue StandardError => e
+          raise if StandardId::NetworkWrapper.passed_through?(e)
+
           message = message_prefix ? "#{message_prefix}: #{e.message}" : e.message
           raise StandardId::OAuthError, message, cause: e
         end

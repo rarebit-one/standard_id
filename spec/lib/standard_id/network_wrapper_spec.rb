@@ -418,6 +418,116 @@ RSpec.describe StandardId::NetworkWrapper do
     end
   end
 
+  describe ".passed_through?" do
+    # Rules 3 to 5 let the wrapper's error out on purpose; it is marked so
+    # Providers::Base#rescue_to_oauth_error re-raises it instead of turning it
+    # into an OAuthError.
+    let(:unknown_circuit) { Class.new(StandardError) }
+
+    def error_from_run(&block)
+      described_class.run(provider: :google) { block&.call }
+      nil
+    rescue StandardError => e
+      e
+    end
+
+    it "is false for an error that never went through the wrapper" do
+      expect(described_class.passed_through?(StandardError.new("plain"))).to be(false)
+    end
+
+    it "marks an error raised after the block returned (rule 3)" do
+      tracer_failed = Class.new(StandardError)
+      StandardId.config.network_wrapper = lambda do |&block|
+        block.call
+        raise tracer_failed, "span export failed"
+      end
+
+      error = error_from_run { :response }
+
+      expect(error).to be_a(tracer_failed)
+      expect(described_class.passed_through?(error)).to be(true)
+    end
+
+    it "marks a programming error in the wrapper (rule 4)" do
+      StandardId.config.network_wrapper = lambda do |&block|
+        nil.circuit_for(:google)
+        block.call
+      end
+
+      error = error_from_run
+
+      expect(error).to be_a(NoMethodError)
+      expect(described_class.passed_through?(error)).to be(true)
+    end
+
+    it "marks an error listed in network_wrapper_passthrough_errors (rule 5)" do
+      StandardId.config.network_wrapper_passthrough_errors = [unknown_circuit]
+      error_class = unknown_circuit
+      StandardId.config.network_wrapper = ->(provider:, &_block) { raise error_class, "no circuit registered for :oauth_#{provider}" }
+
+      error = error_from_run
+
+      expect(error).to be_a(unknown_circuit)
+      expect(error.message).to eq("no circuit registered for :oauth_google")
+      expect(described_class.passed_through?(error)).to be(true)
+    end
+
+    it "marks a frozen error's copy, the object Ruby actually raises" do
+      StandardId.config.network_wrapper_passthrough_errors = [unknown_circuit]
+      frozen = begin
+        raise unknown_circuit, "frozen"
+      rescue StandardError => e
+        e.freeze
+      end
+      StandardId.config.network_wrapper = ->(&_block) { raise frozen }
+
+      error = error_from_run
+
+      expect(error).to be_a(unknown_circuit)
+      expect(error.message).to eq("frozen")
+      expect(described_class.passed_through?(error)).to be(true)
+      expect(described_class.passed_through?(frozen)).to be(false)
+    end
+
+    it "does not mark the block's own error (rule 2), even a listed or programming error" do
+      StandardId.config.network_wrapper_passthrough_errors = [unknown_circuit]
+      StandardId.config.network_wrapper = ->(&block) { block.call }
+      failure = transport_error
+      listed = unknown_circuit
+
+      [failure.new("connect failed"), listed.new("from the request"), NoMethodError.new("in the request")].each do |raised|
+        error = error_from_run { raise raised }
+
+        expect(error).to equal(raised)
+        expect(described_class.passed_through?(error)).to be(false)
+      end
+    end
+
+    it "does not mark an OAuthError the wrapper raises (rule 1)" do
+      StandardId.config.network_wrapper = ->(&_block) { raise StandardId::InvalidRequestError, "refused by the host" }
+
+      expect(described_class.passed_through?(error_from_run)).to be(false)
+    end
+
+    it "does not mark a converted error or its cause (rule 6)" do
+      error_class = circuit_open
+      StandardId.config.network_wrapper = ->(&_block) { raise error_class, "open" }
+
+      error = error_from_run
+
+      expect(error).to be_a(StandardId::ProviderUnavailableError)
+      expect(described_class.passed_through?(error)).to be(false)
+      expect(described_class.passed_through?(error.cause)).to be(false)
+    end
+
+    it "marks nothing with no wrapper" do
+      StandardId.config.network_wrapper = nil
+      raised = NoMethodError.new("no wrapper")
+
+      expect(described_class.passed_through?(error_from_run { raise raised })).to be(false)
+    end
+  end
+
   it "does not catch non-StandardError exceptions" do
     StandardId.config.network_wrapper = ->(&_block) { raise Interrupt }
 

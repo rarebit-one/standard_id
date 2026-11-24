@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Errors the `network_wrapper` passes through now survive a provider's error mapping.** An error
+  the wrapper lets out unchanged (one raised after the block returned, a programming error, or one
+  listed in `config.network_wrapper_passthrough_errors`) was still turned into an `OAuthError` by
+  `StandardId::Providers::Base#rescue_to_oauth_error`, which wraps every plugin sign-in call (code
+  exchange, JWKS, tokeninfo, userinfo). The sign-in failed as a handled 400 `invalid_request` such as
+  "Failed to fetch Google JWKS: no circuit registered for :oauth_google", which named the circuit and
+  never reached the error tracker. `StandardId::NetworkWrapper` now marks such errors
+  (`StandardId::NetworkWrapper.passed_through?`) and `rescue_to_oauth_error` re-raises them
+  unchanged. The request's own errors (timeouts, refused connections) and refusals that become
+  `ProviderUnavailableError` map as before.
+
 ## [0.64.0] - 2026-11-25
 
 ### Added
