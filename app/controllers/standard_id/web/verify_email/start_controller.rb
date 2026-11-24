@@ -54,6 +54,8 @@ module StandardId
             render plain: result.error_message, status: :unprocessable_content and return
           end
 
+          StandardId::Identifier.publish_verification_started(value: email, channel: :email, realm: "verification")
+
           redirect_to standard_id_web.login_path, notice: "Verification code sent to your email", status: :see_other
         end
       end

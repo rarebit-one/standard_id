@@ -27,8 +27,11 @@ module StandardId
       "#{NAMESPACE}.#{CREDENTIAL_CLIENT_SECRET_CREATED}",
       "#{NAMESPACE}.#{CREDENTIAL_CLIENT_SECRET_ROTATED}",
       "#{NAMESPACE}.#{CREDENTIAL_CLIENT_SECRET_REVOKED}",
-      # OAuth: token theft and revocation, a token sent to the wrong resource,
-      # and changes to who may request tokens at all.
+      # OAuth: an account handing a client access, or refusing it on the
+      # consent screen; token theft and revocation, a token sent to the wrong
+      # resource, and changes to who may request tokens at all.
+      "#{NAMESPACE}.#{OAUTH_AUTHORIZATION_GRANTED}",
+      "#{NAMESPACE}.#{OAUTH_AUTHORIZATION_DENIED}",
       "#{NAMESPACE}.#{OAUTH_REFRESH_TOKEN_REUSE_DETECTED}",
       "#{NAMESPACE}.#{OAUTH_TOKEN_REVOKED}",
       "#{NAMESPACE}.#{OAUTH_AUDIENCE_MISMATCH}",
@@ -45,9 +48,18 @@ module StandardId
       #   end
       #
       # Deliberately left out: per-request noise (session.validating /
-      # validated), high-volume token minting (oauth.token.issued,
-      # oauth.token.refreshed), and the benign refresh race
-      # (oauth.refresh_token.reuse_graced).
+      # validated), events that fire on every token grant or refresh
+      # (oauth.token.issued, oauth.token.refreshed, session.refreshed), the
+      # benign refresh race (oauth.refresh_token.reuse_graced), an /authorize
+      # request before anything is decided (oauth.authorization.requested;
+      # .granted and .denied are the outcome), and identifier verification
+      # codes, whose issue and failure the passwordless.* and
+      # authentication.otp.* events already record.
+      #
+      # The Regexps match every event in their family, so a family's new
+      # events are audited too: authentication.password.failed,
+      # account.status_changed, social.auth.started and
+      # social.auth.callback_received (all published from 0.65.0).
       #
       # @return [Array<Regexp, String>] frozen
       def auditable

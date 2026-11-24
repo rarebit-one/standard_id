@@ -501,6 +501,19 @@ module StandardId
       emit_social_auth_completed(provider, social_info, provider_tokens, account, original_request_params)
     end
 
+    # The provider's answer reached a callback. Only the provider and the
+    # error it reported (`access_denied` and the like): never the code, state,
+    # id_token or access_token it carries.
+    def emit_social_callback_received(flow:)
+      error = params[:error]
+      StandardId::Events.publish(
+        StandardId::Events::SOCIAL_CALLBACK_RECEIVED,
+        provider: provider.provider_name,
+        flow: flow,
+        error: error.is_a?(String) ? error.presence : nil
+      )
+    end
+
     def emit_social_user_info_fetched(provider, social_info, email)
       StandardId::Events.publish(
         StandardId::Events::SOCIAL_USER_INFO_FETCHED,

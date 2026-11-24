@@ -19,6 +19,7 @@ module StandardId
         ].freeze
 
         def callback
+          emit_social_callback_received(flow: "api")
           provider_response = fetch_provider_user_info
           social_info = provider_response[:user_info]
           provider_tokens = provider_response[:tokens]

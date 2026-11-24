@@ -95,6 +95,12 @@ module StandardId
         account: self,
         previous_status: status_previously_was
       )
+      StandardId::Events.publish(
+        StandardId::Events::ACCOUNT_STATUS_CHANGED,
+        account: self,
+        previous_status: status_previously_was,
+        status: status
+      )
     end
   end
 end

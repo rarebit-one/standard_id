@@ -92,7 +92,16 @@ module StandardId
       end
 
       def deny!
-        redirect_out(denied_redirect_uri, status: :found)
+        url = denied_redirect_uri
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_AUTHORIZATION_DENIED,
+          client_id: @client.client_id,
+          account: current_account,
+          scope: @consent_request[:scope],
+          redirect_uri: @consent_request[:redirect_uri],
+          reason: "access_denied"
+        )
+        redirect_out(url, status: :found)
       end
 
       # Redirect to the OAuth client's (external) redirect_uri in a way that

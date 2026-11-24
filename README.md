@@ -1202,7 +1202,7 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 | Authentication | `authentication.attempt.started` | `account_lookup`, `auth_method` | Before credential validation begins |
 |  | `authentication.attempt.succeeded` | `account`, `auth_method`, `session_type` | After authentication succeeds |
 |  | `authentication.attempt.failed` | `account_lookup`, `auth_method`, `error_code`, `error_message` | After authentication fails |
-|  | `authentication.password.failed` | `account_lookup`, `error_code`, `error_message` | After password verification fails |
+|  | `authentication.password.failed` | `account_lookup`, `account`, `credential_id`, `error_code` (`invalid_password`) | A password was checked against an existing password credential and did not match (web login, OAuth password grant, `c.email_password` login), before `authentication.attempt.failed`. Not published for a login that names no credential (0.65+) |
 |  | `authentication.otp.failed` | `identifier`, `channel`, `error_code`, `error_message` | After OTP verification fails |
 |  | `authentication.method.denied` | `account`, `auth_method`, `provider`, `flow`, `error_message` | `config.login_method_policy` refused the method, after the credential was proven and before any session or token was created (0.45+) |
 |  | `authentication.step_up.started` | `account`, `channel` | A step-up code was issued to a signed-in account (`c.step_up`) |
@@ -1214,24 +1214,23 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `session.validated` | `session`, `account` | After a session passes validation |
 |  | `session.expired` | `session`, `account`, `expired_at` | When validation fails because the session expired |
 |  | `session.revoked` | `session`, `account`, `reason` | After a session is explicitly revoked |
-|  | `session.refreshed` | `session`, `account`, `old_expires_at`, `new_expires_at` | After a refresh operation extends a session |
+|  | `session.refreshed` | `session`, `account`, `previous_expires_at`, `expires_at`, `grant_type` | An OAuth token grant reused the device's active `DeviceSession` (`session.session_type_resolver` → `:device`) and moved its expiry forward. After the grant commits; a raising subscriber is reported, not raised. Fires on every such grant, refreshes included, so it is not in `Events.auditable` (0.65+) |
 | Account | `account.creating` | `account_params`, `auth_method` | Before an account record is created |
 |  | `account.created` | `account`, `auth_method`, `source` (signup/passwordless/social) | After an account record is created |
 |  | `account.verified` | `account`, `verified_via` (email/phone) | When an account is marked verified |
-|  | `account.status_changed` | `account`, `old_status`, `new_status`, `changed_by` | When account status transitions (Issue #16) |
+|  | `account.status_changed` | `account`, `previous_status`, `status` | Any committed change to `AccountStatus`'s status, after `account.activated` / `account.deactivated` (0.65+) |
 |  | `account.locked` | `account`, `lock_reason`, `locked_by` | When an account is administratively locked (Issue #17) |
 |  | `account.unlocked` | `account`, `unlocked_by` | When an account lock is lifted (Issue #17) |
 | Identifier | `identifier.created` | `identifier`, `account` | After an identifier record is created |
-|  | `identifier.verification.started` | `identifier`, `channel` (email/sms), `code_sent` | After a verification code is issued |
+|  | `identifier.verification.started` | `identifier` (the address), `channel` (email/sms), `realm` | A code to prove an address was issued: `/verify_email`, `/verify_phone` and the `c.email_password` sign-up code (0.65+) |
 |  | `identifier.verification.succeeded` | `identifier`, `account`, `verified_at` | After identifier verification succeeds |
-|  | `identifier.verification.failed` | `identifier`, `error_code`, `attempts` | After identifier verification fails |
-|  | `identifier.linked` | `identifier`, `account`, `source` (social/manual) | When an identifier is associated to an account |
-| OAuth | `oauth.authorization.requested` | `client_id`, `account`, `scope`, `redirect_uri` | Before issuing an authorization code |
-|  | `oauth.authorization.granted` | `authorization_code`, `client_id`, `account`, `scope` | After an authorization code is created |
-|  | `oauth.authorization.denied` | `client_id`, `account`, `reason` | When a user denies authorization |
+|  | `identifier.verification.failed` | `identifier` (the address), `channel`, `realm`, `error_code`, `attempts` | A wrong code was sent for a live verification code. Not published for an address that was never sent one (0.65+) |
+| OAuth | `oauth.authorization.requested` | `client_id`, `account` (nil for a social `connection`), `response_type`, `scope`, `audience`, `redirect_uri`, `connection` | `/authorize` received a request for an active client, before consent and before anything is issued (0.65+) |
+|  | `oauth.authorization.granted` | `client_id`, `account`, `response_type`, `scope`, `audience`, `redirect_uri` | An authorization code or implicit token was issued to the client (for a consent-gated client, after approval). Never the code. Not for a social `connection`, which only redirects to the provider (0.65+) |
+|  | `oauth.authorization.denied` | `client_id`, `account`, `scope`, `redirect_uri`, `reason` (`access_denied`) | The account chose Deny on the consent screen (0.65+) |
 |  | `oauth.token.issuing` | `grant_type`, `client_id`, `account`, `scope` | Before generating access/refresh tokens |
 |  | `oauth.token.issued` | `access_token_id`, `grant_type`, `client_id`, `account`, `expires_in` | After tokens are generated. For a `TokenMinter` mint, `requested_scopes` may be caller-supplied (`requested_scopes:`) rather than the token's `scope` |
-|  | `oauth.token.refreshed` | `old_token_id`, `new_token_id`, `client_id`, `account` | After a refresh token is redeemed |
+|  | `oauth.token.refreshed` | `client_id`, `account`, `account_id`, `session_id`, `previous_refresh_token_id`, `refresh_token_id`, `scope`, `graced` | A `refresh_token` grant rotated its token, after `oauth.token.issued` and inside the rotation transaction (a raising subscriber rolls it back). Ids only, never a token (0.65+) |
 |  | `oauth.code.consumed` | `authorization_code`, `client_id`, `account` | After an authorization code is exchanged |
 |  | `oauth.client.registered` | `client_application`, `client_id`, `client_name`, `client_type`, `redirect_uris`, `scope`, `owner_type`, `owner_id`, `client_metadata` | After a dynamic registration (RFC 7591) commits. Never fails the registration: a raising subscriber is logged |
 |  | `oauth.client.updated` | same as `registered` | After an RFC 7592 update commits |
@@ -1242,8 +1241,8 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `passwordless.code.verified` | `code_challenge`, `account`, `channel` | After OTP verification succeeds |
 |  | `passwordless.code.failed` | `identifier`, `channel`, `attempts` | After OTP verification fails |
 |  | `passwordless.account.created` | `account`, `channel`, `identifier` | When an account is created via passwordless flow |
-| Social | `social.auth.started` | `provider`, `redirect_uri`, `state` | Before redirecting to a social provider |
-|  | `social.auth.callback_received` | `provider`, `code`, `state` | After the provider redirects back |
+| Social | `social.auth.started` | `provider`, `flow` (`web` / `oauth_authorize`), `redirect_uri` (the callback URL), `client_id` (`oauth_authorize` only) | The browser is being sent to the provider: `POST /login` with a `connection`, or `/authorize?connection=…`. Never the state, nonce or PKCE verifier (0.65+) |
+|  | `social.auth.callback_received` | `provider`, `flow` (`web` / `api`), `error` (the provider's, e.g. `access_denied`) | The provider's answer reached the web or API callback. Never the code, state or tokens (0.65+) |
 |  | `social.user_info.fetched` | `provider`, `social_info`, `email` | After fetching user info from the provider |
 |  | `social.account.created` | `account`, `provider`, `social_info` | When a social login creates a new account |
 |  | `social.account.linked` | `account`, `provider`, `identifier` | When a social login links to an existing account by email (published once the link is written, never for a refused login), or matches an existing link by `sub` |
@@ -1254,8 +1253,8 @@ Every StandardId event automatically carries tracing metadata (`event_id`, `time
 |  | `credential.password.reset_completed` | `credential`, `account` | After a password reset is confirmed |
 |  | `credential.password.changed` | `credential`, `credential_id` (sent even with `events.publish_records = false`), `account`, `reason` (`:password_reset` / `:changed`) | After a new password is committed: by a reset, or by host code assigning `password` (never for a re-hash of the same password). Drives `password.changed_notice_delivery` |
 |  | `credential.password.rehashed` | `credential`, `account`, `previous_cost`, `cost`, `pepper_changed` | After a login re-hashed the password at the current bcrypt cost or under the current `password.pepper` (`password.rehash_on_login`); the password is unchanged |
-|  | `credential.client_secret.created` | `credential`, `client_id` | After a client secret is created |
-|  | `credential.client_secret.rotated` | `credential`, `client_id`, `old_secret_revoked_at` | After a client secret rotation |
+|  | `credential.client_secret.created` | `credential_id`, `client_application_id`, `client_id`, `name` | After a client secret is committed (`create_client_secret!`, rotation, dynamic registration). Ids only: never the record, which still holds the plaintext secret (0.65+) |
+|  | `credential.client_secret.rotated` | `credential_id` (the new secret), `client_application_id`, `client_id`, `revoked_credential_ids`, `old_secret_revoked_at` | After `rotate_client_secret!` commits, following `credential.client_secret.created` (0.65+) |
 
 ### Subscribing to Events
 
@@ -1350,7 +1349,7 @@ end
 
 That's it. Every security-relevant StandardId event will now be persisted as an audit log entry. No changes are needed inside StandardId itself.
 
-`StandardId::Events.auditable` is a frozen list of Regexps and full event names: authentication, account, social and passwordless events; session created, revoked and expired; password and client-secret lifecycle; refresh-token reuse, token revocation, audience mismatches and OAuth client registration changes. It leaves out per-request noise (`session.validating`/`validated`) and high-volume token minting (`oauth.token.issued`/`refreshed`). New releases may add to it, so an app that iterates it picks those up. To audit everything instead, subscribe to `/\Astandard_id\./`.
+`StandardId::Events.auditable` is a frozen list of Regexps and full event names: authentication, account, social and passwordless events; session created, revoked and expired; password and client-secret lifecycle; refresh-token reuse, token revocation, audience mismatches and OAuth client registration changes. It also has OAuth authorization grants and consent denials (`oauth.authorization.granted`/`denied`). It leaves out per-request noise (`session.validating`/`validated`), events that fire on every token grant or refresh (`oauth.token.issued`/`refreshed`, `session.refreshed`), the `/authorize` request itself (`oauth.authorization.requested`) and identifier verification codes (`identifier.verification.*`), which `passwordless.*` and `authentication.otp.*` already record. Its Regexps cover whole families, so new events in them are audited too. New releases may add to it, so an app that iterates it picks those up. To audit everything instead, subscribe to `/\Astandard_id\./`.
 
 #### Querying audit logs
 

@@ -7,6 +7,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Declared events are now published.** These names were in the event catalogue (several in
+  `SECURITY_EVENTS`) but nothing published them (rarebit-one/rarebit-sre#596). Payloads carry ids,
+  provider names and reasons, never a password, code, token or secret. The README event table
+  lists each payload.
+  - `authentication.password.failed`: a password checked against an existing password credential
+    did not match, at the web login, the OAuth password grant and the `c.email_password` login,
+    before `authentication.attempt.failed`. Not for a login that names no credential.
+  - `account.status_changed`: any committed change to `AccountStatus`'s status, after
+    `account.activated` / `account.deactivated`.
+  - `session.refreshed`: an OAuth token grant reused the device's active `DeviceSession`
+    (`session.session_type_resolver` returning `:device`) and moved its expiry forward. Published
+    after the grant commits; a raising subscriber is reported, not raised.
+  - `oauth.token.refreshed`: a `refresh_token` grant rotated its token. Published inside the
+    rotation transaction after `oauth.token.issued`, so a raising subscriber rolls it back as
+    one on `oauth.token.issued` does.
+  - `oauth.authorization.requested` (`/authorize` received a request for an active client),
+    `oauth.authorization.granted` (a code or implicit token was issued; for a consent-gated
+    client, after approval; not for a social `connection`) and `oauth.authorization.denied` (Deny
+    on the consent screen).
+  - `social.auth.started` (the browser is sent to the provider, from `POST /login` with a
+    `connection` or `/authorize?connection=`) and `social.auth.callback_received` (the provider's answer reached
+    the web or API callback, with the provider's `error` when it sent one).
+  - `identifier.verification.started` / `identifier.verification.failed`: a code to prove an
+    address was issued, or a wrong code was sent for a live one, in `/verify_email`,
+    `/verify_phone` and the `c.email_password` sign-up code.
+  - `credential.client_secret.created` (any committed client secret: `create_client_secret!`,
+    rotation, dynamic registration) and `credential.client_secret.rotated`
+    (`rotate_client_secret!`, after its `created`). Ids only: the record is left out because
+    it still holds the plaintext secret just after create.
+- **`Events.auditable` gains `oauth.authorization.granted` and `oauth.authorization.denied`.**
+
+### Changed
+
+- **More audit rows for apps that subscribe through `Events.auditable`.** Its Regexps already
+  matched four of the newly published events, so they are audited from this release:
+  `authentication.password.failed` (one more row per wrong password for an existing account, next
+  to `authentication.attempt.failed`), `account.status_changed` (one more row per activation or
+  deactivation), and `social.auth.started` / `social.auth.callback_received` (two more rows per
+  social sign-in; `started` also for abandoned ones, and starting one needs no authentication:
+  `POST /login` with a `connection` is rate-limited per IP, `/authorize?connection=` is not). Add to that one row per
+  authorization grant or consent denial. `session.refreshed`, `oauth.token.refreshed` (one per
+  refresh), `oauth.authorization.requested` and `identifier.verification.*` are published but
+  not auditable.
+
+### Removed
+
+- **`identifier.linked` (`StandardId::Events::IDENTIFIER_LINKED`).** Core never attaches an
+  existing identifier to an account: an identifier is created with its account
+  (`identifier.created`), and a social sign-in that links one publishes `social.account.linked`.
+  The constant was never published, so a subscriber to it received nothing; referencing the
+  constant now raises `NameError`.
+
 ## [0.64.1] - 2026-11-25
 
 ### Fixed

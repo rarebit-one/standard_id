@@ -37,6 +37,34 @@ module StandardId
       update!(verified_at: nil)
     end
 
+    # IDENTIFIER_VERIFICATION_STARTED: a code to prove +value+ (an address,
+    # whether or not an identifier row exists for it yet) was issued.
+    def self.publish_verification_started(value:, channel:, realm:)
+      StandardId::Events.publish(
+        StandardId::Events::IDENTIFIER_VERIFICATION_STARTED,
+        identifier: value,
+        channel: channel.to_s,
+        realm: realm
+      )
+    end
+
+    # IDENTIFIER_VERIFICATION_FAILED for a failed Otp.verify +result+, only
+    # when a live code was guessed wrong (result.attempts > 0), as
+    # OTP_VALIDATION_FAILED: a target that was never sent a code is a probe,
+    # not a failed verification.
+    def self.publish_verification_failed(value:, channel:, realm:, result:)
+      return unless result.attempts.to_i.positive?
+
+      StandardId::Events.publish(
+        StandardId::Events::IDENTIFIER_VERIFICATION_FAILED,
+        identifier: value,
+        channel: channel.to_s,
+        realm: realm,
+        error_code: result.error_code&.to_s,
+        attempts: result.attempts
+      )
+    end
+
     private
 
     def just_verified?

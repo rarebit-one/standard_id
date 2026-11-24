@@ -9,6 +9,7 @@ module StandardId
 
     before_validation :set_client_id_from_client, on: :create
     before_validation :ensure_client_secret, on: :create
+    after_commit :emit_created_event, on: :create
 
     validates :name, presence: true
     validates :client_id, presence: true
@@ -56,6 +57,23 @@ module StandardId
 
     def ensure_client_secret
       self.client_secret ||= SecureRandom.hex(32)
+    end
+
+    # Ids and the secret's name only, never the record: just after create it
+    # still holds the plaintext secret (`client_secret`), and its digest is
+    # no business of a subscriber's. The row has committed, so a failing
+    # subscriber is reported rather than raised.
+    def emit_created_event
+      StandardId::Events.publish(
+        StandardId::Events::CREDENTIAL_CLIENT_SECRET_CREATED,
+        credential_id: id,
+        client_application_id: client_application_id,
+        client_id: client_id,
+        name: name
+      )
+    rescue StandardError => e
+      StandardId::ErrorReporting.report(e, event: StandardId::Events.namespaced_event_name(StandardId::Events::CREDENTIAL_CLIENT_SECRET_CREATED))
+      StandardId.logger&.error("[StandardId::ClientSecretCredential] Failed to publish CREDENTIAL_CLIENT_SECRET_CREATED for #{id}: #{e.class}: #{e.message}")
     end
 
     def emit_revoked_event

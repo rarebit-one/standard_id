@@ -151,6 +151,14 @@ module StandardId
           **extra_params.compact
         )
 
+        # Never the state, nonce or PKCE verifier: they guard the callback.
+        StandardId::Events.publish(
+          StandardId::Events::SOCIAL_AUTH_STARTED,
+          provider: provider.provider_name,
+          flow: "web",
+          redirect_uri: callback_url
+        )
+
         redirect_with_inertia url, allow_other_host: true
       rescue StandardId::ProviderRegistry::ProviderNotFoundError => e
         raise StandardId::InvalidRequestError, e.message

@@ -160,6 +160,15 @@ module StandardId
         StandardId::PasswordPepper.dummy_authenticate(password) unless password_credential
 
         unless authenticated
+          if password_credential
+            StandardId::Events.publish(
+              StandardId::Events::PASSWORD_VALIDATION_FAILED,
+              account_lookup: login,
+              account: password_credential.credential&.account,
+              credential_id: password_credential.id,
+              error_code: "invalid_password"
+            )
+          end
           StandardId::Events.publish(
             StandardId::Events::AUTHENTICATION_FAILED,
             account_lookup: login,

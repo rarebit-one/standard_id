@@ -20,6 +20,10 @@ module StandardId
         StandardId::RefreshToken.transaction do
           rotate_current_refresh_token!
           response = generate_token_response
+          # Inside the rotation transaction, as OAUTH_TOKEN_ISSUED is: a
+          # subscriber that raises rolls the rotation back and the presented
+          # token stays usable.
+          emit_token_refreshed
         end
 
         # If rotate detected a concurrent reuse (rows==0), the transaction
@@ -358,6 +362,21 @@ module StandardId
           client_id: @refresh_payload[:client_id],
           refresh_token_id: replayed.id,
           successor_refresh_token_id: successor.id
+        )
+      end
+
+      # Ids only: never the refresh token, its jti or the access token.
+      def emit_token_refreshed
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_TOKEN_REFRESHED,
+          client_id: client_id,
+          account: token_account,
+          account_id: subject_id,
+          session_id: refresh_token_session_id,
+          previous_refresh_token_id: @current_refresh_token_record&.id,
+          refresh_token_id: @issued_refresh_token&.id,
+          scope: token_scope,
+          graced: @served_from_graced_successor == true
         )
       end
 

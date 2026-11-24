@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Upgrading to 0.65: what to do](#upgrading-to-065-what-to-do)
 - [Upgrading to 0.64: what to do](#upgrading-to-064-what-to-do)
 - [Upgrading to 0.63: what to do](#upgrading-to-063-what-to-do)
 - [Built-in step-up e-mail (0.63)](#built-in-step-up-e-mail-063)
@@ -21,6 +22,20 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Upgrading to 0.65: what to do
+
+**Nothing is required**, and there are no new migrations. Events that were declared but never
+published are now published, and one is removed:
+
+| Change | What you do |
+| --- | --- |
+| New audit rows through `Events.auditable` | Nothing, unless a spec counts audit rows. `authentication.password.failed`, `account.status_changed`, `social.auth.started` and `social.auth.callback_received` match the existing family Regexps, and `oauth.authorization.granted` / `denied` join the list, so they now write rows. A spec that expects exactly one audit row from a wrong-password login, an activation or a social sign-in will see more. |
+| Other new events | Nothing. `session.refreshed`, `oauth.token.refreshed`, `oauth.authorization.requested` and `identifier.verification.started` / `failed` are published but not auditable. A broad `/\Astandard_id\./` subscriber (metrics, logging) sees them all, and `session.refreshed` / `oauth.token.refreshed` fire on every refresh. |
+| `oauth.token.refreshed` subscribers | Don't raise: it is published inside the rotation transaction, so a raising subscriber fails the refresh (as one on `oauth.token.issued` already does). |
+| `identifier.linked` removed | Remove any reference to `StandardId::Events::IDENTIFIER_LINKED`; nothing ever published it. Use `identifier.created` or `social.account.linked`. |
 
 ---
 

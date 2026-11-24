@@ -52,7 +52,7 @@ module StandardId
             code: code.to_s.strip,
             request: request
           )
-          failed!(email, otp.error_code) unless otp.success?
+          failed!(email, otp) unless otp.success?
 
           # The hook runs in the same transaction as the verification: if it
           # raises, the address stays unverified, so the registrant can ask for
@@ -120,6 +120,7 @@ module StandardId
           return false unless result.success?
 
           DailyLimit.record!(:code_issued, email)
+          StandardId::Identifier.publish_verification_started(value: email, channel: :email, realm: config.verification_realm)
           if built_in
             StandardId::PasswordlessMailer
               .with(email: email, otp_code: result.code, realm: config.verification_realm)
@@ -138,11 +139,14 @@ module StandardId
           raise invalid_code(INVALID_CODE_MESSAGE) unless password_credential.password_digest == verified_digest
         end
 
-        def failed!(email, error_code)
+        def failed!(email, otp)
+          StandardId::Identifier.publish_verification_failed(
+            value: email, channel: :email, realm: EmailPassword.config.verification_realm, result: otp
+          )
           count = DailyLimit.record!(:failed_verification, email)
           message = if count >= DailyLimit.limit(:failed_verification)
             LOCKED_OUT_MESSAGE
-          elsif error_code == :max_attempts
+          elsif otp.error_code == :max_attempts
             TOO_MANY_ATTEMPTS_MESSAGE
           else
             INVALID_CODE_MESSAGE
