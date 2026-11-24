@@ -220,6 +220,12 @@ module StandardId
   # carry circuit names or host internals. Plugins map it to their own
   # unavailable error where they have one.
   class ProviderUnavailableError < OAuthError
+    # Providers no user would recognise, so the message names none:
+    # HttpClient::DEFAULT_PROVIDER, which HttpClient passes when its caller
+    # names no provider. Kept here rather than read from HttpClient so the
+    # error has no load-order or stubbing dependency on it.
+    UNNAMED_PROVIDERS = [:standard_id].freeze
+
     # @return [Symbol, nil] the provider the request was for (`:google`, ...)
     attr_reader :provider
 
@@ -233,10 +239,8 @@ module StandardId
 
     private
 
-    # HttpClient names `:standard_id` when its caller names no provider; that
-    # is no provider a user would recognise, so it reads like none.
     def provider_label(provider)
-      return "The provider" if provider.nil? || provider.to_sym == StandardId::HttpClient::DEFAULT_PROVIDER
+      return "The provider" if provider.nil? || UNNAMED_PROVIDERS.include?(provider.to_sym)
 
       provider.to_s.humanize
     end

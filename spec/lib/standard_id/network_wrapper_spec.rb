@@ -223,6 +223,16 @@ RSpec.describe StandardId::NetworkWrapper do
       expect(error.provider).to eq(:standard_id)
     end
 
+    it "treats HttpClient's default provider as unnamed" do
+      expect(StandardId::ProviderUnavailableError::UNNAMED_PROVIDERS).to include(StandardId::HttpClient::DEFAULT_PROVIDER)
+    end
+
+    it "builds without HttpClient, which plugin specs replace with stand-ins" do
+      hide_const("StandardId::HttpClient")
+
+      expect(StandardId::ProviderUnavailableError.new(provider: :apple).message).to eq("Apple is temporarily unavailable")
+    end
+
     it "reads like no provider for nil" do
       expect(StandardId::ProviderUnavailableError.new.message).to eq("The provider is temporarily unavailable")
     end
