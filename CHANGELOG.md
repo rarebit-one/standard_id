@@ -18,6 +18,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verification e-mails are unchanged, and `c.step_up.delivery = :custom` still sends nothing
   built-in. See the Migration Guide, "Built-in step-up e-mail".
 
+### Fixed
+
+- **OAuth protocol routes now send `Retry-After`.** `Api::Oauth::BaseController` renders OAuth
+  errors with its own handler and, unlike `Api::BaseController`, dropped the `Retry-After` header
+  for an error carrying a positive `retry_after`. Every `/api/oauth/*` route (`token`, `revoke`,
+  `introspect`, `register`, `callback/:provider`) now sends it under the same condition, through
+  one shared helper; body, status and error codes are unchanged. No error the gem raises on those
+  routes carries `retry_after` today, so the gem's own responses are unchanged. A response does
+  change where an error with a positive `retry_after` reaches an OAuth route from host code, for
+  example a `StandardId::RateLimitExceededError` (from `StandardId::RateLimiter.hit!`) or a
+  `StandardId::RetryDelayError` raised in `c.social.before_account` / `before_mint`, a
+  social-auth subscriber, or a provider plugin: it now gets the header.
+
 ### Documentation
 
 - README and Migration Guide now say plainly that implicit-flow tokens (`response_type=token`)

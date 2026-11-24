@@ -99,15 +99,20 @@ module StandardId
       end
 
       def handle_oauth_error(error)
-        # A lib-level rate limit (StandardId::RateLimiter) knows its window;
-        # say so, as the controller-level limits do.
-        if error.respond_to?(:retry_after) && error.retry_after.to_i.positive?
-          response.set_header("Retry-After", error.retry_after.to_i.to_s)
-        end
+        set_retry_after_header(error)
         render json: {
           error: error.oauth_error_code,
           error_description: error.message
         }, status: error.http_status
+      end
+
+      # A lib-level rate limit (StandardId::RateLimiter) knows its window;
+      # say so, as the controller-level limits do. Shared with
+      # Api::Oauth::BaseController's own OAuth error handler.
+      def set_retry_after_header(error)
+        return unless error.respond_to?(:retry_after) && error.retry_after.to_i.positive?
+
+        response.set_header("Retry-After", error.retry_after.to_i.to_s)
       end
 
       def render_bearer_unauthorized!(error_description: default_invalid_token_message, error_code: "invalid_token")

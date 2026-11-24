@@ -29,6 +29,7 @@ module StandardId
           status = exception.respond_to?(:http_status) ? exception.http_status : :bad_request
           description = exception.message.presence || "An error occurred processing the request"
 
+          set_retry_after_header(exception)
           render json: {
             error: error_code.to_s,
             error_description: description
