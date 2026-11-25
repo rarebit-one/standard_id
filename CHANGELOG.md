@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.66.1] - 2026-11-25
+
 ### Fixed
 
 - **`GET /userinfo` no longer 500s when the host's account model lacks an optional attribute.**
