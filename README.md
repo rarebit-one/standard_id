@@ -485,7 +485,9 @@ end
 
 A token whose `aud` holds none of the endpoint's audiences gets
 `403 insufficient_scope`, the response `StandardId::AudienceVerification`
-gives everywhere; an array `aud` passes when any entry matches. A token outside
+gives everywhere, and publishes `oauth.audience.mismatch` (auditable) with
+`token_audiences`, `required_audiences` and `endpoint`; an array `aud` passes
+when any entry matches. A token outside
 the accepted list is still a `401 invalid_token` at decode time. The matched
 audience's `audience_profile_types` binding is enforced as well, as on any
 `AudienceVerification` controller. An endpoint left out (or given `[]`) accepts

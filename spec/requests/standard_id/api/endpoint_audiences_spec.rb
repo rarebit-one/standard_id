@@ -57,7 +57,7 @@ RSpec.describe "Per-endpoint accepted audiences", type: :request do
       end
 
       it "starts a step-up for an #{aud} token" do
-        post "/api/step_up", headers: bearer(aud), as: :json
+        post "/api/step_up", params: {}, headers: bearer(aud), as: :json
 
         expect(response).to have_http_status(:accepted)
       end
@@ -88,7 +88,7 @@ RSpec.describe "Per-endpoint accepted audiences", type: :request do
       end
 
       it "refuses POST /step_up and /step_up/verify to an #{aud} token with 403" do
-        post "/api/step_up", headers: bearer(aud), as: :json
+        post "/api/step_up", params: {}, headers: bearer(aud), as: :json
         expect_insufficient_scope
 
         post "/api/step_up/verify", params: { code: "000000" }, headers: bearer(aud), as: :json
@@ -128,6 +128,48 @@ RSpec.describe "Per-endpoint accepted audiences", type: :request do
       get "/api/sessions", headers: bearer(%w[harness companion_kit])
 
       expect(response).to have_http_status(:ok)
+    end
+
+    it "publishes oauth.audience.mismatch with the 403" do
+      payloads = []
+      subscription = StandardId::Events.subscribe(StandardId::Events::OAUTH_AUDIENCE_MISMATCH) do |event|
+        payloads << event.payload
+      end
+
+      get "/api/sessions", headers: bearer(%w[harness inference])
+
+      expect_insufficient_scope
+      expect(payloads.size).to eq(1)
+      expect(payloads.first).to include(
+        "token_audiences" => %w[harness inference],
+        "required_audiences" => client_audiences,
+        "endpoint" => "sessions",
+        "account" => account
+      )
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+    end
+
+    it "publishes nothing for an accepted audience" do
+      payloads = []
+      subscription = StandardId::Events.subscribe(StandardId::Events::OAUTH_AUDIENCE_MISMATCH) { |event| payloads << event }
+
+      get "/api/userinfo", headers: bearer("companion_kit")
+
+      expect(response).to have_http_status(:ok)
+      expect(payloads).to be_empty
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscription) if subscription
+    end
+
+    it "still answers 403 when a mismatch subscriber raises" do
+      subscription = StandardId::Events.subscribe(StandardId::Events::OAUTH_AUDIENCE_MISMATCH) { raise "boom" }
+
+      get "/api/userinfo", headers: bearer("mcp")
+
+      expect_insufficient_scope
+    ensure
+      ActiveSupport::Notifications.unsubscribe(subscription) if subscription
     end
 
     it "still answers 401 for a missing token, not 403" do
@@ -191,7 +233,7 @@ RSpec.describe "Per-endpoint accepted audiences", type: :request do
         get "/api/sessions", headers: bearer(aud)
         expect(response).to have_http_status(:ok)
 
-        post "/api/step_up", headers: bearer(aud), as: :json
+        post "/api/step_up", params: {}, headers: bearer(aud), as: :json
         expect(response).to have_http_status(:accepted)
       end
     end

@@ -45,6 +45,7 @@ module StandardId
 
         verify_audience -> { StandardId::Oauth::Audiences.endpoint(endpoint) }
         skip_before_action :verify_audience!, if: -> { StandardId::Oauth::Audiences.endpoint(endpoint).empty? }
+        rescue_from StandardId::InvalidAudienceError, with: ->(error) { reject_endpoint_audience(error, endpoint) }
       end
 
       protected
@@ -104,6 +105,32 @@ module StandardId
           error: error.oauth_error_code.to_s,
           error_description: error.message
         }, status: error.http_status
+      end
+
+      # AudienceVerification publishes oauth.audience.mismatch only when a
+      # profile binding fails; a token refused here for its audience alone is
+      # recorded too, then answered as AudienceVerification answers it. A
+      # failing subscriber is logged, as there, and does not change the 403.
+      def reject_endpoint_audience(error, endpoint)
+        publish_endpoint_audience_mismatch(error, endpoint)
+        handle_invalid_audience(error)
+      end
+
+      def publish_endpoint_audience_mismatch(error, endpoint)
+        StandardId::Events.publish(
+          StandardId::Events::OAUTH_AUDIENCE_MISMATCH,
+          audience: nil,
+          token_audiences: error.actual,
+          required_audiences: error.required,
+          expected_profile_types: [],
+          actual_profile_type: nil,
+          endpoint: endpoint.to_s,
+          account: current_account
+        )
+      rescue StandardError => e
+        StandardId.config.logger&.warn(
+          "[StandardId] failed to emit oauth.audience.mismatch event: #{e.class}: #{e.message}"
+        )
       end
 
       def handle_request_refused(error)

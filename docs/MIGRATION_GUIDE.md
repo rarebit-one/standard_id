@@ -42,7 +42,9 @@ c.oauth.endpoint_audiences = {
 ```
 
 Check first which clients call these endpoints: a caller whose token carries
-none of the listed audiences gets `403 insufficient_scope`. If you also set
+none of the listed audiences gets `403 insufficient_scope`, and each refusal
+publishes `oauth.audience.mismatch`, which `Events.auditable` already records
+(it carries an `endpoint` key and no matched `audience`). If you also set
 `c.oauth.audience_profile_types`, the matched audience's binding now applies on
 these endpoints too. A mistyped key (`session:`) raises
 `StandardId::ConfigurationError` at boot rather than leaving its endpoint open.
