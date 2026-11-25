@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Per-endpoint audiences (0.66, opt-in)](#per-endpoint-audiences-066-opt-in)
 - [Upgrading to 0.65: what to do](#upgrading-to-065-what-to-do)
 - [Upgrading to 0.64: what to do](#upgrading-to-064-what-to-do)
 - [Upgrading to 0.63: what to do](#upgrading-to-063-what-to-do)
@@ -22,6 +23,33 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Per-endpoint audiences (0.66, opt-in)
+
+Nothing to do unless you want it. `c.oauth.endpoint_audiences` is `{}` by
+default, and then `userinfo`, `sessions` and `step_up` accept a bearer for any
+accepted audience, as before. Set it when your API accepts tokens that should
+not reach the account's own data (per-service tokens, MCP clients, devices):
+
+```ruby
+c.oauth.endpoint_audiences = {
+  userinfo: %w[companion_kit admin_kit],
+  sessions: %w[companion_kit admin_kit],
+  step_up:  %w[companion_kit admin_kit]
+}
+```
+
+Check first which clients call these endpoints: a caller whose token carries
+none of the listed audiences gets `403 insufficient_scope`, and each refusal
+publishes `oauth.audience.mismatch`, which `Events.auditable` already records
+(it carries an `endpoint` key and no matched `audience`). If you also set
+`c.oauth.audience_profile_types`, the matched audience's binding now applies on
+these endpoints too. A mistyped key (`session:`) raises
+`StandardId::ConfigurationError` at boot rather than leaving its endpoint open.
+In production with more than one accepted audience, boot logs a warning naming
+the endpoints still open until you set it.
 
 ---
 

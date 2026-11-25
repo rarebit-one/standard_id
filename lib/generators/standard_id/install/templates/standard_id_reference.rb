@@ -367,6 +367,16 @@ StandardId.configure do |c|
   # for other services lists them as mintable but not accepted:
   # c.oauth.mintable_audiences = %w[web harness inference]
   # c.oauth.accepted_audiences = %w[web]
+  #
+  # Narrow the gem's own bearer endpoints (userinfo, sessions, step_up) to the
+  # end-user clients' audiences; a token for any other accepted audience gets
+  # 403. An endpoint left out accepts any accepted audience.
+  # Default: {}
+  # c.oauth.endpoint_audiences = {
+  #   userinfo: %w[web mobile],
+  #   sessions: %w[web mobile],
+  #   step_up:  %w[web mobile]
+  # }
 
   # Scope-to-claims mapping — when a scope is granted, every listed claim is
   # resolved via claim_resolvers below and embedded in the access token.

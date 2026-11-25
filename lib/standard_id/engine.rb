@@ -96,10 +96,12 @@ module StandardId
       StandardId::Config::CallableValidator.validate!
       StandardId::Config::ScopeClaimsValidator.validate!
       StandardId::ScopeConfig.validate_all!
+      StandardId::Oauth::Audiences.validate_endpoint_audiences!
 
       StandardId::Engine.verify_host_cookie_encryption!(app)
       StandardId::MigrationCheck.verify_at_boot!
       StandardId::Engine.warn_if_allowed_audiences_empty_in_production!
+      StandardId::Engine.warn_if_endpoint_audiences_unset_in_production!
     end
 
     # Defensive check: StandardId's Web::SessionManager stores session tokens
@@ -173,6 +175,28 @@ module StandardId
         "StandardId: config.oauth.#{setting} is empty in production — " \
         "JWT audience is not enforced globally. Set this to your expected " \
         "audiences (e.g., ['web', 'api']) to close cross-audience replay vectors."
+      )
+    end
+
+    # Logs a production-only warning naming the gem's bearer endpoints
+    # (`userinfo`, `sessions`, `step_up`) that `oauth.endpoint_audiences` leaves
+    # open while the API accepts more than one audience: a token for any of
+    # them (an MCP or per-service token, say) can then read the account and
+    # its sessions. Silent with one accepted audience, where there is nothing
+    # to narrow, and with none, which the accepted-audiences warning covers.
+    # `step_up` counts only while step-up is enabled (its routes exist).
+    def self.warn_if_endpoint_audiences_unset_in_production!
+      return unless StandardId::AppEnvironment.production?
+      return unless StandardId::Oauth::Audiences.accepted.size > 1
+
+      open = StandardId::Oauth::Audiences.unrestricted_endpoints
+      open -= [:step_up] unless StandardId::StepUp.enabled?
+      return if open.empty?
+
+      Rails.logger.warn(
+        "StandardId: config.oauth.endpoint_audiences does not restrict #{open.join(', ')} in production — " \
+        "they accept a bearer for any accepted audience (#{StandardId::Oauth::Audiences.accepted.join(', ')}). " \
+        "List the audiences of the end-user clients that call them."
       )
     end
 

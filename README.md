@@ -464,6 +464,38 @@ so neither list applies to browser sessions. `JwtService.decode` and
 `StandardId::Oauth::Audiences.mintable` / `.accepted` return the effective
 lists.
 
+#### Per-endpoint audiences
+
+The accepted list is the whole API's. The gem's own bearer endpoints, which
+return or change the account's data, can be narrowed further with
+`config.oauth.endpoint_audiences`, so a per-service or MCP token your API must
+accept elsewhere cannot read the account or end its sessions:
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.accepted_audiences = %w[companion_kit admin_kit mcp]
+
+  config.oauth.endpoint_audiences = {
+    userinfo: %w[companion_kit admin_kit], # GET /userinfo
+    sessions: %w[companion_kit admin_kit], # GET /sessions, DELETE /sessions/:id
+    step_up:  %w[companion_kit admin_kit]  # POST /step_up, POST /step_up/verify
+  }
+end
+```
+
+A token whose `aud` holds none of the endpoint's audiences gets
+`403 insufficient_scope`, the response `StandardId::AudienceVerification`
+gives everywhere, and publishes `oauth.audience.mismatch` (auditable) with
+`token_audiences`, `required_audiences` and `endpoint`; an array `aud` passes
+when any entry matches. A token outside
+the accepted list is still a `401 invalid_token` at decode time. The matched
+audience's `audience_profile_types` binding is enforced as well, as on any
+`AudienceVerification` controller. An endpoint left out (or given `[]`) accepts
+any accepted audience, as before, so nothing changes until you set it; an
+unknown key raises `StandardId::ConfigurationError` at boot. In production, with
+more than one accepted audience, boot logs a warning naming the endpoints left
+open (`step_up` only while step-up is enabled).
+
 ### Custom Token Claims
 
 You can add additional JWT claims for any token issued through the OAuth token endpoint by mapping scopes to claim names and providing callbacks to resolve each claim. Scopes listed in `oauth.scope_claims` are evaluated against the requested token scopes; when a scope matches, every claim listed for that scope is resolved via the callable defined in `oauth.claim_resolvers`.

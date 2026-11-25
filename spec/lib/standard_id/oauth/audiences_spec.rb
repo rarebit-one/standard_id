@@ -45,4 +45,34 @@ RSpec.describe StandardId::Oauth::Audiences do
 
     expect(described_class.mintable).to eq(%w[harness])
   end
+
+  describe ".endpoint" do
+    it "is empty for every endpoint by default" do
+      expect(described_class::ENDPOINTS.map { |name| described_class.endpoint(name) }).to all(eq([]))
+      expect(described_class.unrestricted_endpoints).to eq(described_class::ENDPOINTS)
+    end
+
+    it "reads symbol and string keys and stringifies the audiences" do
+      allow(oauth).to receive(:endpoint_audiences).and_return(userinfo: %i[companion_kit], "sessions" => "admin_kit")
+
+      expect(described_class.endpoint(:userinfo)).to eq(%w[companion_kit])
+      expect(described_class.endpoint(:sessions)).to eq(%w[admin_kit])
+      expect(described_class.unrestricted_endpoints).to eq(%i[step_up])
+    end
+  end
+
+  describe ".validate_endpoint_audiences!" do
+    it "accepts the known endpoints" do
+      allow(oauth).to receive(:endpoint_audiences).and_return(userinfo: %w[a], "sessions" => %w[a], step_up: %w[a])
+
+      expect { described_class.validate_endpoint_audiences! }.not_to raise_error
+    end
+
+    it "refuses an unknown key, which would leave its endpoint open" do
+      allow(oauth).to receive(:endpoint_audiences).and_return(session: %w[a])
+
+      expect { described_class.validate_endpoint_audiences! }
+        .to raise_error(StandardId::ConfigurationError, /unknown endpoint\(s\) session/)
+    end
+  end
 end

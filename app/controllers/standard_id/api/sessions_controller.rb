@@ -5,6 +5,7 @@ module StandardId
 
       skip_before_action :validate_content_type!
       before_action :verify_access_token!
+      endpoint_audiences :sessions
 
       def index
         sessions = current_account.sessions.active.order(created_at: :desc)

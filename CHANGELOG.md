@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-endpoint accepted audiences** (`config.oauth.endpoint_audiences`). The gem's own bearer
+  endpoints, `userinfo` (`GET /userinfo`), `sessions` (`GET /sessions`, `DELETE /sessions/:id`)
+  and `step_up` (`POST /step_up`, `POST /step_up/verify`), can each be limited to a subset of
+  the accepted audiences, e.g. `{ userinfo: %w[companion_kit admin_kit], ... }`, so a
+  per-service or MCP token the API accepts elsewhere cannot read the account, list or revoke its
+  sessions, or step up. A token with none of the endpoint's audiences gets the
+  `StandardId::AudienceVerification` response, `403 insufficient_scope`, and the refusal publishes
+  `oauth.audience.mismatch` (already auditable) with `token_audiences`, `required_audiences` and
+  `endpoint`. An array `aud` passes when any entry matches, and the matched audience's
+  `audience_profile_types` binding applies.
+  Opt-in: an endpoint left out (or given `[]`) accepts any accepted audience, as before. An
+  unknown key raises `StandardId::ConfigurationError` at boot. In production with more than one
+  accepted audience, boot logs a warning naming the endpoints left open.
+  `StandardId::Oauth::Audiences.endpoint(name)` returns an endpoint's list.
+
+### Changed
+
+- `GET /userinfo` verifies the access token in a `before_action` rather than inside the action.
+  Responses are unchanged.
+
 ## [0.65.0] - 2026-11-25
 
 ### Added
