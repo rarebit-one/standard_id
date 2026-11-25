@@ -4,9 +4,10 @@ module StandardId
       authenticated_controller
 
       skip_before_action :validate_content_type!
+      before_action :verify_access_token!
+      endpoint_audiences :userinfo
 
       def show
-        verify_access_token!
         account = current_account
         raise StandardId::NotAuthenticatedError unless account
 

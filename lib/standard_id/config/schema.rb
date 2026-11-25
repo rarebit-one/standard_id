@@ -660,6 +660,25 @@ StandardId::ConfigSchema.define do
     # neither list applies to it.
     field :accepted_audiences, type: :array, default: nil
 
+    # Audiences each of the gem's own bearer endpoints accepts, on top of the
+    # accepted list: a token with none of them gets 403 insufficient_scope
+    # (StandardId::AudienceVerification). Keys are the endpoints
+    # (StandardId::Oauth::Audiences::ENDPOINTS):
+    #
+    #   :userinfo  GET /userinfo
+    #   :sessions  GET /sessions, DELETE /sessions/:id
+    #   :step_up   POST /step_up, POST /step_up/verify
+    #
+    #   c.oauth.endpoint_audiences = {
+    #     userinfo: %w[companion_kit admin_kit],
+    #     sessions: %w[companion_kit admin_kit],
+    #     step_up:  %w[companion_kit admin_kit]
+    #   }
+    #
+    # An endpoint left out (or given an empty list) accepts any accepted
+    # audience, as before. An unknown key raises ConfigurationError at boot.
+    field :endpoint_audiences, type: :hash, default: -> { {} }
+
     # Audience → profile type binding (first-class audience modeling).
     #
     # Maps each configured audience string to the profile type (or types)

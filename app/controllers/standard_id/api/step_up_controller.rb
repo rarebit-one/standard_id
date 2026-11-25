@@ -16,7 +16,8 @@ module StandardId
     # token is issued: the client keeps its own, and tokens refreshed from it
     # carry the original sign-in's auth_time. For an audience bound to a
     # profile type, set c.step_up.token_profile_resolver when an account may
-    # hold several such profiles. Routed only while c.step_up.enabled is true.
+    # hold several such profiles. c.oauth.endpoint_audiences[:step_up] narrows
+    # which tokens may step up. Routed only while c.step_up.enabled is true.
     class StepUpController < BaseController
       authenticated_controller
 
@@ -27,6 +28,7 @@ module StandardId
                  store: StandardId::RateLimitHandling::RATE_LIMIT_STORE
 
       before_action :verify_access_token!
+      endpoint_audiences :step_up
       # A token whose account config.account_scope no longer finds is no
       # longer anyone's to step up.
       before_action -> { render_bearer_unauthorized! if current_account.nil? }

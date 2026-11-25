@@ -156,6 +156,60 @@ RSpec.describe StandardId::Engine do
     end
   end
 
+  describe ".warn_if_endpoint_audiences_unset_in_production!" do
+    let(:logger) { instance_double(ActiveSupport::Logger, warn: nil) }
+    let(:oauth) { StandardId.config.oauth }
+
+    before do
+      allow(Rails).to receive(:logger).and_return(logger)
+      allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("production"))
+      allow(oauth).to receive(:allowed_audiences).and_return(%w[companion_kit mcp])
+      allow(StandardId::StepUp).to receive(:enabled?).and_return(true)
+    end
+
+    it "names every endpoint left open when several audiences are accepted" do
+      expect(logger).to receive(:warn).with(/does not restrict userinfo, sessions, step_up in production/)
+      described_class.warn_if_endpoint_audiences_unset_in_production!
+    end
+
+    it "leaves step_up out while step-up is disabled" do
+      allow(StandardId::StepUp).to receive(:enabled?).and_return(false)
+      allow(oauth).to receive(:endpoint_audiences).and_return(userinfo: %w[companion_kit], sessions: %w[companion_kit])
+
+      expect(logger).not_to receive(:warn)
+      described_class.warn_if_endpoint_audiences_unset_in_production!
+    end
+
+    it "is silent once every endpoint is restricted" do
+      allow(oauth).to receive(:endpoint_audiences)
+        .and_return(userinfo: %w[companion_kit], sessions: %w[companion_kit], step_up: %w[companion_kit])
+
+      expect(logger).not_to receive(:warn)
+      described_class.warn_if_endpoint_audiences_unset_in_production!
+    end
+
+    it "is silent with a single accepted audience" do
+      allow(oauth).to receive(:allowed_audiences).and_return(%w[web])
+
+      expect(logger).not_to receive(:warn)
+      described_class.warn_if_endpoint_audiences_unset_in_production!
+    end
+
+    it "is silent with no accepted audiences (the accepted-audiences warning covers it)" do
+      allow(oauth).to receive(:allowed_audiences).and_return([])
+
+      expect(logger).not_to receive(:warn)
+      described_class.warn_if_endpoint_audiences_unset_in_production!
+    end
+
+    it "is silent outside production" do
+      allow(Rails).to receive(:env).and_return(ActiveSupport::StringInquirer.new("development"))
+
+      expect(logger).not_to receive(:warn)
+      described_class.warn_if_endpoint_audiences_unset_in_production!
+    end
+  end
+
   describe ".warn_if_allowed_audiences_empty_in_production!" do
     let(:logger) { instance_double(ActiveSupport::Logger, warn: nil) }
 

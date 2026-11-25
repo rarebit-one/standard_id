@@ -34,6 +34,19 @@ module StandardId
       # A host hook refused the request with its own response.
       rescue_from StandardId::RequestRefused, with: :handle_request_refused
 
+      # Narrows the bearer audiences this endpoint accepts to
+      # `c.oauth.endpoint_audiences[endpoint]` when the host set it
+      # (StandardId::Oauth::Audiences.endpoint): a token with none of them is
+      # refused by StandardId::AudienceVerification, 403 insufficient_scope.
+      # Unset, any accepted audience passes, as before. Declare it after
+      # `before_action :verify_access_token!`, which the check runs behind.
+      def self.endpoint_audiences(endpoint)
+        include StandardId::AudienceVerification
+
+        verify_audience -> { StandardId::Oauth::Audiences.endpoint(endpoint) }
+        skip_before_action :verify_audience!, if: -> { StandardId::Oauth::Audiences.endpoint(endpoint).empty? }
+      end
+
       protected
 
       def validate_content_type!
