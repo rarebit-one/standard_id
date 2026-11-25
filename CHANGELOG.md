@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`GET /userinfo` no longer 500s when the host's account model lacks an optional attribute.**
+  The `name` and `email` claims (with `email_verified`, which depends on `email`) are now read only
+  when the account responds to them, and omitted otherwise, as OIDC allows for every claim but
+  `sub`. Previously an Account without `name` raised `NoMethodError` for every caller.
+  `email_verified` is also omitted, rather than sent as `false`, when the account has no email.
+
 ## [0.66.0] - 2026-11-25
 
 ### Added
