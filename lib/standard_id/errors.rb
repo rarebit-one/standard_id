@@ -383,17 +383,33 @@ module StandardId
   # so host apps can distinguish "audience not permitted" from "audience
   # matched but profile binding failed" in their error handling. The
   # `AudienceVerification` concern renders both as 403 insufficient_scope.
+  #
+  # `reason` says why the binding failed:
+  #   :missing_profile  — the account holds no profile of an expected type
+  #                       (`actual_profile_type` is the first profile type it
+  #                       does hold, or nil)
+  #   :inactive_profile — the matching profile is inactive and the account
+  #                       has no active one (`actual_profile_type` is that
+  #                       profile's type)
+  # It is nil when the error is built without one.
   class InvalidAudienceProfileError < StandardError
-    attr_reader :audience, :expected_profile_types, :actual_profile_type, :required, :actual
+    REASONS = %i[missing_profile inactive_profile].freeze
 
-    def initialize(audience:, expected_profile_types:, actual_profile_type:, required: [], actual: [])
+    attr_reader :audience, :expected_profile_types, :actual_profile_type, :required, :actual, :reason
+
+    def initialize(audience:, expected_profile_types:, actual_profile_type:, required: [], actual: [], reason: nil)
       @audience = audience
       @expected_profile_types = Array(expected_profile_types)
       @actual_profile_type = actual_profile_type
       @required = required
       @actual = actual
+      @reason = reason
       expected = @expected_profile_types.join(", ")
-      super("Token audience '#{audience}' requires profile type [#{expected}] but account has '#{actual_profile_type || 'none'}'")
+      if reason == :inactive_profile
+        super("Token audience '#{audience}' requires an active profile of type [#{expected}] but the account's '#{actual_profile_type}' profile is inactive")
+      else
+        super("Token audience '#{audience}' requires profile type [#{expected}] but account has '#{actual_profile_type || 'none'}'")
+      end
     end
   end
 

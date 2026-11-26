@@ -225,6 +225,7 @@ RSpec.describe StandardId::AudienceVerification do
               expect(error.audience).to eq("admin_kit")
               expect(error.expected_profile_types).to eq(["PlatformProfile"])
               expect(error.actual_profile_type).to eq("DeviceUserProfile")
+              expect(error.reason).to eq(:missing_profile)
             end
         end
 
@@ -330,6 +331,80 @@ RSpec.describe StandardId::AudienceVerification do
         expect { controller.verify_audience! }
           .to raise_error(StandardId::InvalidAudienceProfileError)
       end
+
+      it "refuses an inactive profile the resolver returns" do
+        allow(StandardId.config.oauth).to receive(:audience_profile_resolver)
+          .and_return(->(**) { build_profile("PlatformProfile", active: false) })
+        stub_session_and_account(profiles: [])
+
+        expect { controller.verify_audience! }
+          .to raise_error(StandardId::InvalidAudienceProfileError) do |error|
+            expect(error.reason).to eq(:inactive_profile)
+          end
+      end
+
+      it "accepts a resolver result with no active? predicate" do
+        no_predicate = Struct.new(:profileable_type).new("PlatformProfile")
+        allow(StandardId.config.oauth).to receive(:audience_profile_resolver)
+          .and_return(->(**) { no_predicate })
+        stub_session_and_account(profiles: [])
+
+        expect { controller.verify_audience! }.not_to raise_error
+      end
+    end
+
+    context "when the account's matching profile is inactive" do
+      let(:token_audience) { "admin_kit" }
+
+      before do
+        allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return(
+          "admin_kit" => "PlatformProfile"
+        )
+        stub_session_and_account(profiles: [
+          build_profile("DeviceUserProfile"),
+          build_profile("PlatformProfile", active: false)
+        ])
+      end
+
+      it "raises InvalidAudienceProfileError with reason :inactive_profile" do
+        expect { controller.verify_audience! }
+          .to raise_error(StandardId::InvalidAudienceProfileError) do |error|
+            expect(error.reason).to eq(:inactive_profile)
+            expect(error.actual_profile_type).to eq("PlatformProfile")
+            expect(error.message).to include("is inactive")
+          end
+      end
+
+      it "emits the oauth.audience.mismatch event with the reason" do
+        payloads = []
+        unsubscribe = StandardId::Events.subscribe(StandardId::Events::OAUTH_AUDIENCE_MISMATCH) do |event|
+          payloads << event.payload
+        end
+
+        expect { controller.verify_audience! }.to raise_error(StandardId::InvalidAudienceProfileError)
+
+        expect(payloads.size).to eq(1)
+        expect(payloads.first[:reason]).to eq(:inactive_profile)
+        expect(payloads.first[:actual_profile_type]).to eq("PlatformProfile")
+      ensure
+        ActiveSupport::Notifications.unsubscribe(unsubscribe) if unsubscribe
+      end
+
+      it "accepts it when audience_binding_allow_inactive is set (deprecated escape hatch)" do
+        allow(StandardId.config.oauth).to receive(:audience_binding_allow_inactive).and_return(true)
+
+        expect { controller.verify_audience! }.not_to raise_error
+      end
+
+      it "still refuses a missing profile when audience_binding_allow_inactive is set" do
+        allow(StandardId.config.oauth).to receive(:audience_binding_allow_inactive).and_return(true)
+        stub_session_and_account(profiles: [build_profile("DeviceUserProfile")])
+
+        expect { controller.verify_audience! }
+          .to raise_error(StandardId::InvalidAudienceProfileError) do |error|
+            expect(error.reason).to eq(:missing_profile)
+          end
+      end
     end
 
     context "when multiple active profiles of the expected type exist" do
@@ -345,6 +420,14 @@ RSpec.describe StandardId::AudienceVerification do
         inactive = build_profile("PlatformProfile", active: false)
         active = build_profile("PlatformProfile", active: true)
         stub_session_and_account(profiles: [inactive, active])
+
+        expect { controller.verify_audience! }.not_to raise_error
+      end
+
+      # Unlike the strict mint-time lookup, several active matches are not
+      # refused here: the binding checks the type, which they share.
+      it "accepts several active profiles of the expected type" do
+        stub_session_and_account(profiles: [build_profile("PlatformProfile"), build_profile("PlatformProfile")])
 
         expect { controller.verify_audience! }.not_to raise_error
       end

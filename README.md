@@ -496,6 +496,45 @@ unknown key raises `StandardId::ConfigurationError` at boot. In production, with
 more than one accepted audience, boot logs a warning naming the endpoints left
 open (`step_up` only while step-up is enabled).
 
+#### Audience → profile binding
+
+`config.oauth.audience_profile_types` binds an audience to the profile type(s)
+an account must hold to use it:
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.audience_profile_types = {
+    "admin_kit" => "PlatformProfile",
+    "harness"   => %w[PlatformProfile DeviceUserProfile]
+  }
+end
+```
+
+The binding is checked twice. When a token is minted, the account must hold
+exactly one **active** matching profile (`NoBoundProfileError` /
+`AmbiguousProfileError`, rendered as `invalid_grant`). On each request to a
+`StandardId::AudienceVerification` or `StandardId::ResourceServer` controller,
+the account must still hold an active matching profile, so deactivating the
+profile stops tokens already issued for it. A refusal is
+`403 insufficient_scope` and publishes `oauth.audience.mismatch` (auditable)
+with a `reason` of `:missing_profile` or `:inactive_profile`; the raised
+`StandardId::InvalidAudienceProfileError` carries the same `reason`, so a
+`render_protected_resource_wrong_audience` override can audit the two apart.
+
+"Active" means `active?` is truthy; a profile without an `active?` method counts
+as active. At request time an account with several active matching profiles is
+accepted, since the check is on the profile type, which they share; minting
+still refuses it.
+
+With `config.oauth.audience_profile_resolver` set, the gem uses whatever profile
+your callable returns, and choosing it stays your responsibility. The request
+check still refuses that profile when it responds to `active?` with false.
+
+`config.oauth.audience_binding_allow_inactive = true` restores the behaviour
+before 0.67, when the request check accepted an inactive profile if the account
+had no active one. It is deprecated, logs a deprecation warning when assigned,
+and will be removed.
+
 ### Custom Token Claims
 
 You can add additional JWT claims for any token issued through the OAuth token endpoint by mapping scopes to claim names and providing callbacks to resolve each claim. Scopes listed in `oauth.scope_claims` are evaluated against the requested token scopes; when a scope matches, every claim listed for that scope is resolved via the callable defined in `oauth.claim_resolvers`.

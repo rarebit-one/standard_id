@@ -98,6 +98,14 @@ RSpec.describe StandardId::Oauth::AudienceProfileResolver do
       expect(described_class.call(account: account, audience: "harness")).to eq(match)
     end
 
+    # The legacy lookup is unchanged: it still returns an inactive-only match.
+    # AudienceVerification refuses that result itself (see active_profile?).
+    it "still returns an inactive match when the account has no active one" do
+      inactive = profile("PlatformProfile", active: false)
+      allow(account).to receive(:profiles).and_return([inactive])
+      expect(described_class.call(account: account, audience: "admin_kit")).to eq(inactive)
+    end
+
     it "falls back to the first match when active? is not available" do
       profile_without_active = double("Profile", profileable_type: "PlatformProfile")
       allow(account).to receive(:profiles).and_return([profile_without_active])
@@ -126,6 +134,21 @@ RSpec.describe StandardId::Oauth::AudienceProfileResolver do
         expect(described_class.call(account: account, audience: "admin_kit")).to eq(custom)
         expect(captured[:audience]).to eq("admin_kit")
       end
+    end
+  end
+
+  describe ".active_profile?" do
+    it "is false for nil" do
+      expect(described_class.active_profile?(nil)).to be(false)
+    end
+
+    it "follows active? when the profile has it" do
+      expect(described_class.active_profile?(profile("PlatformProfile", active: true))).to be(true)
+      expect(described_class.active_profile?(profile("PlatformProfile", active: false))).to be(false)
+    end
+
+    it "treats a profile without active? as active" do
+      expect(described_class.active_profile?(double("Profile", profileable_type: "PlatformProfile"))).to be(true)
     end
   end
 

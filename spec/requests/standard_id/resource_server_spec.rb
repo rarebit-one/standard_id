@@ -59,6 +59,17 @@ RSpec.describe "StandardId::ResourceServer", type: :request do
     expect(challenge).to include(%(resource_metadata="#{metadata_url}"))
   end
 
+  it "403s through the binding when the account's matching profile is inactive" do
+    allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return("mcp" => %w[OrganisationProfile])
+    inactive = Struct.new(:profileable_type, :active?).new("OrganisationProfile", false)
+    allow(StandardId::Oauth::AudienceProfileResolver).to receive(:call).and_return(inactive)
+    as_service(account: account, scope: "mcp", extra: { aud: "mcp" }) { http_get "/api/v1/mcp" }
+
+    expect(response).to have_http_status(:forbidden)
+    expect(json_body["error"]).to eq("insufficient_scope")
+    expect(challenge).to include(%(resource_metadata="#{metadata_url}"))
+  end
+
   it "leaves a session-less request to the auth layer rather than raising from the scope check" do
     klass = Class.new(ActionController::API) do
       include StandardId::ResourceServer
