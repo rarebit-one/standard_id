@@ -11,8 +11,6 @@ jobs:
     with:
       gem-name: standard_id
       ruby-version: "4.0.10"
-    secrets:
-      slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
     permissions:
       contents: write
       id-token: write
