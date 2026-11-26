@@ -289,6 +289,19 @@ RSpec.describe StandardId::Oauth::RefreshTokenFlow do
       expect(flow.send(:audience)).to eq(audience)  # Uses stored, not requested
     end
 
+    it "refuses to refresh when a custom resolver returns an inactive profile for the bound audience" do
+      allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload_with_aud)
+      allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([audience])
+      allow(StandardId.config.oauth).to receive(:audience_profile_types).and_return(audience => "DeviceUserProfile")
+      inactive = double("Profile", profileable_type: "DeviceUserProfile", active?: false, id: 5)
+      allow(StandardId.config.oauth).to receive(:audience_profile_resolver).and_return(->(**) { inactive })
+      expect(StandardId::JwtService).not_to receive(:encode)
+
+      expect {
+        described_class.new({ client_id: client_id, refresh_token: "rtok" }, request).execute
+      }.to raise_error(StandardId::NoBoundProfileError)
+    end
+
     it "returns nil audience when refresh token has no audience" do
       allow(StandardId::JwtService).to receive(:decode).with("rtok").and_return(refresh_payload)
 

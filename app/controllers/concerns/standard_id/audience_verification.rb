@@ -31,7 +31,11 @@ module StandardId
   # In addition, when `StandardId.config.oauth.audience_profile_types` is set,
   # this concern enforces the audience → profile-type binding: after the
   # allowed-audience check, it resolves the current account's profile for the
-  # matched audience and rejects requests whose profile type does not match.
+  # matched audience and rejects requests whose profile type does not match,
+  # or whose matching profile is inactive (`active?` is false). An account
+  # with several active matching profiles is accepted: the check is on the
+  # type, which they share. `oauth.audience_binding_allow_inactive` (deprecated)
+  # restores the old tolerance of an inactive profile.
   #
   # Requires StandardId::ApiAuthentication to be included before this concern
   # (provides `verify_access_token!` and `current_session`). An error is raised
@@ -94,7 +98,8 @@ module StandardId
     #
     # @raise [StandardId::InvalidAudienceError] when no audience matches
     # @raise [StandardId::InvalidAudienceProfileError] when the account's
-    #   profile type does not match the configured binding for the matched audience
+    #   profile type does not match the configured binding for the matched
+    #   audience, or its matching profile is inactive
     def verify_audience!
       return if _required_audiences.empty?
 
@@ -124,6 +129,11 @@ module StandardId
 
     # Enforce `audience_profile_types[matched]` against the current account.
     # No-op when the audience has no binding configured (back-compat).
+    #
+    # The profile must be of an expected type and active. The built-in lookup
+    # prefers an active match, so an inactive result means the account has no
+    # active one. A custom `oauth.audience_profile_resolver` result is checked
+    # the same way when it responds to `active?`.
     def enforce_audience_profile_binding!(matched_audience, token_audiences)
       binding_audience = profile_binding_audience(matched_audience)
       expected_types = StandardId::Oauth::AudienceProfileResolver.profile_types_for(binding_audience)
@@ -135,19 +145,25 @@ module StandardId
       )
       actual_type = profile_type_name(profile)
 
-      return if actual_type && expected_types.include?(actual_type)
+      if actual_type && expected_types.include?(actual_type)
+        return if audience_binding_profile_active?(profile)
 
-      # For audit purposes, when there is no matching profile, report the
-      # first profile type the account actually has (if any) so operators can
-      # see what the client was carrying instead.
-      actual_type ||= fallback_actual_profile_type
+        reason = :inactive_profile
+      else
+        reason = :missing_profile
+        # For audit purposes, when there is no matching profile, report the
+        # first profile type the account actually has (if any) so operators can
+        # see what the client was carrying instead.
+        actual_type ||= fallback_actual_profile_type
+      end
 
       error = StandardId::InvalidAudienceProfileError.new(
         audience: matched_audience,
         expected_profile_types: expected_types,
         actual_profile_type: actual_type,
         required: required_audiences,
-        actual: token_audiences
+        actual: token_audiences,
+        reason: reason
       )
       emit_audience_mismatch(error)
       raise error
@@ -166,6 +182,18 @@ module StandardId
       return matched_audience if resource_name.nil?
 
       StandardId::Oauth::AudienceProfileResolver.profile_types_for(resource_name).any? ? resource_name : matched_audience
+    end
+
+    def audience_binding_profile_active?(profile)
+      return true if audience_binding_allow_inactive?
+
+      StandardId::Oauth::AudienceProfileResolver.active_profile?(profile)
+    end
+
+    # The deprecated escape hatch is on only for exactly `true` or "true".
+    def audience_binding_allow_inactive?
+      value = StandardId.config.oauth.audience_binding_allow_inactive
+      value == true || value == "true"
     end
 
     def profile_type_name(profile)
@@ -198,6 +226,7 @@ module StandardId
         required_audiences: error.required,
         expected_profile_types: error.expected_profile_types,
         actual_profile_type: error.actual_profile_type,
+        reason: error.reason,
         account: (current_account if respond_to?(:current_account, true))
       )
     rescue StandardError => e

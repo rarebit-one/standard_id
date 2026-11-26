@@ -708,7 +708,30 @@ StandardId::ConfigSchema.define do
     # When nil (default), the gem looks up
     #   account.profiles.detect { |p| profile_types.include?(p.profileable_type) }
     # and prefers an `active?`-responding record if multiple match.
+    #
+    # Whichever lookup runs, minting refuses a profile that reports
+    # `active? == false`, and so does `StandardId::AudienceVerification` on
+    # each request (unless `audience_binding_allow_inactive` is set). A
+    # profile that does not respond to `active?` counts as active.
     field :audience_profile_resolver, type: :any, default: nil
+
+    # Request-time escape hatch for the audience → profile binding.
+    #
+    # `StandardId::AudienceVerification` refuses a token for a bound audience
+    # when the account's matching profile is inactive (`active?` is false),
+    # the same way token minting does. Setting this to true restores the
+    # pre-0.67 tolerance, which accepted an inactive profile when the account
+    # had no active one. Deprecated: it exists to ease the upgrade and will be
+    # removed in a future release. Assigning any value (even false) logs a
+    # deprecation warning; delete the line once nothing relies on it.
+    #
+    # Read strictly, so a stray value cannot reopen the gap: only `true` or the
+    # string "true" enable it. Anything else ("", "1", "yes", "FALSE", nil, …)
+    # keeps the check strict. Typed :any so the value is not cast first (the
+    # :boolean cast turns "" and "no" into true).
+    field :audience_binding_allow_inactive, type: :any, default: false,
+      deprecated: "inactive profiles will always be refused at request time. Refuse or handle " \
+                  "an inactive profile in the host instead, then delete this line."
 
     # Audience → scope-vocabulary binding (the per-audience MCP scope hook).
     #

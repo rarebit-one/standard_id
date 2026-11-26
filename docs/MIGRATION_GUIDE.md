@@ -4,6 +4,7 @@ This guide helps you migrate between StandardId versions.
 
 ## Table of Contents
 
+- [Inactive profiles refused at request time (0.67)](#inactive-profiles-refused-at-request-time-067)
 - [Per-endpoint audiences (0.66, opt-in)](#per-endpoint-audiences-066-opt-in)
 - [Upgrading to 0.65: what to do](#upgrading-to-065-what-to-do)
 - [Upgrading to 0.64: what to do](#upgrading-to-064-what-to-do)
@@ -23,6 +24,40 @@ This guide helps you migrate between StandardId versions.
 - [Adopting mount-aware discovery documents (0.33.0)](#adopting-mount-aware-discovery-documents-0330)
 - [v0.1.x to v0.2.0](#v01x-to-v020)
 - [v0.1.6 to v0.1.7](#v016-to-v017)
+
+---
+
+## Inactive profiles refused at request time (0.67)
+
+Only hosts that set `c.oauth.audience_profile_types` are affected. A request to
+an `AudienceVerification` or `ResourceServer` controller for a bound audience is
+now refused (`403 insufficient_scope`) when the account's matching profile
+reports `active?` as false. Before, the check accepted an inactive profile
+when the account had no active one, so a token issued before deactivation kept
+working until it expired. The built-in mint-time lookup already refused it.
+
+What to check:
+
+- **Hosts that refused an inactive profile themselves** after the binding passed
+  (a `before_action` that renders its own error) now get the gem's 403 first, so
+  that action no longer runs for it. To keep a distinct audit entry or message,
+  read `error.reason == :inactive_profile` in your
+  `render_protected_resource_wrong_audience` (ResourceServer) or
+  `handle_invalid_audience` (AudienceVerification) override. Request specs that
+  expected the host's error body for a deactivated profile need updating.
+- **Profiles without `active?`** count as active, so nothing changes for them.
+- **A custom `c.oauth.audience_profile_resolver`** is still trusted to choose
+  the profile, but a profile it returns with `active?` false is now refused,
+  both on requests and when minting or refreshing (`invalid_grant`).
+- **The check is per account.** A token issued for a deactivated profile keeps
+  working while the account holds another active profile of the same type;
+  tie tokens to their own profile in the host if you need that.
+- **A flow that must accept an inactive profile** (none ship with the gem) can
+  set `c.oauth.audience_binding_allow_inactive = true` (only `true` or `"true"`
+  enable it; it does not affect minting) while it moves that
+  check into the host. The setting is deprecated and warns when assigned; in a
+  test environment with `config.active_support.deprecation = :raise`, wrap the
+  assignment in `StandardId.deprecator.silence { ... }`.
 
 ---
 

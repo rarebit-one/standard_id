@@ -496,6 +496,63 @@ unknown key raises `StandardId::ConfigurationError` at boot. In production, with
 more than one accepted audience, boot logs a warning naming the endpoints left
 open (`step_up` only while step-up is enabled).
 
+#### Audience → profile binding
+
+`config.oauth.audience_profile_types` binds an audience to the profile type(s)
+an account must hold to use it:
+
+```ruby
+StandardId.configure do |config|
+  config.oauth.audience_profile_types = {
+    "admin_kit" => "PlatformProfile",
+    "harness"   => %w[PlatformProfile DeviceUserProfile]
+  }
+end
+```
+
+The binding is checked twice:
+
+- **When a token is minted** (every `/oauth/token` grant, refreshes included),
+  the account must hold exactly one **active** matching profile
+  (`NoBoundProfileError` / `AmbiguousProfileError`, rendered as
+  `invalid_grant`).
+- **On each request** to a controller that declares an audience
+  (`StandardId::AudienceVerification`'s `verify_audience`, or
+  `StandardId::ResourceServer`'s `protected_resource`), the account must still
+  hold an active profile of a bound type. A refusal is `403 insufficient_scope`
+  and publishes `oauth.audience.mismatch` (auditable) with a `reason` of
+  `:missing_profile` or `:inactive_profile`; the raised
+  `StandardId::InvalidAudienceProfileError` carries the same `reason`, so a
+  `render_protected_resource_wrong_audience` override can audit the two apart.
+  A bearer controller that declares no audience applies no binding, and the
+  gem's own `/userinfo`, `/sessions` and `/step_up` apply it only when
+  `config.oauth.endpoint_audiences` names audiences for them.
+
+The request check is about the **account**, not the token's own profile. If the
+account's only profile of the bound type is deactivated, its tokens stop
+working. If the account still holds another active profile of that type, a
+token issued for the deactivated one keeps passing until it expires: the gem
+does not know which profile a token was issued for. Tying a token to its own
+profile (for example through a `gid` claim, as `ResourceServer` leaves to the
+host) is the host's job.
+
+"Active" means `active?` is truthy; a profile without an `active?` method counts
+as active. At request time an account with several active matching profiles is
+accepted, since the check is on the profile type, which they share; minting
+still refuses it.
+
+With `config.oauth.audience_profile_resolver` set, the gem uses whatever profile
+your callable returns, and choosing it stays your responsibility. Both checks
+still refuse that profile when it responds to `active?` with false. A resolver
+that already filters to active profiles returns nil for a deactivated one, so
+the request is refused with `reason: :missing_profile`, not `:inactive_profile`.
+
+`config.oauth.audience_binding_allow_inactive = true` restores the behaviour
+before 0.67, when the request check accepted an inactive profile if the account
+had no active one. Only `true` or `"true"` turn it on. It is deprecated, logs a
+deprecation warning when assigned, and will be removed. It does not affect
+minting.
+
 ### Custom Token Claims
 
 You can add additional JWT claims for any token issued through the OAuth token endpoint by mapping scopes to claim names and providing callbacks to resolve each claim. Scopes listed in `oauth.scope_claims` are evaluated against the requested token scopes; when a scope matches, every claim listed for that scope is resolved via the callable defined in `oauth.claim_resolvers`.

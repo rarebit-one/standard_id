@@ -49,6 +49,28 @@ RSpec.describe "StandardId config: removed and deprecated settings" do
       .to raise_error(StandardId::ConfigurationError, /oauth\.client_id was removed/)
   end
 
+  describe "oauth.audience_binding_allow_inactive (deprecated escape hatch)" do
+    let(:oauth) { StandardId::ConfigSchema.instance.apply(StandardId::ConfigSchema::Config.new).oauth }
+
+    it "defaults to false" do
+      expect(oauth.audience_binding_allow_inactive).to be(false)
+    end
+
+    it "warns when assigned" do
+      expect(StandardId.deprecator).to receive(:warn).with(/oauth\.audience_binding_allow_inactive is deprecated/, anything)
+
+      oauth.audience_binding_allow_inactive = true
+
+      expect(oauth.audience_binding_allow_inactive).to be(true)
+    end
+
+    it "stores strings uncast, so the concern can read them strictly" do
+      StandardId.deprecator.silence { oauth.audience_binding_allow_inactive = "" }
+
+      expect(oauth.audience_binding_allow_inactive).to eq("")
+    end
+  end
+
   describe "the schema's deprecated:/removed mechanism" do
     let(:schema) do
       StandardId::ConfigSchema.new.define do

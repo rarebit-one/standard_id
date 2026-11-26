@@ -18,6 +18,11 @@ module StandardId
         # Returns the profile record for `audience`, or nil when no matching
         # profile exists.
         #
+        # The built-in lookup prefers an active matching profile and falls back
+        # to the first match, so the result may be inactive. Check it with
+        # `active_profile?` when that matters (the `AudienceVerification`
+        # concern does: it refuses an inactive profile).
+        #
         # Callers should check `profile_types_for(audience).blank?` first when
         # they need to distinguish "audience is unconfigured" from "account
         # lacks a profile for a configured audience".
@@ -59,6 +64,16 @@ module StandardId
           profile_types_for(audience).any?
         end
 
+        # True when `profile` counts as active: it is present and either
+        # reports a truthy `active?` or has no `active?` predicate (not every
+        # host models profile activity). The same rule `resolve!` uses.
+        def active_profile?(profile)
+          return false if profile.nil?
+          return true unless profile.respond_to?(:active?)
+
+          profile.active? ? true : false
+        end
+
         # Strict variant of `.call` for mint-time enforcement: returns the
         # uniquely matching active profile, or raises a typed error so the
         # token grant flow can fail closed.
@@ -71,9 +86,10 @@ module StandardId
         #   - >1 matching active profile → raises `AmbiguousProfileError`
         #
         # The legacy `.call` API preserves its "first active else first match"
-        # behavior, since it is wired into the decode-time concern and host
-        # apps may have grown to depend on its tolerance. Migrating that path
-        # to strict mode is a separate change.
+        # lookup, since hosts call it directly (claim resolvers, a controller's
+        # current profile). The decode-time concern still uses it but refuses
+        # an inactive result itself (see `AudienceVerification`), and keeps
+        # "first active" rather than refusing several active matches.
         #
         # @raise [StandardId::NoBoundProfileError]
         # @raise [StandardId::AmbiguousProfileError]
@@ -101,9 +117,10 @@ module StandardId
           types = profile_types_for(audience)
           raise ArgumentError, "audience #{audience.inspect} has no profile binding" if types.empty?
 
-          # Custom resolver path: trust the host app's result. It's expected
-          # to enforce its own determinism — if it returns nil we still fail
-          # closed; if it returns a profile we use it as-is.
+          # Custom resolver path: trust the host app's choice of profile. It's
+          # expected to enforce its own determinism — if it returns nil, or a
+          # profile that is not active (`active_profile?`), we still fail
+          # closed; otherwise we use it as-is.
           resolver = StandardId.config.oauth.audience_profile_resolver
           if resolver.respond_to?(:call)
             filtered = StandardId::Utils::CallableParameterFilter.filter(
@@ -111,7 +128,7 @@ module StandardId
               { account: account, audience: audience, profile_types: types }
             )
             resolved = resolver.call(**filtered)
-            return resolved if resolved
+            return resolved if active_profile?(resolved)
             raise StandardId::NoBoundProfileError.new(
               audience: audience,
               expected_profile_types: types
@@ -157,7 +174,7 @@ module StandardId
           candidates = candidates.to_a unless candidates.is_a?(Array)
 
           matches = candidates.select { |p| types.include?(profile_type_for(p)) }
-          active_matches = matches.select { |p| !p.respond_to?(:active?) || p.active? }
+          active_matches = matches.select { |p| active_profile?(p) }
 
           case active_matches.length
           when 0

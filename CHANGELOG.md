@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The request-time audience → profile binding now refuses an inactive profile.**
+  `StandardId::AudienceVerification` (and so `StandardId::ResourceServer`, and the gem's own
+  `/userinfo`, `/sessions` and `/step_up` when `oauth.endpoint_audiences` is set for them) used
+  `AudienceProfileResolver.call`, which picks the first active matching profile and otherwise the
+  first match, so a token for a bound audience kept working after the account's only matching
+  profile was deactivated. The request is now refused with the usual `403 insufficient_scope`,
+  as the built-in mint-time lookup already did. A profile without an `active?` method still
+  counts as active. The check is on the account: a token issued for a deactivated profile keeps
+  passing while the account holds another active profile of the same type. Several active
+  matching profiles are still accepted at request time (the check is on the type, which they
+  share); minting still refuses them. Controllers that declare no audience apply no binding, as
+  before.
+  **Upgrade note:** a host whose controllers rendered their own error for an inactive profile
+  after the binding passed now gets the gem's 403 first. Use the new `reason` (below) in a
+  `render_protected_resource_wrong_audience` or `handle_invalid_audience` override to keep a
+  distinct audit or message, or set the deprecated escape hatch while you migrate.
+- **Minting and refresh now refuse an inactive profile returned by a custom
+  `oauth.audience_profile_resolver`** (`NoBoundProfileError`, `invalid_grant`), as they already
+  refused nil. The request-time check refuses it too. Choosing the profile stays the host's
+  responsibility; a profile without an `active?` method still counts as active.
+
+### Added
+
+- **`InvalidAudienceProfileError#reason`** (`:missing_profile` or `:inactive_profile`), also
+  published as `reason` on `oauth.audience.mismatch`. For `:inactive_profile`,
+  `actual_profile_type` is the inactive profile's type.
+- **`AudienceProfileResolver.active_profile?(profile)`**, the activity rule shared by minting and
+  the request check.
+
+### Deprecated
+
+- **`config.oauth.audience_binding_allow_inactive`** (default `false`): set it to `true` (or
+  `"true"`; any other value stays strict) to restore the old request-time tolerance of an
+  inactive profile. It does not affect minting. Assigning it logs a deprecation warning; it will
+  be removed in a future release.
+
 ## [0.66.1] - 2026-11-25
 
 ### Fixed
