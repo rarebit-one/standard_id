@@ -34,7 +34,7 @@ an `AudienceVerification` or `ResourceServer` controller for a bound audience is
 now refused (`403 insufficient_scope`) when the account's matching profile
 reports `active?` as false. Before, the check accepted an inactive profile
 when the account had no active one, so a token issued before deactivation kept
-working until it expired. Minting already refused it.
+working until it expired. The built-in mint-time lookup already refused it.
 
 What to check:
 
@@ -47,9 +47,14 @@ What to check:
   expected the host's error body for a deactivated profile need updating.
 - **Profiles without `active?`** count as active, so nothing changes for them.
 - **A custom `c.oauth.audience_profile_resolver`** is still trusted to choose
-  the profile, but a profile it returns with `active?` false is now refused.
+  the profile, but a profile it returns with `active?` false is now refused,
+  both on requests and when minting or refreshing (`invalid_grant`).
+- **The check is per account.** A token issued for a deactivated profile keeps
+  working while the account holds another active profile of the same type;
+  tie tokens to their own profile in the host if you need that.
 - **A flow that must accept an inactive profile** (none ship with the gem) can
-  set `c.oauth.audience_binding_allow_inactive = true` while it moves that
+  set `c.oauth.audience_binding_allow_inactive = true` (only `true` or `"true"`
+  enable it; it does not affect minting) while it moves that
   check into the host. The setting is deprecated and warns when assigned; in a
   test environment with `config.active_support.deprecation = :raise`, wrap the
   assignment in `StandardId.deprecator.silence { ... }`.

@@ -63,6 +63,12 @@ RSpec.describe "StandardId config: removed and deprecated settings" do
 
       expect(oauth.audience_binding_allow_inactive).to be(true)
     end
+
+    it "stores strings uncast, so the concern can read them strictly" do
+      StandardId.deprecator.silence { oauth.audience_binding_allow_inactive = "" }
+
+      expect(oauth.audience_binding_allow_inactive).to eq("")
+    end
   end
 
   describe "the schema's deprecated:/removed mechanism" do

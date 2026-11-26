@@ -185,6 +185,18 @@ RSpec.describe StandardId::Oauth::TokenGrantFlow do
       expect(result[:access_token]).to eq("jwt-token")
     end
 
+    it "fails closed (NoBoundProfileError) when a custom resolver returns an inactive profile" do
+      stub_audience_binding("admin_kit" => "PlatformProfile")
+      inactive = profile("PlatformProfile", id: 42, active: false)
+      allow(StandardId.config.oauth).to receive(:audience_profile_resolver).and_return(->(**) { inactive })
+      account = double("Account", profiles: [inactive])
+      flow = build_flow(audience: "admin_kit", account: account)
+
+      expect(StandardId::JwtService).not_to receive(:encode)
+
+      expect { flow.execute }.to raise_error(StandardId::NoBoundProfileError)
+    end
+
     it "is a no-op when the audience has no binding configured (back-compat)" do
       stub_audience_binding({}) # no bindings — pure allowed_audiences path
       allow(StandardId.config.oauth).to receive(:allowed_audiences).and_return([])

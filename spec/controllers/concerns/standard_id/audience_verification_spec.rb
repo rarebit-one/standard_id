@@ -390,10 +390,23 @@ RSpec.describe StandardId::AudienceVerification do
         ActiveSupport::Notifications.unsubscribe(unsubscribe) if unsubscribe
       end
 
-      it "accepts it when audience_binding_allow_inactive is set (deprecated escape hatch)" do
-        allow(StandardId.config.oauth).to receive(:audience_binding_allow_inactive).and_return(true)
+      [true, "true"].each do |value|
+        it "accepts it when audience_binding_allow_inactive is #{value.inspect} (deprecated escape hatch)" do
+          allow(StandardId.config.oauth).to receive(:audience_binding_allow_inactive).and_return(value)
 
-        expect { controller.verify_audience! }.not_to raise_error
+          expect { controller.verify_audience! }.not_to raise_error
+        end
+      end
+
+      [false, nil, "", "false", "FALSE", "True", "no", "off", "0", "1", 1, "yes"].each do |value|
+        it "stays strict when audience_binding_allow_inactive is #{value.inspect}" do
+          allow(StandardId.config.oauth).to receive(:audience_binding_allow_inactive).and_return(value)
+
+          expect { controller.verify_audience! }
+            .to raise_error(StandardId::InvalidAudienceProfileError) do |error|
+              expect(error.reason).to eq(:inactive_profile)
+            end
+        end
       end
 
       it "still refuses a missing profile when audience_binding_allow_inactive is set" do

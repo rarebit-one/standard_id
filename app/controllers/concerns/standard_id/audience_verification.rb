@@ -98,7 +98,8 @@ module StandardId
     #
     # @raise [StandardId::InvalidAudienceError] when no audience matches
     # @raise [StandardId::InvalidAudienceProfileError] when the account's
-    #   profile type does not match the configured binding for the matched audience
+    #   profile type does not match the configured binding for the matched
+    #   audience, or its matching profile is inactive
     def verify_audience!
       return if _required_audiences.empty?
 
@@ -184,9 +185,15 @@ module StandardId
     end
 
     def audience_binding_profile_active?(profile)
-      return true if StandardId.config.oauth.audience_binding_allow_inactive
+      return true if audience_binding_allow_inactive?
 
       StandardId::Oauth::AudienceProfileResolver.active_profile?(profile)
+    end
+
+    # The deprecated escape hatch is on only for exactly `true` or "true".
+    def audience_binding_allow_inactive?
+      value = StandardId.config.oauth.audience_binding_allow_inactive
+      value == true || value == "true"
     end
 
     def profile_type_name(profile)

@@ -709,10 +709,10 @@ StandardId::ConfigSchema.define do
     #   account.profiles.detect { |p| profile_types.include?(p.profileable_type) }
     # and prefers an `active?`-responding record if multiple match.
     #
-    # Whichever lookup runs, `StandardId::AudienceVerification` refuses the
-    # request when the profile it returns reports `active? == false` (unless
-    # `audience_binding_allow_inactive` is set). A profile that does not
-    # respond to `active?` counts as active.
+    # Whichever lookup runs, minting refuses a profile that reports
+    # `active? == false`, and so does `StandardId::AudienceVerification` on
+    # each request (unless `audience_binding_allow_inactive` is set). A
+    # profile that does not respond to `active?` counts as active.
     field :audience_profile_resolver, type: :any, default: nil
 
     # Request-time escape hatch for the audience → profile binding.
@@ -724,7 +724,12 @@ StandardId::ConfigSchema.define do
     # had no active one. Deprecated: it exists to ease the upgrade and will be
     # removed in a future release. Assigning any value (even false) logs a
     # deprecation warning; delete the line once nothing relies on it.
-    field :audience_binding_allow_inactive, type: :boolean, default: false,
+    #
+    # Read strictly, so a stray value cannot reopen the gap: only `true` or the
+    # string "true" enable it. Anything else ("", "1", "yes", "FALSE", nil, …)
+    # keeps the check strict. Typed :any so the value is not cast first (the
+    # :boolean cast turns "" and "no" into true).
+    field :audience_binding_allow_inactive, type: :any, default: false,
       deprecated: "inactive profiles will always be refused at request time. Refuse or handle " \
                   "an inactive profile in the host instead, then delete this line."
 

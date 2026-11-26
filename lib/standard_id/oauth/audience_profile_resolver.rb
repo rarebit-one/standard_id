@@ -117,9 +117,10 @@ module StandardId
           types = profile_types_for(audience)
           raise ArgumentError, "audience #{audience.inspect} has no profile binding" if types.empty?
 
-          # Custom resolver path: trust the host app's result. It's expected
-          # to enforce its own determinism — if it returns nil we still fail
-          # closed; if it returns a profile we use it as-is.
+          # Custom resolver path: trust the host app's choice of profile. It's
+          # expected to enforce its own determinism — if it returns nil, or a
+          # profile that is not active (`active_profile?`), we still fail
+          # closed; otherwise we use it as-is.
           resolver = StandardId.config.oauth.audience_profile_resolver
           if resolver.respond_to?(:call)
             filtered = StandardId::Utils::CallableParameterFilter.filter(
@@ -127,7 +128,7 @@ module StandardId
               { account: account, audience: audience, profile_types: types }
             )
             resolved = resolver.call(**filtered)
-            return resolved if resolved
+            return resolved if active_profile?(resolved)
             raise StandardId::NoBoundProfileError.new(
               audience: audience,
               expected_profile_types: types

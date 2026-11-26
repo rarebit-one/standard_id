@@ -244,6 +244,16 @@ RSpec.describe StandardId::Oauth::AudienceProfileResolver do
           described_class.resolve!(account: account, audience: "admin_kit")
         }.to raise_error(StandardId::NoBoundProfileError)
       end
+
+      it "raises NoBoundProfileError when the resolver returns an inactive profile" do
+        inactive = profile_with_id("PlatformProfile", id: 7, active: false)
+        resolver = ->(**) { inactive }
+        allow(StandardId.config.oauth).to receive(:audience_profile_resolver).and_return(resolver)
+
+        expect {
+          described_class.resolve!(account: account, audience: "admin_kit")
+        }.to raise_error(StandardId::NoBoundProfileError)
+      end
     end
 
     it "is a subclass of InvalidGrantError so existing OAuth error handlers catch it" do
